@@ -3536,6 +3536,7 @@ tfw_h1_add_x_forwarded_for(TfwHttpMsg *hm)
 		       (int)(p - buf), buf);
 	return r;
 }
+ALLOW_ERROR_INJECTION(tfw_h1_add_x_forwarded_for, ERRNO);
 
 /**
  * Compose Content-Type header field from scratch.
@@ -3878,51 +3879,50 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	tfw_msg_transform_setup(&req->iter, req->msg.skb_head);
 	r = tfw_http_msg_cutoff_headers(hm, req->cleanup);
 	if (unlikely(r))
-		goto clean;
+		goto err;
 
 	r = tfw_h1_req_copy_first_line(req);
 	if (unlikely(r))
-		goto clean;
+		goto err;
 
 	r = tfw_h1_add_hdr_host(req, h_mods);
 	if (unlikely(r))
-		goto clean;
+		goto err;
 
 	r = tfw_h1_req_copy_hdrs(req, h_mods);
 	if (unlikely(r))
-		goto clean;
+		goto err;
 
 	r = tfw_h1_add_x_forwarded_for(hm);
 	if (unlikely(r))
-		goto clean;
+		goto err;
 
 	r = tfw_http_add_hdr_via(hm);
 	if (unlikely(r))
-		goto clean;
+		goto err;
 
 	r = tfw_http_add_hdr_upgrade(hm, false);
 	if (unlikely(r))
-		goto clean;
+		goto err;
 
 	r = tfw_h1_add_loc_hdrs(hm, h_mods, false);
 	if (unlikely(r))
-		goto clean;
+		goto err;
 
 	r = tfw_http_set_hdr_connection(hm, BIT(TFW_HTTP_B_CONN_KA));
 	if (unlikely(r))
-		goto clean;
+		goto err;
 
 	/* Write last CRLF for headers block. */
 	r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 	if (unlikely(r))
-		goto clean;
+		goto err;
 
 	return r;
 
-clean:
-	T_DBG("%s: req [%p] adjusting has failed with code %i\n", __func__, req,
-	      r);
-	__tfw_http_req_cleanup(req);
+err:
+	T_DBG3("%s: req [%p] adjusting has failed with code %i\n", __func__,
+	       req, r);
 
 	return r;
 }
@@ -4143,6 +4143,7 @@ __h2_write_method(TfwHttpReq *req, TfwMsgIter *it)
 		return tfw_msg_write(it, &meth);
 	}
 }
+ALLOW_ERROR_INJECTION(__h2_write_method, ERRNO);
 
 /**
  * Transform h2 request to http1.1 request before forward it to backend server.
@@ -4497,8 +4498,14 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 
 		do {
 			b_skbs = b_skbs->next;
-			if (WARN_ON_ONCE((b_skbs == old_head)))
+			if (WARN_ON_ONCE((b_skbs == old_head))) {
+				/*
+				 * @new_head will be freed in "err" label.
+				 * Prevent use after free.
+				 */
+				req->msg.skb_head = NULL;
 				goto err;
+			}
 		} while (b_skbs != req->body.skb);
 
 		ss_skb_queue_split(old_head, b_skbs);
@@ -4519,7 +4526,6 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 
 err:
 	ss_skb_queue_purge(&new_head);
-	__tfw_http_req_cleanup(req);
 	T_DBG3("%s: req [%p] convertation to http1.1 has failed"
 	       " with result (%d)\n", __func__, req, r);
 	return -EINVAL;
