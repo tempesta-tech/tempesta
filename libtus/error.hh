@@ -49,6 +49,7 @@ namespace tus {
 enum class Err : int {
 	// Clickhouse error.
 	DB_SRV_FATAL,
+	DB_CLT_TRANSIENT,
 };
 
 class ErrorCategory : public std::error_category {
@@ -65,6 +66,8 @@ public:
 		switch (static_cast<Err>(e)) {
 		case Err::DB_SRV_FATAL:
 			return "Database unrecoverable server error";
+		case Err::DB_CLT_TRANSIENT:
+			return "Database recoverable client error";
 		default:
 			return "Unknown error";
 		}
@@ -74,9 +77,15 @@ public:
 const std::error_category &tfw_error_category();
 
 inline std::error_code
+make_error_code_from_int(int e) noexcept
+{
+	return {e, tfw_error_category()};
+}
+
+inline std::error_code
 make_error_code(Err e) noexcept
 {
-	return {static_cast<int>(e), tfw_error_category()};
+	return make_error_code_from_int(static_cast<int>(e));
 }
 
 [[nodiscard]] inline auto

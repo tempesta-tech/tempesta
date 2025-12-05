@@ -17,32 +17,24 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #pragma once
 
-#include <filesystem>
-#include <optional>
+#include <string>
 
-#include <boost/property_tree/ptree_fwd.hpp>
+#include <clickhouse/types/types.h>
 
-#include "plugin_config.hh"
+namespace ch = clickhouse;
 
-namespace fs = std::filesystem;
+class IClickhouse
+{
+public:
+	virtual ~IClickhouse() = default;
 
-struct TfwLoggerConfig {
-	// Log file path - default set in tfw_logger.cc
-	fs::path log_path;
-	std::optional<std::string> access_log_plugin_path;
-	std::optional<std::string> xfw_events_plugin_path;
-	std::optional<PluginConfig> clickhouse_mmap;
-	std::optional<PluginConfig> clickhouse_xfw;
+public:
+	virtual bool ensure_connected() noexcept = 0;
 
-	static std::optional<TfwLoggerConfig>
-	load_from_file(const fs::path &path);
+	virtual bool execute(const std::string &query) noexcept = 0;
 
-	void
-	validate() const;
-
-	void
-	parse_from_ptree(const boost::property_tree::ptree &tree);
+	virtual bool
+	flush(const std::string &table_name, ch::Block &block) noexcept = 0;
 };

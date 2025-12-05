@@ -16,9 +16,6 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-PREFIX ?= /opt/tempesta_escudo
-LIBDIR ?= ${PREFIX}/lib
-
 CXX		= g++
 # Use gnu++ instead of c++ for standard C header compatibility.
 CFLAGS		= -O2 -ggdb -Wall -std=gnu++23
@@ -34,12 +31,7 @@ libtus.so: $(OBJECTS)
 %.o: %.cc
 	$(CXX) $(CFLAGS) $(LDFLAGS) -c $< -o $@
 
-install:
-	@install -d -m 755 ${LIBDIR}
-	install -m 755 libtus.so $(LIBDIR)
-
 clean: FORCE
 	rm -f *.o* *~ libtus.so
 
 FORCE:
-

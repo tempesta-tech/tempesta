@@ -26,7 +26,7 @@
 
 #include <fmt/format.h>
 
-struct ClickHouseConfig {
+struct PluginConfig {
 	std::string			host{"localhost"};
 	uint16_t			port{9000};
 	std::string			db_name{"default"};
@@ -41,7 +41,7 @@ struct ClickHouseConfig {
 	void validate() const;
 };
 
-template <> struct fmt::formatter<ClickHouseConfig> {
+template <> struct fmt::formatter<PluginConfig> {
 	constexpr decltype(auto)
 	parse(fmt::format_parse_context &ctx)
 	{
@@ -50,7 +50,7 @@ template <> struct fmt::formatter<ClickHouseConfig> {
 
 	template <typename FormatContext>
 	constexpr decltype(auto)
-	format(const ClickHouseConfig &config, FormatContext &ctx)
+	format(const PluginConfig &config, FormatContext &ctx)
 	{
 		constexpr auto msg_template = "{{host: '{}',"
 					      " port: {},"
