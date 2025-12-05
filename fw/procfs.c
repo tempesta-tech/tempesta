@@ -23,6 +23,7 @@
 #include "apm.h"
 #include "server.h"
 #include "procfs.h"
+#include "lib/alloc.h"
 
 /*
  * Common Tempesta statistics.
@@ -120,8 +121,8 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	int i, ret;
 	TfwPerfStat stat = {0};
 	u64 serv_conn_active, serv_conn_sched;
-	SsStat *ss_stat = kmalloc(sizeof(SsStat) * num_online_cpus(),
-				  GFP_KERNEL);
+	SsStat *ss_stat = tfw_kmalloc(sizeof(SsStat) * num_online_cpus(),
+				      GFP_KERNEL);
 	unsigned int val[T_PSZ] = { 0 };
 	TfwPrcntlStats pstats = {.val = val};
 
@@ -129,8 +130,9 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 		T_WARN("Cannot allocate sync sockets statistics\n");
 
 	if (health_stat_codes) {
-		stat.hm = kmalloc(tfw_hm_stats_size(health_stat_codes->ccnt),
-				  GFP_KERNEL);
+		size_t alloc_sz = tfw_hm_stats_size(health_stat_codes->ccnt);
+
+		stat.hm = tfw_kmalloc(alloc_sz, GFP_KERNEL);
 		if (stat.hm)
 			tfw_hm_stats_clone(stat.hm, health_stat_codes);
 	}
@@ -260,7 +262,7 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	TfwPrcntlStats pstats = {.val = val};
 	TfwHMStats *hm_stats;
 
-	if (!(qsize = kmalloc(sizeof(int) * srv->conn_n, GFP_KERNEL)))
+	if (!(qsize = tfw_kmalloc(sizeof(int) * srv->conn_n, GFP_KERNEL)))
 		return -ENOMEM;
 
 	tfw_apm_stats(srv->apmref, &pstats);
@@ -437,8 +439,8 @@ tfw_cfgop_health_stat(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_CHECK_VAL_N(>, 0, cs, ce);
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
-	health_stat_codes = kzalloc(tfw_hm_stats_size(ce->val_n),
-				    GFP_KERNEL);
+	health_stat_codes = tfw_kzalloc(tfw_hm_stats_size(ce->val_n),
+					GFP_KERNEL);
 	if (!health_stat_codes)
 		return -ENOMEM;
 	if (tfw_hm_stats_init_from_cfg_entry(health_stat_codes, ce)) {
@@ -449,8 +451,8 @@ tfw_cfgop_health_stat(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	for_each_online_cpu(cpu) {
 		TfwPerfStat *pcp_stat = per_cpu_ptr(&tfw_perfstat, cpu);
-		pcp_stat->hm = kmalloc_node(tfw_hm_stats_size(ce->val_n),
-					    GFP_KERNEL, cpu_to_node(cpu));
+		pcp_stat->hm = tfw_kmalloc_node(tfw_hm_stats_size(ce->val_n),
+						GFP_KERNEL, cpu_to_node(cpu));
 		if (!pcp_stat->hm)
 			return -ENOMEM;
 		tfw_hm_stats_clone(pcp_stat->hm, health_stat_codes);
