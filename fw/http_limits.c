@@ -4,7 +4,7 @@
  * Interface to classification modules.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -243,9 +243,10 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 
 	if (conf->conn_rate) {
 		unsigned int csum = 0;
+		int j;
 
 		/* Collect current connection sum. */
-		for (int j = 0; j < FRANG_FREQ; j++)
+		for (j = 0; j < FRANG_FREQ; j++)
 			if (frang_time_in_frame(ts, ra->history[j].ts))
 				csum += ra->history[j].conn_new;
 
@@ -406,9 +407,10 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate,
 
 	if (req_rate) {
 		unsigned int rsum = 0;
+		int j;
 
 		/* Collect current request sum. */
-		for (int j = 0; j < FRANG_FREQ; j++)
+		for (j = 0; j < FRANG_FREQ; j++)
 			if (frang_time_in_frame(ts, ra->history[j].ts))
 				rsum += ra->history[j].req;
 		if (unlikely(rsum > req_rate)) {
