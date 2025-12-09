@@ -15,7 +15,7 @@
  * and generic testing functions/macros are located in test.c/test.h
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -252,7 +252,7 @@ tfw_gfsm_register_fsm(int fsm_id, tfw_gfsm_handler_t handler)
 }
 
 void
-tfw_filter_block_ip(const TfwClient *cli)
+tfw_filter_block_ip(const TfwClient *cli, long duration)
 {
 }
 

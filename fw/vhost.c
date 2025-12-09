@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2520,6 +2520,34 @@ tfw_cfgop_frang_req_rate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
+tfw_cfgop_ip_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	FrangGlobCfg *cfg = &tfw_frang_glob_reconfig;
+
+	/*
+	 * 'frang_limits' section may appear multiple times to modify defaults
+	 * values for future 'frang_limits' directives.
+	 */
+	if (ce->dflt_value) {
+		if (!tfw_cfgop_is_dflt_val_already_set(cs))
+			cfg->ip_block = false;
+		return 0;
+	}
+
+	TFW_CFG_CHECK_VAL_N(==, 1, cs, ce);
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+
+	if (tfw_cfg_parse_uint(ce->vals[0], &cfg->ip_block_duration)) {
+		T_ERR_NL("%s: \"%s\" isn't a valid value\n", cs->name,
+			 ce->vals[0]);
+		return -EINVAL;
+	}
+
+	cfg->ip_block = true;
+	return 0;
+}
+
+static int
 tfw_cfgop_http_post_validate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfwcfg_this_location->validate_post_req = 1;
@@ -3084,12 +3112,8 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 	/* Options that can be enabled|disabled only globally. */
 	{
 		.name = "ip_block",
-		.deflt = "off",
-		.handler = tfw_cfgop_frang_glob_set_bool,
-		.dest = &tfw_frang_glob_reconfig.ip_block,
-		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 0, INT_MAX },
-		},
+		.deflt = "-1",
+		.handler = tfw_cfgop_ip_block,
 		.allow_reconfig = true,
 	},
 	{

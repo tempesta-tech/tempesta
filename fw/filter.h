@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -25,6 +25,6 @@
 
 int tfw_filter_init(void);
 void tfw_filter_exit(void);
-void tfw_filter_block_ip(const TfwClient *cli);
+void tfw_filter_block_ip(const TfwClient *cli, long duration);
 
 #endif /* __TFW_FILTER_H__ */
