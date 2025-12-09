@@ -252,7 +252,7 @@ tfw_gfsm_register_fsm(int fsm_id, tfw_gfsm_handler_t handler)
 }
 
 void
-tfw_filter_block_ip(const TfwClient *cli)
+tfw_filter_block_ip(const TfwClient *cli, long duration)
 {
 }
 

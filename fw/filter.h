@@ -25,6 +25,6 @@
 
 int tfw_filter_init(void);
 void tfw_filter_exit(void);
-void tfw_filter_block_ip(const TfwClient *cli);
+void tfw_filter_block_ip(const TfwClient *cli, long duration);
 
 #endif /* __TFW_FILTER_H__ */

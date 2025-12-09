@@ -132,6 +132,7 @@ typedef struct {
  * @http_bchunk_cnt	- Maximum number of chunks in body part;
  * @http_hdr_len	- Maximum HTTP header length;
  * @http_hdr_cnt	- Maximum number of headers;
+ * @ip_block_duration	- Timeout in seconds after client must be unblocked;
  * @ip_block		- Block clients by IP address if set, if not - just
  *			  close the client connection.
  *
@@ -155,6 +156,7 @@ struct frang_global_cfg_t {
 	unsigned int		http_hdr_len;
 	unsigned int		http_hdr_cnt;
 
+	unsigned int 		ip_block_duration;
 	bool			ip_block;
 };
 
