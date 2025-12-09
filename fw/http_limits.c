@@ -341,7 +341,8 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	 */
 	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
 	if (unlikely(r == T_BLOCK) && dflt_vh->frang_gconf->ip_block)
-		tfw_filter_block_ip(cli);
+		tfw_filter_block_ip(cli,
+				    dflt_vh->frang_gconf->ip_block_duration);
 
 finish:
 	tfw_vhost_put(dflt_vh);
@@ -1553,7 +1554,8 @@ frang_tls_handler(TlsCtx *tls, int state)
 	spin_unlock(&ra->lock);
 
 	if (unlikely(r == T_BLOCK_WITH_RST) && dflt_vh->frang_gconf->ip_block)
-		tfw_filter_block_ip(FRANG_ACC2CLI(ra));
+		tfw_filter_block_ip(FRANG_ACC2CLI(ra),
+				    dflt_vh->frang_gconf->ip_block_duration);
 
 	tfw_vhost_put(dflt_vh);
 

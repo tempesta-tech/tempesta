@@ -16,7 +16,7 @@
  * application level filters must be implemented.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -40,6 +40,7 @@
 
 #include "tdb.h"
 
+#include "lib/common.h"
 #include "lib/str.h"
 #include "tempesta_fw.h"
 #include "http_limits.h"
@@ -53,6 +54,7 @@ enum {
 typedef struct {
 	struct in6_addr	addr;
 	int		action;
+	long		blocked_until;
 } TfwFRule;
 
 static struct {
@@ -72,12 +74,15 @@ tfw_ipv6_hash(const struct in6_addr *addr)
 }
 
 void
-tfw_filter_block_ip(const TfwClient *cli)
+tfw_filter_block_ip(const TfwClient *cli, long duration)
 {
 	const TfwAddr *addr = &cli->addr;
+	const long ts = tfw_current_timestamp();
+	const long blocked_until = duration > 0 ? ts + duration : LONG_MAX;
 	TfwFRule rule = {
 		.addr	= addr->sin6_addr,
 		.action	= TFW_F_DROP,
+		.blocked_until = blocked_until
 	};
 	unsigned long key = tfw_ipv6_hash(&addr->sin6_addr);
 	size_t len = sizeof(rule);
@@ -106,14 +111,21 @@ tfw_filter_check_ip(struct in6_addr *addr)
 	TdbIter iter;
 
 	iter = tdb_rec_get(ip_filter_db, tfw_ipv6_hash(addr));
-	while (!TDB_ITER_BAD(iter)) {
+	if (TDB_ITER_BAD(iter))
+		return T_OK;
+	const long ts = tfw_current_timestamp();
+
+	do {
 		const TfwFRule *rule = (TfwFRule *)iter.rec->data;
-		if (!memcmp_fast(&rule->addr, addr, sizeof(*addr))) {
+
+		if (!memcmp_fast(&rule->addr, addr, sizeof(*addr))
+		    && ts <= rule->blocked_until)
+		{
 			tdb_rec_put(ip_filter_db, iter.rec);
 			return rule->action == TFW_F_DROP ? T_BLOCK : T_OK;
 		}
 		tdb_rec_next(ip_filter_db, &iter);
-	}
+	} while (!TDB_ITER_BAD(iter));
 
 	return T_OK;
 }
