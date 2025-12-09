@@ -1,6 +1,6 @@
 # Common utilities for Tempesta scripts
 #
-# Copyright (C) 2016-2024 Tempesta Technologies, Inc.
+# Copyright (C) 2016-2025 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -170,12 +170,6 @@ distribute_queues()
 		echo "Error: cannot set new queues count for $dev: $res"
 		return
 	fi
-
-	# Wait for the interface reconfiguration.
-	opstate="$TFW_NETDEV_PATH/$dev/operstate"
-	while [ "$(cat $opstate)" = "down" ]; do
-		sleep 1
-	done
 
 	# Interrupts may not have interface-like description in
 	# '/proc/interrupts' - so, to find the vectors we also need
