@@ -71,6 +71,7 @@
 #include "http_match.h"
 #include "http_msg.h"
 #include "cfg.h"
+#include "regex/kmod/rex.h"
 
 /**
  * Map an operator to that flags passed to tfw_str_eq_*() functions.
@@ -83,9 +84,27 @@ map_op_to_str_eq_flags(tfw_http_match_op_t op)
 		[TFW_HTTP_MATCH_O_EQ]		= TFW_STR_EQ_DEFAULT,
 		[TFW_HTTP_MATCH_O_PREFIX]	= TFW_STR_EQ_PREFIX,
 		[TFW_HTTP_MATCH_O_SUFFIX]	= TFW_STR_EQ_DEFAULT,
+		[TFW_HTTP_MATCH_O_REGEX]	= TFW_STR_EQ_REGEX
 	};
 	BUG_ON(flags_tbl[op] < 0);
 	return flags_tbl[op];
+}
+
+bool
+tfw_match_regex(const char *cstr, const TfwStr *arg)
+{
+        bool result;
+        int r;
+
+        struct rex_scan_attr attr = {};
+        memcpy(&attr.database_id, cstr, sizeof(unsigned short));
+
+        if (!arg->len)
+                return false;
+
+	r = rex_scan_tfwstr(arg, &attr);
+	result = (!r && attr.nr_events && attr.last_event.expression);
+	return result;
 }
 
 static bool
@@ -96,6 +115,9 @@ tfw_rule_str_match(const TfwStr *str, const char *cstr,
 	if (op == TFW_HTTP_MATCH_O_SUFFIX)
 		return tfw_str_eq_cstr_off(str, str->len - cstr_len,
 					   cstr, cstr_len, flags);
+
+	if (op == TFW_HTTP_MATCH_O_REGEX)
+		return tfw_match_regex(cstr, str);
 
 	return tfw_str_eq_cstr(str, cstr, cstr_len, flags);
 }
@@ -218,9 +240,197 @@ match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	return host_val_eq(&req->host, rule);
 }
 
-#define _MOVE_TO_COND(p, end, cond)			\
-	while ((p) < (end) && !(cond))			\
-		(p)++;
+/*
+ * Simplified version of strncasecmp() that doesn't apply tolower() to pattern.
+ */
+static int
+__str_cmp(const char *p, const char *s, int len)
+{
+	for (int i = len; i > 0; --i, p++, s++) {
+		if (*p == *s)
+			continue;
+		if (*p != tolower(*s))
+			return -1;
+	}
+
+	return 0;
+}
+
+static __always_inline const TfwStr *
+__cmp_hdr_raw_name(const TfwStr *chunk, const TfwStr *end, const char *p,
+		   int plen, short *cnum_out, bool h2)
+{
+	int len, r;
+	short cnum = 0;
+
+	BUILD_BUG_ON(!__builtin_constant_p(h2));
+
+	while (chunk < end) {
+		if (chunk->len > plen)
+			return NULL;
+
+		len = min_t(int, plen, chunk->len);
+		if (h2)
+			/* http2 name always in lowercase, just compare. */
+			r = memcmp_fast(p, chunk->data, len);
+		else
+			r = __str_cmp(p, chunk->data, len);
+
+		if (r)
+			return NULL;
+
+		p += len;
+		plen -= len;
+		cnum++;
+		chunk++;
+
+		if (!plen) {
+			*cnum_out = cnum;
+			return chunk;
+		}
+	}
+
+	return NULL;
+}
+
+static bool
+__is_tail_ows(const TfwStr *chunk, const TfwStr *end, const char *pos)
+{
+	for (; chunk < end; ++chunk) {
+		const char *pos_end = chunk->data + chunk->len;
+
+		for (; pos < pos_end; ++pos) {
+			if (isspace(*pos))
+				continue;
+			return false;
+		}
+	}
+
+	return true;
+}
+
+static __always_inline bool
+__cmp_hdr_raw_value_str(const TfwStr *chunk, const TfwStr *end,
+			const char *cstr, int cstr_len,
+			tfw_str_eq_flags_t flags, bool tail_ows)
+{
+	int len, clen = cstr_len;
+
+	BUILD_BUG_ON(!__builtin_constant_p(tail_ows));
+
+	for ( ; chunk < end; ++chunk) {
+		len = min_t(int, clen, chunk->len);
+
+		if (__str_cmp(cstr, chunk->data, len))
+			return false;
+
+		/*
+		 * Partial match, maybe OWS at the end of header value.
+		 *
+		 * Relatively specific case, so leave it here and
+		 * don't move it to begin of the function.
+		 */
+		if ((int)chunk->len > clen) {
+			if (flags & TFW_STR_EQ_PREFIX)
+				return true;
+			if (tail_ows) {
+				/*
+				 * Rest of the string, that has not been
+				 * compared with pattern.
+				 */
+				const char *tail = chunk->data + len;
+
+				return __is_tail_ows(chunk, end, tail);
+			}
+
+			return false;
+		}
+
+		cstr += len;
+		clen -= len;
+	}
+
+	return !clen;
+}
+
+static __always_inline bool
+__cmp_hdr_raw_value(const TfwStr *chunk, const TfwStr *end, const TfwStr *hdr,
+		    const TfwHttpMatchRule *rule, short cnum, bool h2)
+{
+	BUILD_BUG_ON(!__builtin_constant_p(h2));
+
+	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
+	const short name_len = !h2 ? rule->arg.name_len
+				   : rule->arg.name_len - SLEN(S_COLON);
+	const char *p_val = rule->arg.str + rule->arg.name_len;
+	const short p_val_len = rule->arg.len - rule->arg.name_len;
+
+	if (rule->op == TFW_HTTP_MATCH_O_REGEX) {
+		TfwStr rhdr = *hdr;
+
+		rhdr.chunks += cnum;
+		rhdr.nchunks -= cnum;
+		rhdr.len -= name_len;
+		return tfw_match_regex(p_val, &rhdr);
+	}
+
+	return __cmp_hdr_raw_value_str(chunk, end, p_val, p_val_len, flags,
+				       !h2);
+}
+
+static bool
+__match_hdr_raw_h2(const TfwStr *hdr, const TfwHttpMatchRule *rule)
+{
+	const TfwStr *dup, *dup_end;
+
+	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
+		const TfwStr *chunk = dup->chunks,
+			     *end = dup->chunks + dup->nchunks;
+		short cnum = 0;
+		const char *p = (char *)rule->arg.str;
+		const short plen = rule->arg.name_len - SLEN(S_COLON);
+
+		chunk = __cmp_hdr_raw_name(chunk, end, p, plen, &cnum, true);
+		/* Name doesn't match, go to the next duplicated header. */
+		if (!chunk || !(chunk->flags & TFW_STR_HDR_VALUE))
+			continue;
+
+		if (__cmp_hdr_raw_value(chunk, end, dup, rule, cnum, true))
+			return true;
+	}
+
+	return false;
+}
+
+static bool
+__match_hdr_raw_h1(const TfwStr *hdr, const TfwHttpMatchRule *rule)
+{
+	const TfwStr *dup, *dup_end;
+
+	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
+		const TfwStr *chunk = dup->chunks,
+			     *end = dup->chunks + dup->nchunks;
+		short cnum = 0;
+		const char *p = (char *)rule->arg.str;
+		const short plen = rule->arg.name_len;
+
+		chunk = __cmp_hdr_raw_name(chunk, end, p, plen, &cnum, false);
+		/* Name doesn't match, go to the next duplicated header. */
+		if (!chunk)
+			continue;
+
+		/* Skip OWS. */
+		while (chunk->flags & TFW_STR_OWS && chunk < end) {
+			cnum++;
+			chunk++;
+		}
+
+		if (__cmp_hdr_raw_value(chunk, end, dup, rule, cnum, false))
+			return true;
+	}
+
+	return false;
+}
 
 /* It would be hard to apply some header-specific rules here, so ignore
  * case for all headers according to the robustness principle.
@@ -228,156 +438,36 @@ match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 static bool
 match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	int i;
+/*
+ * Macros intended to not check h2_mode for each header and to not use
+ * indirect call in the loop, it may introduce significant overhead.
+ */
+#define MATCH_RAW_HEADER_FUNC(f, out)					\
+do {									\
+	int i;								\
+									\
+	for (i = TFW_HTTP_HDR_RAW; i < req->h_tbl->off; ++i) {		\
+		const TfwStr *hdr = &req->h_tbl->tbl[i];		\
+									\
+		if (TFW_STR_EMPTY(hdr))					\
+			continue;					\
+		out = f(hdr, rule);					\
+		if (out)						\
+			break;						\
+	}								\
+} while (0)
+
 	bool h2_mode = TFW_MSG_H2(req);
-	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
+	int r = 0;
 
-	for (i = TFW_HTTP_HDR_RAW; i < req->h_tbl->off; ++i) {
-		bool col_found;
-		const TfwStr *hdr, *dup, *end, *chunk;
-		const char *c, *cend, *p, *pend;
-		char prev;
-		short cnum;
+	if (h2_mode)
+		MATCH_RAW_HEADER_FUNC(__match_hdr_raw_h2, r);
+	else
+		MATCH_RAW_HEADER_FUNC(__match_hdr_raw_h1, r);
 
-		hdr = &req->h_tbl->tbl[i];
-		if (TFW_STR_EMPTY(hdr)) {
-			continue;
-		}
+	return r;
 
-		TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
-			/* Initialize  the state - get the first chunk. */
-			col_found = false;
-			p = rule->arg.str;
-			pend = rule->arg.str + rule->arg.len;
-			cnum = 0;
-			chunk = TFW_STR_CHUNK(dup, 0);
-			if (!chunk) {
-				return p == NULL;
-			}
-			c = chunk->data;
-			cend = chunk->data + chunk->len;
-
-#define _TRY_NEXT_CHUNK(ok_code, err_code)		\
-	if (unlikely(c == cend))	{		\
-		++cnum;					\
-		chunk = TFW_STR_CHUNK(dup, cnum); 	\
-		if (chunk) {				\
-			c = chunk->data;		\
-			cend = chunk->data + chunk->len;\
-			ok_code;			\
-		} else {				\
-			err_code;			\
-		}					\
-	}
-
-#define __H2_VERIFY()					\
-	if (h2_mode && !col_found			\
-	    && chunk->flags & TFW_STR_HDR_VALUE		\
-	    && c != chunk->data)			\
-		break;
-
-#define __H2_VERIFY_NON_MATCH()				\
-	if (h2_mode) {					\
-		if (!col_found && *p == ':'		\
-		    && chunk->flags & TFW_STR_HDR_VALUE) \
-		{					\
-			p++;				\
-			col_found = true;		\
-			goto state_rule_sp;		\
-		}					\
-		break;					\
-	}
-
-			prev = *p;
-state_common:
-			while (p != pend && c != cend) {
-
-				/* If we reached the value chunk of HTTP/2
-				 * header, but colon is not found in the rule
-				 * yet, the header does not fit the rule.
-				 */
-				__H2_VERIFY();
-
-				/* The rule convert to lower case on the step of
-				 * handling the configuration.
-				 */
-				if (*p != tolower(*c)) {
-
-					/* If the characters from the rule and
-					 * HTTP/2 header does not match, this
-					 * could be due to colon and subsequent
-					 * OWS in the rule, so, we should skip
-					 * them and check the next character.
-					 */
-					__H2_VERIFY_NON_MATCH();
-
-					/* If the same position of the header
-					 * field and rule have a different
-					 * number of whitespace characters,
-					 * consider their as equivalent and
-					 * skip whitespace characters after ':'.
-					 */
-					if (isspace(prev) || prev == ':') {
-						if (isspace(*c)) {
-							c++;
-							goto state_hdr_sp;
-						}
-
-						if (isspace(*p)) {
-							prev = *p++;
-							goto state_rule_sp;
-						}
-					}
-
-					break;
-				}
-
-				prev = *p++;
-				c++;
-			}
-
-			if (p == pend && flags & TFW_STR_EQ_PREFIX) {
-				return true;
-			}
-
-			_TRY_NEXT_CHUNK(goto state_common, {
-				/* If header field and rule finished, then
-				 * header field and rule are equivalent.
-				 */
-				if (p == pend) {
-					return true;
-				}
-
-				/* If only rule doesn't finished, may be it have
-				 * trailing spaces.
-				 */
-				if (isspace(*p)) {
-					p++;
-					goto state_rule_sp;
-				}
-			});
-
-			/* If only header field doesn't finished, may be it have
-			 * trailing spaces.
-			 */
-			if (p == pend && isspace(*c)) {
-				c++;
-				goto state_hdr_sp;
-			}
-
-			continue;
-
-state_rule_sp:
-			_MOVE_TO_COND(p, pend, !isspace(*p));
-			goto state_common;
-
-state_hdr_sp:
-			_MOVE_TO_COND(c, cend, !isspace(*c));
-			goto state_common;
-		}
-	}
-
-	return false;
+#undef MATCH_RAW_HEADER_FUNC
 }
 
 static bool
@@ -386,6 +476,7 @@ match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	tfw_http_hdr_t id = rule->val.hid;
 
 	BUG_ON(id < 0);
+
 	if (id == TFW_HTTP_HDR_RAW)
 		return match_hdr_raw(req, rule);
 
@@ -642,7 +733,8 @@ tfw_http_rule_new(TfwHttpChain *chain, tfw_http_match_arg_t type,
 }
 
 int
-tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len)
+tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len,
+		       size_t name_len)
 {
 	if (rule->arg.type == TFW_HTTP_MATCH_A_WILDCARD ||
 	    rule->op == TFW_HTTP_MATCH_O_WILDCARD)
@@ -669,6 +761,7 @@ tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len)
 	}
 
 	rule->arg.len = arg_len;
+	rule->arg.name_len = name_len;
 	memcpy(rule->arg.str, arg, arg_len);
 	if (rule->field == TFW_HTTP_MATCH_F_HDR
 	    && rule->val.type == TFW_HTTP_MATCH_V_HID
@@ -683,19 +776,19 @@ tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len)
 }
 
 static size_t
-tfw_http_escape_pre_post(char *out , const char *str)
+tfw_http_escape_pre_post(char *out, const char *str, size_t str_len)
 {
 	int i;
-	size_t len = 0;
+	size_t new_len = 0;
 	bool escaped = false;
 
-	for (i = 0; str[i]; ++i) {
+	for (i = 0; i < str_len; ++i) {
 		if (str[i] == '*' && !escaped && (i == 0 || !str[i + 1]))
 			continue;
 		if (str[i] != '\\' || escaped) {
 			escaped = false;
 			*out = str[i];
-			++len;
+			++new_len;
 			++out;
 		}
 		else if (str[i] == '\\') {
@@ -703,17 +796,131 @@ tfw_http_escape_pre_post(char *out , const char *str)
 		}
 	}
 
-	return len;
+	return new_len;
+}
+
+/*
+ * Here we create text file for every regex string which
+ * can be readed by hscollider.
+ * Next hscollider compile it and save to temporary DB.
+ * After it will be loaded to regex module DB.
+ * All operations after creating will be done in script start_regex.sh
+ *
+ * As it potentially possible situation then one DB conains several
+ * expressions, here are two variables:
+ * number_of_db_regex - nomber of databes which we will use to look for
+ * expression;
+ * number_of_regex - number of expression to know wich exactly expression
+ * was matched (parsing for it has not not implemented yet)
+ *
+ * After this function, number_of_db_regex will be written to start of arg,
+ * so the lenght of regex string must be longer then two bytes.
+ *
+ * Directory /tmp/tempesata is created from
+ * tempesta.sh script.
+ */
+int
+write_regex(const char *arg)
+{
+	struct file *fl;
+	loff_t off = 0;
+	int r;
+	char file_name[25];
+	char reg_number[6];
+	int len = strlen(arg);
+	int len1;
+
+	/*
+	 * Length of regexp string must be greater or equal to sizeof(number_of_regex)
+	 * because we use memory allocated for this string for storing id
+	 * of the regexp.
+	 */
+	if (len < sizeof(number_of_regex)) {
+		T_ERR_NL("String of regex too short.\n");
+		return -EINVAL;
+	}
+
+	if (number_of_db_regex == USHRT_MAX) {
+		T_ERR_NL("Maximum number of regular expression databases has been reached.\n");
+		return -EINVAL;
+	}
+
+	if (number_of_regex == USHRT_MAX) {
+		T_ERR_NL("Maximum number of regular expressions has been reached.\n");
+		return -EINVAL;
+	}
+
+	++number_of_db_regex;
+	sprintf(file_name, "/tmp/tempesta/%u.txt", number_of_db_regex);
+
+	fl = filp_open(file_name, O_CREAT | O_WRONLY, 0600);
+	if (IS_ERR(fl)) {
+		T_ERR_NL("Cannot create regex file %s\n",
+		          file_name);
+		return -EINVAL;
+	}
+	BUG_ON(!fl || !fl->f_path.dentry);
+
+	if (!fl->f_op->fallocate) {
+		T_ERR_NL("File requires filesystem with fallocate support\n");
+		filp_close(fl, NULL);
+		return -EINVAL;
+	}
+
+	++number_of_regex;
+	sprintf(reg_number, "%i:", number_of_regex);
+	len1 = strlen(reg_number);
+	r = kernel_write(fl, (void *)reg_number, len1, &off);
+	if (r != len1)
+		goto err;
+
+	r = kernel_write(fl, (void *)arg, len, &off);
+	if (r != len)
+		goto err;
+
+	r = kernel_write(fl, "\n", 1, &off);
+	if (r != 1)
+		goto err;
+
+	filp_close(fl, NULL);
+	return 0;
+err:
+	T_ERR_NL("Cannot write regex\n");
+	filp_close(fl, NULL);
+	return r;
+}
+
+static void
+find_spaces(const char *s, size_t len, size_t *begin_spaces_out,
+	    size_t *end_spaces_out)
+{
+	size_t i, end_s;
+
+	for (i = len - 1; i > 0; i--)
+		if (!isspace(s[i]))
+			break;
+
+	end_s = len - i - 1;
+	*end_spaces_out = end_s;
+	len -= end_s;
+
+	for (i = 0; i < len; i++)
+		if (!isspace(s[i]))
+			break;
+
+	*begin_spaces_out = i;
 }
 
 const char *
 tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
-		    const char *raw_hdr_name, size_t *size_out,
-		    tfw_http_match_arg_t *type_out,
+		    const char *raw_hdr_name, bool regex, size_t *size_out,
+		    size_t *name_size_out, tfw_http_match_arg_t *type_out,
 		    tfw_http_match_op_t *op_out)
 {
 	char *arg_out, *pos;
-	size_t name_len = 0, full_name_len = 0, len = strlen(arg);
+	size_t name_len = 0, full_name_len = 0, len = strlen(arg),
+	       n_begin_off = 0, n_end_off = 0, arg_begin_off = 0,
+	       arg_end_off = 0;
 	bool wc_arg = (arg[0] == '*' && len == 1);
 
 	*type_out = tfw_http_tbl_arg_type(field);
@@ -728,7 +935,17 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 
 	if (raw_hdr_name && field != TFW_HTTP_MATCH_F_COOKIE) {
 		name_len = strlen(raw_hdr_name);
-		full_name_len = name_len + SLEN(S_DLM);
+		find_spaces(raw_hdr_name, name_len, &n_begin_off, &n_end_off);
+		name_len -= (n_begin_off + n_end_off);
+		if (!name_len)
+			return ERR_PTR(-EINVAL);
+		full_name_len = name_len + SLEN(S_COLON);
+		*name_size_out = full_name_len;
+
+		find_spaces(arg, len, &arg_begin_off, &arg_end_off);
+		len -= (arg_begin_off + arg_end_off);
+		if (!len)
+			return ERR_PTR(-EINVAL);
 	}
 
 	if (!(arg_out = kzalloc(full_name_len + len + 1, GFP_KERNEL))) {
@@ -737,8 +954,8 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	}
 
 	if (raw_hdr_name && field != TFW_HTTP_MATCH_F_COOKIE) {
-		memcpy(arg_out, raw_hdr_name, name_len);
-		memcpy(arg_out + name_len, S_DLM, SLEN(S_DLM));
+		memcpy(arg_out, raw_hdr_name + n_begin_off, name_len);
+		memcpy(arg_out + name_len, S_COLON, SLEN(S_COLON));
 	}
 
 	*op_out = TFW_HTTP_MATCH_O_EQ;
@@ -750,6 +967,11 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	 */
 	if (wc_arg || (len > 1 && arg[len - 1] == '*' && arg[len - 2] != '\\'))
 		*op_out = TFW_HTTP_MATCH_O_PREFIX;
+
+	if (!wc_arg && regex) {
+		*op_out = TFW_HTTP_MATCH_O_REGEX;
+		write_regex(arg);
+	}
 
 	/*
 	 * For argument started with wildcard, the suffix matching
@@ -776,8 +998,15 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	}
 
 	pos = arg_out + full_name_len;
-	len = tfw_http_escape_pre_post(pos, arg);
+	if (*op_out != TFW_HTTP_MATCH_O_REGEX)
+		len = tfw_http_escape_pre_post(pos, arg + arg_begin_off, len);
 	*size_out += full_name_len + len + 1;
+
+	/*
+	 * Save number_of_db_regex to use it in tfw_match_regex
+	 */
+	if (*op_out == TFW_HTTP_MATCH_O_REGEX)
+		memcpy(pos, &number_of_db_regex, sizeof(number_of_db_regex));
 
 	return arg_out;
 }
@@ -831,7 +1060,7 @@ tfw_http_val_adjust(const char *val, tfw_http_match_fld_t field,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	len_adjust = tfw_http_escape_pre_post(val_out, val);
+	len_adjust = tfw_http_escape_pre_post(val_out, val, len);
 	if (*op_out == TFW_HTTP_MATCH_O_EQ ||
 	    *op_out == TFW_HTTP_MATCH_O_SUFFIX)
 	{

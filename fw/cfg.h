@@ -148,7 +148,8 @@ typedef struct {
 	const char *snd;
 	const char *act;
 	const char *val;
-	bool inv;
+	bool inv : 1;
+	bool regex : 1;
 } TfwCfgRule;
 
 typedef struct {
@@ -387,6 +388,9 @@ struct TfwCfgSpec {
 	};
 	void (*cleanup)(TfwCfgSpec *self);
 };
+
+extern unsigned short number_of_regex;
+extern unsigned short number_of_db_regex;
 
 /**
  * Walks over a NULL-terminated array of TfwCfgSpec structures.
