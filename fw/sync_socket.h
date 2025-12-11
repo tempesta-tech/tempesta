@@ -202,7 +202,7 @@ void ss_stop(void);
 bool ss_active(void);
 void ss_get_stat(SsStat *stat);
 void ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
-		       unsigned char tls_type);
+		       unsigned char tls_type, unsigned long snd_wnd);
 int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 			   unsigned int mss_now, unsigned long *snd_wnd);
 

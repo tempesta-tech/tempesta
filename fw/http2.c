@@ -759,7 +759,7 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			}
 		}
 		*len -= skb->len;
-		 ss_skb_tcp_entail(sk, skb, mark, tls_type);
+		ss_skb_tcp_entail(sk, skb, mark, tls_type, skb->len);
 	}
 
 	/*
