@@ -1770,7 +1770,7 @@ ss_skb_set_owner(struct sk_buff *skb, void *owner, unsigned int mem)
 		 * this SKBs will be passed to the socket write queue.
 		 */
 		BUG_ON(skb->sk);
-		BUG_ON(TFW_SKB_CB(skb)->mem != 0);
+		WARN_ON(TFW_SKB_CB(skb)->mem != 0);
 
 		tfw_client_get((TfwClient *)owner);
 		skb->sk = owner;
