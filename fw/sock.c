@@ -405,7 +405,7 @@ ss_forced_mem_schedule(struct sock *sk, int size)
 }
 
 static bool
-ss_skb_can_collapce(struct sk_buff *to, struct sk_buff *from,
+ss_skb_can_collapse(struct sk_buff *to, struct sk_buff *from,
 		    unsigned int mark, unsigned char tls_type)
 {
 	if (skb_tfw_tls_type(to) != tls_type)
@@ -423,38 +423,41 @@ ss_skb_can_collapce(struct sk_buff *to, struct sk_buff *from,
 
 static bool
 ss_skb_try_collapce(struct sock *sk, struct sk_buff *skb,
-		    unsigned int mark, unsigned char tls_type)
+		    unsigned int mark, unsigned char tls_type,
+		    unsigned long snd_wnd)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *tail = tcp_write_queue_tail(sk);
-	bool stolen;
-	int delta;
+	unsigned int nlen;
 
-	if (!tail || tail->len + skb->len > TLS_MAX_PAYLOAD_SIZE)
+	if (!tail)
 		return false;
 
-	if (!ss_skb_can_collapce(tail, skb, mark, tls_type))
+	if (!ss_skb_can_collapse(tail, skb, mark, tls_type))
 		return false;
 
 	if (!tcp_skb_can_collapse(tail, skb))
 		return false;
 
-	if (!skb_try_coalesce(tail, skb, &stolen, &delta))
+	nlen = min_t(unsigned int, snd_wnd, skb->len);
+	if (!nlen || tail->len + nlen > TLS_MAX_PAYLOAD_SIZE
+	    || !skb_shift(tail, skb, nlen))
 		return false;
 
-	TCP_SKB_CB(tail)->end_seq += skb->len;
-	tp->write_seq += skb->len;
+	TCP_SKB_CB(tail)->end_seq += nlen;
+	tp->write_seq += nlen;
+	sk_wmem_queued_add(sk, nlen);
+	sk_mem_charge(sk, nlen);
 
-	sk_wmem_queued_add(sk, delta);
-	sk_mem_charge(sk, delta);
-	kfree_skb_partial(skb, stolen);
+	if (!skb->len)
+		__kfree_skb(skb);
 
 	return true;
 }
 
 void
 ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
-		  unsigned char tls_type)
+		  unsigned char tls_type, unsigned long snd_wnd)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
@@ -466,7 +469,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	       skb->len, skb->truesize, skb->mark,
 	       skb_tfw_tls_type(skb));
 
-	if (!ss_skb_try_collapce(sk, skb, mark, tls_type)) {
+	if (!ss_skb_try_collapce(sk, skb, mark, tls_type, snd_wnd)) {
 		ss_skb_init_for_xmit(skb);
 		/* Restore mark after `ss_skb_init_for_xmit`. */
 		skb->mark = mark;
@@ -528,7 +531,10 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 			goto restore_sk_write_queue;
 		}
 
-		ss_skb_tcp_entail(sk, skb, mark, tls_type);
+		ss_skb_tcp_entail(sk, skb, mark, tls_type, *snd_wnd);
+
+		if (!(*snd_wnd))
+			break;
 	}
 
 	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head) {
