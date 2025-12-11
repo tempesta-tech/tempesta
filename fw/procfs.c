@@ -420,7 +420,7 @@ tfw_procfs_start(void)
 	if (!(tfw_procfs_srvstats = proc_mkdir("servers", tfw_procfs_tempesta)))
 		return -ENOENT;
 
-	return tfw_sg_for_each_srv(tfw_procfs_sg_create, tfw_procfs_srv_create);
+	return tfw_sg_for_each_srv(tfw_procfs_sg_create, tfw_procfs_srv_create, false);
 }
 
 static void

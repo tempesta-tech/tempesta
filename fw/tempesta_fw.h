@@ -126,4 +126,20 @@ tfw_srv_loop_sched_rcu(void)
 	rcu_barrier();
 }
 
+
+static inline void
+tfw_srv_loop_sched_rcu_print(bool print, int cpu)
+{
+	int r;
+
+	if (print)
+		printk(KERN_ALERT "tfw_srv_loop_sched_rcu 111 %d\n", cpu);
+	r = cond_resched();
+	if (print)
+		printk(KERN_ALERT "tfw_srv_loop_sched_rcu 222 %d %d\n", r, cpu);
+	rcu_barrier();
+	if (print)
+		printk(KERN_ALERT "tfw_srv_loop_sched_rcu 333 %d\n", cpu);
+}
+
 #endif /* __TEMPESTA_FW_H__ */

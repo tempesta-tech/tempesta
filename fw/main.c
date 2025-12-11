@@ -154,13 +154,17 @@ tfw_mods_stop(void)
 
 	ss_stop();
 
-	T_DBG("Stopping all modules...\n");
+	printk(KERN_ALERT "Stopping all modules...\n");
 	MOD_FOR_EACH_REVERSE(mod, &tfw_mods) {
-		T_DBG2("mod_stop(): %s\n", mod->name);
+		printk(KERN_ALERT "mod_stop(): %s %px %d\n", mod->name,
+			mod->stop, mod->started);
 		if (!mod->stop || !mod->started)
 			continue;
 
 		mod->stop();
+
+		printk(KERN_ALERT "mod_stop(): %s STOPPED\n", mod->name);
+
 		mod->started = 0;
 
 		tfw_ss_users -= mod->sock_user;

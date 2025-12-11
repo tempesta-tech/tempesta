@@ -423,22 +423,38 @@ __tfw_sg_for_each_srv(TfwSrvGroup *sg,
  */
 int
 tfw_sg_for_each_srv(int (*sg_cb)(TfwSrvGroup *sg),
-		    int (*srv_cb)(TfwServer *srv))
+		    int (*srv_cb)(TfwServer *srv), bool print)
 {
 	int i, r = 0;
 	TfwSrvGroup *sg;
 	TfwServer *srv, *tmp;
+	int cpu = smp_processor_id();
 
 	down_write(&sg_sem);
 	hash_for_each(sg_hash, i, sg, list) {
+		if (print)
+			printk(KERN_ALERT "tfw_sg_for_each_srv %px %px %px MAIN %d\n", sg, sg_cb, srv_cb, cpu);
 		if (sg_cb && (r = sg_cb(sg)))
 			goto end;
 		list_for_each_entry_safe(srv, tmp, &sg->srv_list, list) {
-			if ((r = srv_cb(srv)))
+			if (print)
+				printk(KERN_ALERT "tfw_sg_for_each_srv %px INSIDE BEFORE %d\n", srv, cpu);
+			if ((r = srv_cb(srv))) {
+				if (print)
+ 	                               printk(KERN_ALERT "tfw_sg_for_each_srv %px INSIDE FAILED %d cpu %d\n", srv, r, cpu);
 				goto end;
-			tfw_srv_loop_sched_rcu();
+			}
+			if (print)
+                                printk(KERN_ALERT "tfw_sg_for_each_srv %px INSIDE AFTER %d\n", srv, cpu);
+			tfw_srv_loop_sched_rcu_print(true, cpu);
+			if (print)
+                                printk(KERN_ALERT "tfw_sg_for_each_srv %px INSIDE AFTER 111 %d\n", srv, cpu);
 		}
-		tfw_srv_loop_sched_rcu();
+		if (print)
+                        printk(KERN_ALERT "tfw_sg_for_each_srv %px %px %px MAIN AFTER %d\n", sg, sg_cb, srv_cb, cpu);
+		tfw_srv_loop_sched_rcu_print(true, cpu);
+		if (print)
+                        printk(KERN_ALERT "tfw_sg_for_each_srv %px %px %px MAIN AFTER 111 %d\n", sg, sg_cb, srv_cb, cpu);
 	}
 end:
 	up_write(&sg_sem);

@@ -845,6 +845,7 @@ tfw_sock_clnt_stop(void)
 	 * Stop listening sockets, but leave them in the list to bve freed by
 	 * tfw_cfgop_cleanup_sock_clnt().
 	 */
+	printk(KERN_ALERT "tfw_sock_clnt_stop 111\n");
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
 		tfw_classifier_remove_inport(tfw_addr_port(&ls->addr));
 		if (!ls->sk)
@@ -852,7 +853,9 @@ tfw_sock_clnt_stop(void)
 		ss_release(ls->sk);
 		ls->sk = NULL;
 	}
+	printk(KERN_ALERT "tfw_sock_clnt_stop 222\n");
 	ss_wait_newconn();
+	printk(KERN_ALERT "tfw_sock_clnt_stop 333\n");
 
 	/*
 	 * Now all listening sockets are closed, so no new connections
@@ -861,8 +864,11 @@ tfw_sock_clnt_stop(void)
 	 * locks, so disable softirq to avoid deadlock with the sockets closing
 	 * in softirq context.
 	 */
+	printk(KERN_ALERT "tfw_sock_clnt_stop 444\n");
 	local_bh_disable();
+	printk(KERN_ALERT "tfw_sock_clnt_stop 555\n");
 	while (tfw_client_for_each(tfw_cli_conn_close_all)) {
+		printk(KERN_ALERT "tfw_sock_clnt_stop 666\n");
 		/*
 		 * SS transport is overloaded: let softirqs make progress and
 		 * repeat again. Not a big deal that we'll probably close the
@@ -873,6 +879,7 @@ tfw_sock_clnt_stop(void)
 		schedule();
 		local_bh_disable();
 	}
+	printk(KERN_ALERT "tfw_sock_clnt_stop 777\n");
 	local_bh_enable();
 }
 

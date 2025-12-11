@@ -443,7 +443,9 @@ static int
 tfw_sock_srv_disconnect(TfwConn *conn)
 {
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+	int cpu = smp_processor_id();
 
+	printk(KERN_ALERT "tfw_sock_srv_disconnect %px %d\n", conn, cpu);
 	/*
 	 * Exit if connection is already stopping, or if it has never been
 	 * activated (due to some error in @sock_srv start procedure; so,
@@ -451,8 +453,10 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 * reach the stopped state).
 	 */
 	if (test_bit(TFW_CONN_B_DEL, &srv_conn->flags)
-	    || !test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
+	    || !test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags)) {
+		printk(KERN_ALERT "tfw_sock_srv_disconnect %px RET %d\n", conn, cpu);
 		return 0;
+	}
 	/*
 	 * Stop any attempts to reconnect or reschedule. Every activated
 	 * connection must pass through its destructor @tfw_srv_conn_release():
@@ -482,10 +486,13 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 		 * procedure, and server had not been put. See for details in
 		 * connection's destructor @tfw_srv_conn_release().
 		 */
+		printk(KERN_ALERT "tfw_sock_srv_disconnect %px 111 %d\n", conn, cpu);
 		if (del_timer_sync(&conn->timer)) {
+			printk(KERN_ALERT "tfw_sock_srv_disconnect %px 222 %d\n", conn, cpu);
 			tfw_srv_conn_stop(srv_conn);
 			break;
 		}
+		printk(KERN_ALERT "tfw_sock_srv_disconnect %px 333 %d\n", conn, cpu);
 		/*
 		 * Close the connection if it's not being closed yet or has been
 		 * restored already. If the connection is closed already, then
@@ -499,6 +506,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 			TfwServer *srv = (TfwServer *)conn->peer;
 			int r = 0;
 
+			printk(KERN_ALERT "tfw_sock_srv_disconnect %px 444 %d\n", conn, cpu);
 			/*
 			 * We set TFW_CFG_B_DEL flag when we gracefully
 			 * shutdown server. If `grace_shutdown_time` is
@@ -524,6 +532,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 		 * If stop flag is set, we can exit. Otherwise, continue waiting
 		 * until connection's destructor finish its work.
 		*/
+		printk(KERN_ALERT "tfw_sock_srv_disconnect %px 555 %d\n", conn, cpu);
 	} while (!test_bit(TFW_CONN_B_STOPPED, &srv_conn->flags));
 	/*
 	 * If we here, connection is stopped (in destructor or after deactivation
@@ -2217,18 +2226,29 @@ tfw_sock_srv_start(void)
 static void
 tfw_sock_srv_stop(void)
 {
+	int cpu = smp_processor_id();
+
+	printk(KERN_ALERT "tfw_sock_srv_stop 111 %d\n", cpu);
 	/* tfw_sock_srv_start() may failed just in the middle. */
 	tfw_sg_for_each_srv_reconfig(tfw_sock_srv_disconnect_srv);
+	printk(KERN_ALERT "tfw_sock_srv_stop 222 %d\n", cpu);
 	tfw_sock_srv_grace_shutdown_now();
-	tfw_sg_for_each_srv(NULL, tfw_sock_srv_disconnect_srv);
+	printk(KERN_ALERT "tfw_sock_srv_stop 333 %d\n", cpu);
+	tfw_sg_for_each_srv(NULL, tfw_sock_srv_disconnect_srv, true);
+	printk(KERN_ALERT "tfw_sock_srv_stop 444 %d\n", cpu);
 	/*
 	 * Wait until all connections will be shutdowned gracefully
 	 * and abort all pending connections.
 	 */
-	if (!ss_synchronize())
-		tfw_sg_for_each_srv(NULL, tfw_sock_srv_abort_srv);
+	if (!ss_synchronize()) {
+		printk(KERN_ALERT "tfw_sock_srv_stop 555 %d\n", cpu);
+		tfw_sg_for_each_srv(NULL, tfw_sock_srv_abort_srv, true);
+		printk(KERN_ALERT "tfw_sock_srv_stop 666 %d\n", cpu);
+	}
 
+	printk(KERN_ALERT "tfw_sock_srv_stop 777 %d\n", cpu);
 	tfw_sg_release_all();
+	printk(KERN_ALERT "tfw_sock_srv_stop 888 %d\n", cpu);
 }
 
 /* Group specs are cleaned up by tfw_sock_srv_specs["srv_group"].cleanup(). */
