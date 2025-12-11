@@ -2209,7 +2209,7 @@ do {									\
 
 #define FRAME_XMIT_FSM_NEXT(frame_length, state)			\
 do {									\
-	*snd_wnd -= frame_length;					\
+	*snd_wnd -= frame_length - FRAME_HEADER_SIZE;			\
 	T_FSM_JMP(state);						\
 } while(0)
 
