@@ -109,7 +109,7 @@ ss_skb_alloc_pages(size_t len)
  * segmentation. The allocated payload space will be filled with data.
  */
 int
-ss_skb_alloc_data(struct sk_buff **skb_head, size_t len)
+ss_skb_alloc_data(struct sk_buff **skb_head, void *owner, size_t len)
 {
 	int i_skb, nr_skbs = len ? DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN) : 1;
 	size_t n = 0;
@@ -120,6 +120,7 @@ ss_skb_alloc_data(struct sk_buff **skb_head, size_t len)
 		skb = ss_skb_alloc_pages(n);
 		if (!skb)
 			return -ENOMEM;
+		ss_skb_set_owner(skb, owner, skb->truesize);
 		ss_skb_queue_tail(skb_head, skb);
 	}
 
@@ -217,6 +218,8 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			nskb = ss_skb_alloc(0);
 			if (nskb == NULL)
 				return -ENOMEM;
+
+			ss_skb_set_owner(nskb, skb->sk, nskb->truesize);
 			skb_shinfo(nskb)->flags = skb_shinfo(skb)->flags;
 			ss_skb_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
@@ -392,6 +395,7 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	skb->tail -= tail_len;
 	skb->data_len += tail_len;
 	skb->truesize += tail_len;
+	ss_skb_adjust_sk_mem(skb, tail_len);
 
 	/* Make the fragment with the tail part. */
 	__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
@@ -1298,6 +1302,7 @@ ss_skb_split(struct sk_buff *skb, int len)
 	if (!buff)
 		return NULL;
 
+	memset(buff->cb, 0, sizeof(buff)->cb);
 	skb_reserve(buff, MAX_TCP_HEADER);
 
 	/* @buff already accounts @n in truesize. */
@@ -1305,6 +1310,8 @@ ss_skb_split(struct sk_buff *skb, int len)
 	buff->truesize += nlen;
 	skb->truesize -= nlen;
 	buff->mark = skb->mark;
+
+	ss_skb_adjust_sk_mem(skb, -nlen);
 
 	/*
 	 * Initialize GSO segments counter to let TCP set it according to
@@ -1336,10 +1343,16 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	struct skb_shared_info *shinfo = skb_shinfo(skb);
 	__u8 pfmemalloc = skb->pfmemalloc;
 
-	WARN_ON_ONCE(skb->sk);
+	skb_orphan(skb);
 
 	skb_dst_drop(skb);
 	INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
+
+	/*
+	 * dev is used to save connection for memory accounting
+	 * clear it before pass skb to the kernel.
+	 */
+	skb->dev = NULL;
 	/*
 	 * Since we use skb->sb for our purpose we should
 	 * zeroed it before pass skb to the kernel.
@@ -1706,10 +1719,84 @@ int
 ss_skb_realloc_headroom(struct sk_buff *skb)
 {
 	int delta = MAX_TCP_HEADER - skb_headroom(skb);
+	bool skb_has_owner = (skb->sk != NULL);
+	void *owner;
+	long int mem;
+	unsigned int old_truesize;
+	int r;
 
 	if (likely(delta <= 0))
 		return 0;
 
-	return pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
+	/*
+	 * `pskb_expand_head` doesn't change skb->truesize for not
+	 * orphaned skbs (there is a special comment about it in the
+	 * kernel code). It is not safe for us to not break `skb->truesize`
+	 * calculation here, so we should orphan skb and then restore it's
+	 * owner later.
+	 */
+	if (skb_has_owner) {
+		owner = skb->sk;
+		mem = TFW_SKB_CB(skb)->mem;
+		old_truesize = skb->truesize;
+		skb_orphan(skb);
+	}
+
+	r = pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
+	if (unlikely(r))
+		return r;
+
+	if (skb_has_owner)
+		ss_skb_set_owner(skb, owner, mem + skb->truesize - old_truesize);
+
+	return 0;
 }
 ALLOW_ERROR_INJECTION(ss_skb_realloc_headroom, ERRNO);
+
+static void
+ss_skb_destructor(struct sk_buff *skb)
+{
+	TfwClient *cli = (TfwClient *)skb->sk;
+
+	ss_skb_adjust_sk_mem(skb, -TFW_SKB_CB(skb)->mem);
+	tfw_client_put(cli);
+}
+
+void
+ss_skb_set_owner(struct sk_buff *skb, void *owner, unsigned int mem)
+{
+	/*
+	 * Can be zero when this function is called from `__extend_pgfrags`
+	 * for already orphaned SKBs.
+	 */
+	if (owner) {
+		/*
+		 * All SKBs were orphaned when Tempesta FW received them.
+		 * We can safely use `skb->sk` for our purposes until
+		 * this SKBs will be passed to the socket write queue.
+		 */
+		BUG_ON(skb->sk);
+		WARN_ON(TFW_SKB_CB(skb)->mem != 0);
+
+		tfw_client_get((TfwClient *)owner);
+		skb->sk = owner;
+		skb->destructor = ss_skb_destructor;
+		ss_skb_adjust_sk_mem(skb, mem);
+	}
+}
+
+void
+ss_skb_adjust_sk_mem(struct sk_buff *skb, int delta)
+{
+	TfwClient *cli = (TfwClient *)skb->sk;
+
+	/*
+	 * `cli` can be zero here when this function is called
+	 * from `ss_skb_split` for SKBs which are already orphaned
+	 */
+	if (cli) {
+		TFW_SKB_CB(skb)->mem += delta;
+		BUG_ON(TFW_SKB_CB(skb)->mem < 0);
+		tfw_client_adjust_mem(cli, delta);
+	}
+}
