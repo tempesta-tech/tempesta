@@ -34,19 +34,25 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 		log_path = *val;
 
 	if (const auto node = tree.get_child_optional("access_log")) {
-		if (const auto path_val = node->get_optional<std::string>("plugin_path"))
+		if (const auto path_val =
+		    node->get_optional<std::string>("plugin_path"))
 			access_log_plugin_path = *path_val;
 
 		clickhouse_mmap.emplace();
 		clickhouse_mmap->parse_from_ptree(*node);
 	}
-
-	if (const auto node = tree.get_child_optional("xfw_events")) {
-		if (const auto path_val = node->get_optional<std::string>("plugin_path"))
+	else if (const auto node = tree.get_child_optional("xfw_events")) {
+		if (const auto path_val =
+		    node->get_optional<std::string>("plugin_path"))
 			xfw_events_plugin_path = *path_val;
 
 		clickhouse_xfw.emplace();
 		clickhouse_xfw->parse_from_ptree(*node);
+	}
+	else {
+		throw std::runtime_error(
+		"Configuration file must have \"access_log\" or \"xfw_events\" "
+		"node.");
 	}
 }
 
@@ -73,15 +79,16 @@ try {
 	pt::read_json(path.string(), tree);
 	config.parse_from_ptree(tree);
 	return config;
-} catch (const pt::json_parser_error &e) {
-	std::cerr << "Error parsing config file: " << e.what()
-		  << std::endl;
+}
+catch (const pt::json_parser_error &e) {
+	std::cerr << "Error parsing config file: " << e.what() << std::endl;
 	return std::nullopt;
-} catch (const pt::ptree_error &e) {
-	std::cerr << "Error in config structure: " << e.what()
-		  << std::endl;
+}
+catch (const pt::ptree_error &e) {
+	std::cerr << "Error in config structure: " << e.what() << std::endl;
 	return std::nullopt;
-} catch (const std::exception &e) {
+}
+catch (const std::exception &e) {
 	std::cerr << "Error loading config: " << e.what() << std::endl;
 	return std::nullopt;
 }
