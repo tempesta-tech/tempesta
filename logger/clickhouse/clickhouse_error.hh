@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,11 +17,25 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include "error.hh"
+#pragma once
+#include "../../libtus/error.hh"
 
-const std::error_category &
-tus::tfw_error_category()
+enum ClickhouseErrorEnum : uint16_t {
+	DB_SRV_FATAL		= 1,
+	DB_CLT_TRANSIENT	= 2,
+};
+
+static constexpr std::string_view message(ClickhouseErrorEnum e)
 {
-	static tus::ErrorCategory instance;
-	return instance;
+	using namespace std::literals;
+
+	switch (e) {
+	case ClickhouseErrorEnum::DB_SRV_FATAL:
+		return "Database unrecoverable server error"sv;
+	case ClickhouseErrorEnum::DB_CLT_TRANSIENT:
+		return "Database recoverable client error"sv;
+	}
+	return {};
 }
+
+using ClickhouseError = tus::Error<ClickhouseErrorEnum, tus::TfwCategory>;
