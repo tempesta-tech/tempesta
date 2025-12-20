@@ -533,7 +533,7 @@ execute_workers() noexcept(false)
 		plugins.emplace_back(plugin_path,
 				     *config.clickhouse_mmap,
 				     &fstop);
-		spdlog::info("Loaded mmap plugin from: {}", plugin_path);
+		spdlog::info("Loaded access log plugin from: {}", plugin_path);
 	}
 
 	if (config.clickhouse_xfw.has_value()) {
@@ -631,7 +631,7 @@ main(int argc, char *argv[])
 		// Log startup information
 		spdlog::info("Starting Tempesta FW Logger...");
 		if (config.clickhouse_mmap)
-			spdlog::info("ClickHouse mmap configuration: {}",
+			spdlog::info("ClickHouse access log configuration: {}",
 				*config.clickhouse_mmap);
 
 		// Setup signal handlers for graceful shutdown

@@ -74,11 +74,11 @@ ClickhouseWithReconnection::ensure_connected() noexcept
 bool
 ClickhouseWithReconnection::do_reconnect() noexcept
 {
-	spdlog::info("ClickhouseWithReconnection: reconnect attempt. ");
+	spdlog::info("Clickhouse reconnect attempt. ");
 
 	const bool success = reestablish_connection();
 
-	spdlog::info("ClickhouseWithReconnection: reconnection result = {}.",
+	spdlog::info("Clickhouse reconnection result = {}.",
 		     success? "success": "fail");
 
 	if (success) {
