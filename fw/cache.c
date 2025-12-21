@@ -173,7 +173,7 @@ __tfw_dbg_dump_ce(const TfwCacheEntry *ce)
 	len += CE_DUMP_MEMBER("%d", "hdr_h2_off",	ce->hdr_h2_off);
 	len += CE_DUMP_MEMBER("%d", "trailer_off",	ce->trailer_off);
 	len += CE_DUMP_MEMBER("%d", "hdr_len",		ce->hdr_len);
-	len += CE_DUMP_MEMBER("%d", "body_len",		ce->body_len);
+	len += CE_DUMP_MEMBER("%lu", "body_len",		ce->body_len);
 	len += CE_DUMP_MEMBER("%d", "method",		ce->method);
 	len += CE_DUMP_MEMBER("%d", "flags",		ce->flags);
 
@@ -366,6 +366,9 @@ __cache_method_test(tfw_http_meth_t method)
 static inline bool
 tfw_cache_msg_cacheable(TfwHttpReq *req)
 {
+	T_DBG("request cacheability: method_test=%d is_nip=%d\n",
+	      __cache_method_test(req->method), tfw_http_req_is_nip(req));
+
 	/* POST request is not idempotent, but can be cacheble. */
 	return __cache_method_test(req->method) &&
 		(!tfw_http_req_is_nip(req)

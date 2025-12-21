@@ -1026,7 +1026,8 @@ this_chunk:
 			}
 
 			T_DBG3("message expanded by new skb [%p]\n", it->skb);
-		} else if (start_off && *start_off) {
+		}
+		else if (start_off && *start_off) {
 			skb_frag_t *frag;
 			struct page *page;
 
