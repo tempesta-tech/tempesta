@@ -296,7 +296,7 @@ tfw_connection_push(TfwConn *conn, unsigned int mss_now)
 		 * `snd_wnd` is not 0 if all skbs was entailed to socket
 		 * write queue.
 		 */
-		if (snd_wnd) {
+		if (!conn->write_queue) {
 			sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);
 			if (unlikely(SS_CONN_TYPE(sk) & Conn_Shutdown))
 				r = tfw_connection_shutdown(conn);

@@ -421,7 +421,7 @@ ss_skb_can_collapse(struct sk_buff *to, struct sk_buff *from,
 	return true;
 }
 
-static bool
+static int
 ss_skb_try_collapce(struct sock *sk, struct sk_buff *skb,
 		    unsigned int mark, unsigned char tls_type,
 		    unsigned long snd_wnd)
@@ -429,47 +429,52 @@ ss_skb_try_collapce(struct sock *sk, struct sk_buff *skb,
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *tail = tcp_write_queue_tail(sk);
 	unsigned int nlen;
+	unsigned int max_skb_len;
 
 	if (!tail)
-		return false;
+		return -1;
 
 	if (!ss_skb_can_collapse(tail, skb, mark, tls_type))
-		return false;
+		return -1;
 
 	if (!tcp_skb_can_collapse(tail, skb))
-		return false;
+		return -1;
 
 	nlen = min_t(unsigned int, snd_wnd, skb->len);
-	if (!nlen || tail->len + nlen > TLS_MAX_PAYLOAD_SIZE
+	max_skb_len = tls_type ? TLS_MAX_PAYLOAD_SIZE : SS_SKB_MAX_DATA_LEN;
+
+	if (!nlen || tail->len + nlen > max_skb_len
 	    || !skb_shift(tail, skb, nlen))
-		return false;
+		return -1;
 
 	TCP_SKB_CB(tail)->end_seq += nlen;
 	tp->write_seq += nlen;
 	sk_wmem_queued_add(sk, nlen);
 	sk_mem_charge(sk, nlen);
 
-	if (!skb->len)
+	if (!skb->len) {
 		__kfree_skb(skb);
+		return 0;
+	}
 
-	return true;
+	return 1;
 }
 
-void
+int
 ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		  unsigned char tls_type, unsigned long snd_wnd)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
+	int r = 0;
 
 	ss_skb_on_tcp_entail(sk->sk_user_data, skb);
 
 	T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
 	       " truesize=%u mark=%u tls_type=%x\n",
 	       smp_processor_id(), __func__, sk, skb, skb->data_len,
-	       skb->len, skb->truesize, skb->mark,
-	       skb_tfw_tls_type(skb));
+	       skb->len, skb->truesize, mark, tls_type);
 
-	if (!ss_skb_try_collapce(sk, skb, mark, tls_type, snd_wnd)) {
+	if ((r = ss_skb_try_collapce(sk, skb, mark, tls_type, snd_wnd)) < 0) {
 		ss_skb_init_for_xmit(skb);
 		/* Restore mark after `ss_skb_init_for_xmit`. */
 		skb->mark = mark;
@@ -479,7 +484,11 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		tcp_skb_entail(sk, skb);
 		tp->write_seq += skb->len;
 		TCP_SKB_CB(skb)->end_seq += skb->len;
+
+		return 0;
 	}
+
+	return r;
 }
 
 int
@@ -531,15 +540,14 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 			goto restore_sk_write_queue;
 		}
 
-		ss_skb_tcp_entail(sk, skb, mark, tls_type, *snd_wnd);
-
-		if (!(*snd_wnd))
+		if (ss_skb_tcp_entail(sk, skb, mark, tls_type, *snd_wnd) > 0) {
+			ss_skb_queue_head(skb_head, skb);
 			break;
+		}
 	}
 
 	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head) {
-		ss_skb_setup_head_of_list(*skb_head, (*skb_head)->mark,
-					  tls_type);
+		ss_skb_setup_head_of_list(*skb_head, mark, tls_type);
 	}
 
 	return 0;
