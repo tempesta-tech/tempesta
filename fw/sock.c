@@ -435,13 +435,13 @@ ss_skb_try_collapse(struct sock *sk, struct sk_buff *skb,
 	unsigned int nlen;
 
 	if (!tail)
-		return false;
+		return -1;
 
 	if (!ss_skb_can_collapse(tail, skb, mark, tls_type))
-		return false;
+		return -1;
 
 	if (!tcp_skb_can_collapse(tail, skb))
-		return false;
+		return -1;
 
 	mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	/*
@@ -457,24 +457,27 @@ ss_skb_try_collapse(struct sock *sk, struct sk_buff *skb,
 
 	if (tail->len + nlen > min(max_skb_len, limit)
 	    || !skb_shift(tail, skb, nlen))
-		return false;
+		return -1;
 
 	TCP_SKB_CB(tail)->end_seq += nlen;
 	tp->write_seq += nlen;
 	sk_wmem_queued_add(sk, nlen);
 	sk_mem_charge(sk, nlen);
 
-	if (!skb->len)
+	if (!skb->len) {
 		__kfree_skb(skb);
+		return 0;
+	}
 
-	return true;
+	return 1;
 }
 
-void
+int
 ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		  unsigned char tls_type, unsigned long snd_wnd)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
+	int r = 0;
 
 	ss_skb_on_tcp_entail(sk->sk_user_data, skb);
 	T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
@@ -482,7 +485,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	       smp_processor_id(), __func__, sk, skb, skb->data_len,
 	       skb->len, skb->truesize, mark, tls_type);
 
-	if (!ss_skb_try_collapse(sk, skb, mark, tls_type, snd_wnd)) {
+	if ((r = ss_skb_try_collapse(sk, skb, mark, tls_type, snd_wnd)) < 0) {
 		ss_skb_init_for_xmit(skb);
 		skb->mark = mark;
 		if (tls_type)
@@ -491,7 +494,11 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		tcp_skb_entail(sk, skb);
 		tp->write_seq += skb->len;
 		TCP_SKB_CB(skb)->end_seq += skb->len;
+
+		return 0;
 	}
+
+	return r;
 }
 
 int
@@ -543,15 +550,14 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 			goto restore_sk_write_queue;
 		}
 
-		ss_skb_tcp_entail(sk, skb, mark, tls_type, *snd_wnd);
-
-		if (!(*snd_wnd))
+		if (ss_skb_tcp_entail(sk, skb, mark, tls_type, *snd_wnd) > 0) {
+			ss_skb_queue_head(skb_head, skb);
 			break;
+		}
 	}
 
 	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head) {
-		ss_skb_setup_head_of_list(*skb_head, (*skb_head)->mark,
-					  tls_type);
+		ss_skb_setup_head_of_list(*skb_head, mark, tls_type);
 	}
 
 	return 0;
