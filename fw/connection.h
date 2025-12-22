@@ -575,6 +575,7 @@ tfw_connection_validate_cleanup(TfwConn *conn)
 	BUG_ON(!conn);
 	BUG_ON(!list_empty(&conn->list));
 	BUG_ON(conn->stream.msg);
+	BUG_ON(conn->write_queue);
 
 	rc = atomic_read(&conn->refcnt);
 	BUG_ON(rc && rc != TFW_CONN_DEATHCNT);
