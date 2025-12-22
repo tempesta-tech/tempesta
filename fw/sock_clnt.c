@@ -129,7 +129,6 @@ static void
 tfw_cli_conn_free(TfwCliConn *cli_conn)
 {
 	BUG_ON(timer_pending(&cli_conn->timer));
-	BUG_ON(cli_conn->write_queue);
 
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup((TfwConn *)cli_conn);
@@ -141,8 +140,7 @@ tfw_cli_conn_free(TfwCliConn *cli_conn)
 void
 tfw_cli_conn_release(TfwCliConn *cli_conn)
 {
-	if (unlikely(cli_conn->write_queue))
-		ss_skb_queue_purge(&cli_conn->write_queue);
+	ss_skb_queue_purge(&cli_conn->write_queue);
 	/* Paired with @frang_conn_new client obtain. */
 	if (likely(cli_conn->sk))
 		tfw_connection_unlink_to_sk((TfwConn *)cli_conn);
