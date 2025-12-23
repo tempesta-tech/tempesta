@@ -22,11 +22,7 @@ obj-m	= tempesta_lib.o
 
 GCOV_PROFILE := $(TFW_GCOV)
 
-<<<<<<< HEAD
-tempesta_lib-objs = hash.o main.o ebtree.o eb64tree.o
-=======
-tempesta_lib-objs = hash.o main.o alloc.o
->>>>>>> cd1e7daa (Implement library for debug memory allocations)
+tempesta_lib-objs = hash.o main.o ebtree.o eb64tree.o fault_injection_alloc.o
 ifdef AVX2
 	tempesta_lib-objs += str_simd.o
 endif
