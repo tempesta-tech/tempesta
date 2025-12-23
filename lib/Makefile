@@ -22,7 +22,7 @@ obj-m	= tempesta_lib.o
 
 GCOV_PROFILE := $(TFW_GCOV)
 
-tempesta_lib-objs = hash.o main.o ebtree.o eb64tree.o  alloc.o
+tempesta_lib-objs = hash.o main.o ebtree.o eb64tree.o  fault_injection_alloc.o
 ifdef AVX2
 	tempesta_lib-objs += str_simd.o
 endif
