@@ -3729,15 +3729,13 @@ tfw_cache_start(void)
 		return 0;
 
 	if ((r = tfw_init_node_cpus()))
-		goto node_cpus_alloc_err;
+		return r;
 
 	for_each_node_with_cpus(i) {
 		c_nodes[i].db = tdb_open(cache_cfg.db_path,
 					 cache_cfg.db_size, 0, i);
-		if (!c_nodes[i].db) {
-			r = -ENOMEM;
-			goto close_db;
-		}
+		if (!c_nodes[i].db)
+			return -ENOMEM;
 		c_nodes[i].db->hdr->before_free = tfw_cache_decrease_stat;
 	}
 #if 0
@@ -3754,7 +3752,7 @@ tfw_cache_start(void)
 		if (unlikely(r = tfw_cache_wq_init(i))) {
 			T_ERR_NL("%s: Can't initialize cache work"
 				 " queue for CPU #%d\n", __func__, i);
-			goto free_tasklet;
+			return r;
 		}
 	}
 
@@ -3764,29 +3762,13 @@ tfw_cache_start(void)
 						 cpu_to_node(i));
 		if (!dbg_buf) {
 			T_WARN("Failed to allocate CE dump buffer\n");
-			goto dbg_buf_free;
+			return -ENOMEM;
 		}
 		per_cpu(ce_dbg_buf, i) = dbg_buf;
 	}
 #endif
 
 	return 0;
-
-#if defined(DEBUG)
-dbg_buf_free:
-	for_each_online_cpu(i)
-		kfree(per_cpu(ce_dbg_buf, i));
-#endif
-free_tasklet:
-	for_each_online_cpu(i)
-		tfw_cache_wq_clear(i);
-close_db:
-	for_each_node_with_cpus(i)
-		tdb_close(c_nodes[i].db);
-
-node_cpus_alloc_err:
-	tfw_release_node_cpus();
-	return r;
 }
 
 static void
@@ -3799,6 +3781,9 @@ tfw_cache_stop(void)
 	if (tfw_runstate_is_reconfig())
 		return;
 	if (!cache_cfg.cache)
+		return;
+
+	if (!c_nodes)
 		return;
 
 	for_each_online_cpu(i)
