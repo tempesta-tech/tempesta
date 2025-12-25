@@ -164,6 +164,7 @@ tfw_mods_stop(void)
 		mod->started = 0;
 
 		tfw_ss_users -= mod->sock_user;
+
 		if (ss_synced || tfw_ss_users)
 			continue;
 		/*
@@ -233,6 +234,8 @@ tfw_mods_start(void)
 		if ((ret = mod->start())) {
 			T_ERR_NL("Unable to start module '%s': %d\n",
 				 mod->name, ret);
+			if (mod->stop && !mod->started)
+				mod->stop();
 			return ret;
 		}
 		mod->started = 1;
