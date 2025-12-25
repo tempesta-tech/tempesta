@@ -285,7 +285,6 @@ tfw_filter_start(void)
 
 	if ((r = register_pernet_subsys(&tfw_net_ops)))	{
 		T_ERR_NL("can't register netfilter hooks\n");
-		tdb_close(ip_filter_db);
 		return r;
 	}
 
