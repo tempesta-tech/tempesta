@@ -379,10 +379,8 @@ tfw_client_start(void)
 	if (!client_db)
 		return -EINVAL;
 
-	if (tfw_client_init_lru()) {
-		tdb_close(client_db);
+	if (tfw_client_init_lru())
 		return -EINVAL;
-	}
 
 	return 0;
 }
