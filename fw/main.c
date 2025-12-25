@@ -233,6 +233,10 @@ tfw_mods_start(void)
 		if ((ret = mod->start())) {
 			T_ERR_NL("Unable to start module '%s': %d\n",
 				 mod->name, ret);
+			if (mod->stop) {
+				mod->stop();
+				mod->started = 0;
+			}
 			return ret;
 		}
 		mod->started = 1;
