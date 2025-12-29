@@ -217,7 +217,7 @@ setup()
 	echo 1 > /proc/sys/kernel/sysrq
 
 	# Automatically immediately reboot on kernel crashes and ignore kernel warnings.
-	echo '1' > /proc/sys/kernel/panic
+	echo 1 > /proc/sys/kernel/panic
 	echo 1 > /proc/sys/kernel/panic_on_oops
 	echo 0 > /proc/sys/kernel/panic_on_warn
 
@@ -227,6 +227,35 @@ setup()
 	sysctl -w net.core.netdev_max_backlog=10000 >/dev/null
 	sysctl -w net.core.somaxconn=131072 >/dev/null
 	sysctl -w net.ipv4.tcp_max_syn_backlog=131072 >/dev/null
+
+	# More aggressively recycle sockets in FIN-WAIT-1 and FIN-WAIT-2 states,
+	# quite common for L7 DDoS.
+	# See tcp_check_oom(), Documentation/networking/ip-sysctl.rst
+	#
+	# Do not shrink tcp_max_orphans and tcp_max_tw_buckets to not to get
+	# spontaneous connection resets followed by reconnection storms.
+	sysctl -w net.ipv4.tcp_orphan_retries=3 >/dev/null # timeout for 8s
+	# The minimum number of retries, recommended by RFC 1122.
+	sysctl -w net.ipv4.tcp_retries2=8 >/dev/null
+	sysctl -w net.ipv4.tcp_fin_timeout=10 >/dev/null
+
+	# Increase the total TCP memory to mitigate
+	# "TCP: out of memory -- consider tuning tcp_mem" problem.
+	# This increases the total TCP memory, but leave per-socket limits as
+	# defaults to not allow too memory hungry sockets.
+	#
+	# Linux sets the sysctl in tcp_init_mem() as ~5%, ~6% and ~9% of
+	# (all_pages - pages_beyond_high_watermark). We're set tcp_mem as
+	# 10%, 20% and 40% of available memory. 40% is a lot having that we
+	# need memmory for cache, to handle HTTP requests and responses and so
+	# on, so use 2 lower pressure limit.
+	# We can neglect high watermark pages, which are hard to compute.
+	# Leave per-socket limits to get more connections, not heavier connections.
+	local new_tcp_mem
+	new_tcp_mem=$(perl -ne '/^MemTotal:\s+(\d+)/ and
+				print join(" ", map { int($1 / 4 * $_) } .1, .2, .4)
+			       ' /proc/meminfo)
+	sysctl -w net.ipv4.tcp_mem="$new_tcp_mem" >/dev/null
 }
 
 update_single_js_template()
