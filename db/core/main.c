@@ -377,6 +377,7 @@ EXPORT_SYMBOL(tdb_entry_walk);
 TDB *
 tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 {
+	TdbHdr *hdr;
 	TDB *db;
 
 	if ((fsize & ~TDB_EXT_MASK) || fsize < TDB_EXT_SZ) {
@@ -395,12 +396,13 @@ tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 		goto err;
 	}
 
-	db->hdr = tdb_htrie_init(db->hdr, db->filp->f_inode->i_size, rec_size);
-	if (!db->hdr) {
+	hdr = tdb_htrie_init(db->hdr, db->filp->f_inode->i_size, rec_size);
+	if (!hdr) {
 		TDB_ERR("Cannot initialize db header\n");
 		goto err_init;
 	}
 
+	db->hdr = hdr;
 	tdb_tbl_enumerate(db);
 	spin_lock_init(&db->ga_lock);
 
@@ -409,7 +411,8 @@ tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 
 	return db;
 err_init:
-	tdb_file_close(db);
+	filp_umap_and_close(db->filp, (unsigned long)db->hdr,
+			    db->filp->f_inode->i_size, db->node);
 err:
 	tdb_put(db);
 	return NULL;
