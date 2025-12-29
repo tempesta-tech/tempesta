@@ -1086,8 +1086,10 @@ spec_handle_default(TfwCfgSpec *spec)
 	memset(&ps, 0, sizeof(ps));
 	ps.line = ps.in = ps.pos = fake_entry_buf;
 	parse_cfg_entry(&ps);
-	if (ps.err == -ENOMEM)
+	if (ps.err == -ENOMEM) {
+		entry_reset(&ps.e);
 		return ps.err;
+	}
 
 	BUG_ON(!ps.e.name);
 	BUG_ON(ps.err);
