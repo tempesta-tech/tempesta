@@ -17,10 +17,10 @@
 * this program; if not, write to the Free Software Foundation, Inc., 59
 * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
-
 #include <dlfcn.h>
-#include <spdlog/spdlog.h>
 #include <fmt/format.h>
+
+#include <spdlog/spdlog.h>
 
 #include "../libtus/error.hh"
 #include "plugin.hh"
@@ -35,8 +35,8 @@ make_plugin_config_api(const PluginConfig &cfg)
 	c_cfg.db_name    = cfg.db_name.c_str();
 	c_cfg.table_name = cfg.table_name.c_str();
 
-	c_cfg.user       = cfg.user ? cfg.user->c_str() : nullptr;
-	c_cfg.password   = cfg.password ? cfg.password->c_str() : nullptr;
+	c_cfg.user       = cfg.user ? cfg.user->c_str() : "default";
+	c_cfg.password   = cfg.password ? cfg.password->c_str() : "";
 
 	c_cfg.max_events = cfg.max_events;
 
@@ -209,7 +209,6 @@ Plugin::create_processor(unsigned cpu_id) const
 
 	return std::make_unique<ProcessorHandle>(api_, raw_processor);
 }
-
 
 void
 Plugin::DlCloser::operator()(void *h) const noexcept

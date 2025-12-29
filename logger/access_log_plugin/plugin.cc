@@ -80,7 +80,7 @@ open_mmap_device(StopFlag* stop_flag)
 int
 mmap_plugin_init(StopFlag* stop_flag)
 {
-	spdlog::info("Mmap plugin initialization");
+	spdlog::info("Access log plugin initialization");
 
 	dev_fd = open_mmap_device(stop_flag);
 	if (dev_fd < 0) {
@@ -94,12 +94,12 @@ mmap_plugin_init(StopFlag* stop_flag)
 void
 mmap_plugin_done(void)
 {
-	if (dev_fd >= 0)
-	{
-		close(dev_fd);
-		dev_fd = -1;
-		spdlog::info("Device closed");
-	}
+	if (dev_fd < 0)
+		return;
+
+	close(dev_fd);
+	dev_fd = -1;
+	spdlog::info("Device closed");
 }
 
 ProcessorInstance
@@ -108,7 +108,8 @@ mmap_create_processor(const PluginConfigApi *config, unsigned cpu_id)
 	assert(config);
 
 	try {
-		spdlog::debug("Creating MmapProcessor for CPU: {}", cpu_id);
+		spdlog::debug("Creating access log processor for CPU: {}",
+			      cpu_id);
 
 		ch::ClientOptions options;
 		options.SetHost(config->host)
@@ -132,7 +133,8 @@ mmap_create_processor(const PluginConfigApi *config, unsigned cpu_id)
 
 		return processor.release();
 	} catch (const std::exception& e) {
-		spdlog::error("Failed to create MmapProcessor: {}", e.what());
+		spdlog::error("Failed to create access log processor: {}",
+			      e.what());
 	}
 
 	return nullptr;
@@ -146,7 +148,7 @@ mmap_destroy_processor(ProcessorInstance processor)
 
 	std::unique_ptr<AccessLogProcessor> p(
 		static_cast<AccessLogProcessor*>(processor));
-	spdlog::debug("Destroyed MmapProcessor instance");
+	spdlog::debug("Destroyed an access log processor instance");
 }
 
 int

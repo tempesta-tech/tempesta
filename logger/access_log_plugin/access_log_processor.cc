@@ -257,7 +257,7 @@ AccessLogProcessor::AccessLogProcessor(std::unique_ptr<IClickhouse> writer,
 	if (buffer_ == MAP_FAILED)
 		throw tus::Except("Failed to map buffer");
 
-	spdlog::info("AccessLogProcessor created successfully");
+	spdlog::info("Access log processor created successfully");
 }
 
 AccessLogProcessor::~AccessLogProcessor()
