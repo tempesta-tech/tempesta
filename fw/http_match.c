@@ -71,7 +71,7 @@
 #include "http_match.h"
 #include "http_msg.h"
 #include "cfg.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 /**
  * Map an operator to that flags passed to tfw_str_eq_*() functions.

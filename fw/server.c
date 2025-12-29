@@ -33,7 +33,7 @@
 #include "client.h"
 #include "log.h"
 #include "server.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 /* Use SLAB for frequent server allocations in forward proxy mode. */
 static struct kmem_cache *srv_cache;

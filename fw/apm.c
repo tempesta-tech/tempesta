@@ -28,7 +28,7 @@
 #if DBG_APM > 0
 #define DEBUG DBG_APM
 #endif
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "lib/str.h"
 #include "apm.h"
 #include "cfg.h"

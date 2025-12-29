@@ -45,7 +45,7 @@
 #include <linux/random.h>
 
 #include "lib/str.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "crypto.h"
 #include "mpool.h"
 #include "oid.h"

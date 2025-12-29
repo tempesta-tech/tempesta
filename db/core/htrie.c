@@ -32,7 +32,7 @@
 #include <asm/sync_bitops.h>
 
 #include "lib/str.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "htrie.h"
 
 #define TDB_MAX_PCP_SZ  (TDB_EXT_SZ / PAGE_SIZE) /* Store one extent per cpu. */

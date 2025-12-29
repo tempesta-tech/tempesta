@@ -39,7 +39,7 @@
 #include "tls_internal.h"
 #include "ttls.h"
 #include "tls_ticket.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");

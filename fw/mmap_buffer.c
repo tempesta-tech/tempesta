@@ -28,7 +28,7 @@
 
 #include "mmap_buffer.h"
 #include "lib/str.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 /*
  * We can't pass TfwMmapBufferHolder pointer to the file operations handlers.

@@ -24,7 +24,7 @@
 
 #include "sched.h"
 #include "tempesta_fw.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "apm.h"
 #include "log.h"
 #include "server.h"
