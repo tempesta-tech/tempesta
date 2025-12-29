@@ -24,7 +24,7 @@
 #include <linux/slab.h>
 
 #include "tf_conf.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "hash.h"
 #include "lib/tf.h"
 #include "log.h"

@@ -24,7 +24,7 @@
 #include <linux/bsearch.h>
 
 #include "tempesta_fw.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "cfg.h"
 #include "client.h"
 #include "connection.h"

@@ -39,7 +39,7 @@
 #include "client.h"
 #include "tls_conf.h"
 #include "lib/log.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 /*
  * The hash table entry for mapping @sni to @vhost for SAN certificates handling.
