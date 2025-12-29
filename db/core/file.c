@@ -324,15 +324,21 @@ tdb_file_open(TDB *db, unsigned long size)
 }
 
 void
+filp_umap_and_close(struct file *file, unsigned long addr, unsigned long len,
+		    int node)
+{
+	tempesta_unmap_file(file, addr, len, node);
+	filp_close(file, NULL);
+}
+
+void
 tdb_file_close(TDB *db)
 {
 	if (!db->hdr || !db->hdr->dbsz)
 		return;
 
-	tempesta_unmap_file(db->filp, (unsigned long)db->hdr, db->hdr->dbsz,
+	filp_umap_and_close(db->filp, (unsigned long)db->hdr, db->hdr->dbsz,
 			    db->node);
-
-	filp_close(db->filp, NULL);
 }
 
 int
