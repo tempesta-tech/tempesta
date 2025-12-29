@@ -33,7 +33,7 @@
 #include "log.h"
 #include "server.h"
 #include "procfs.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 /*
  * ------------------------------------------------------------------------

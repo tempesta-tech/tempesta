@@ -119,7 +119,7 @@
 
 #include "sync_socket.h"
 #include "lib/common.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 #define S_H2_METHOD		":method"
 #define S_H2_SCHEME		":scheme"

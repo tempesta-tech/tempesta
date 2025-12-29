@@ -35,7 +35,7 @@
 #include "oid.h"
 #include "pem.h"
 #include "tls_internal.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 /*
  *  Version  ::=  INTEGER  {  v1(0), v2(1)  }

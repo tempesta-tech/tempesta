@@ -26,7 +26,7 @@
 #include <linux/slab.h>
 
 #include "work_queue.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 int
 tfw_wq_init(TfwRBQueue *q, size_t qsize, int node)

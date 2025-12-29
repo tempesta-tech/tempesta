@@ -23,7 +23,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "file.h"
 #include "htrie.h"
 #include "table.h"

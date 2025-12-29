@@ -29,7 +29,7 @@
 #include "asn1.h"
 #include "bignum.h"
 #include "tls_internal.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 /**
  * Get the length of an ASN.1 element.

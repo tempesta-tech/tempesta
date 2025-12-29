@@ -45,7 +45,7 @@
 #include <linux/mm.h>
 
 #include "lib/str.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "pool.h"
 
 #define TFW_POOL_HEAD_OFF	(TFW_POOL_ALIGN_SZ(sizeof(TfwPool))	\

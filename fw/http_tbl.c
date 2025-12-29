@@ -103,7 +103,7 @@
 #include <linux/ctype.h>
 
 #include "http_tbl.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "tempesta_fw.h"
 #include "cfg.h"
 #include "http_match.h"

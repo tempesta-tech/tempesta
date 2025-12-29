@@ -23,7 +23,7 @@
 #include <linux/hashtable.h>
 #include <linux/slab.h>
 
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "hash.h"
 #include "lib/ja5.h"
 #include "log.h"

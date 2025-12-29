@@ -40,7 +40,7 @@
 
 #include "lib/hash.h"
 #include "tempesta_fw.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "log.h"
 #include "server.h"
 #include "http_msg.h"

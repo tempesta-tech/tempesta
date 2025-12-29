@@ -37,7 +37,7 @@
 #include "oid.h"
 #include "pem.h"
 #include "tls_internal.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 /* TODO: #830 start of unused definitions. */
 #define TTLS_X509_CRT_VERSION_1			0
