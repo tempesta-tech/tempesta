@@ -24,6 +24,8 @@
 #include "tdb.h"
 
 int tdb_file_open(TDB *db, unsigned long size);
+void filp_umap_and_close(struct file *file, unsigned long addr,
+			 unsigned long len, int node);
 void tdb_file_close(TDB *db);
 int tdb_init_mappings(void);
 
