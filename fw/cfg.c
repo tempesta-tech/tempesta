@@ -92,7 +92,7 @@
 #include "cfg.h"
 #include "client.h"
 #include "log.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 /*
  * ------------------------------------------------------------------------

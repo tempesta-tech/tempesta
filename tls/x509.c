@@ -33,7 +33,7 @@
  */
 #include "debug.h"
 #include "lib/common.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "ttls.h"
 #include "asn1.h"
 #include "oid.h"

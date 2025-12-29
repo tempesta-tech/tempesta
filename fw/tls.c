@@ -38,7 +38,7 @@
 #include "tls.h"
 #include "vhost.h"
 #include "tcp.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 /* Common tls configuration for all vhosts. */
 static TlsCfg tfw_tls_cfg;
