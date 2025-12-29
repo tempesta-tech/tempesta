@@ -27,7 +27,7 @@
 #include <linux/device.h>
 #include <linux/io.h>
 #include <asm/page.h>
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 /*
  * We can't pass TfwMmapBufferHolder pointer to the file operations handlers.

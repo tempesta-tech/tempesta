@@ -32,7 +32,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "debug.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 #include "ttls.h"
 #include "asn1.h"
 #include "oid.h"

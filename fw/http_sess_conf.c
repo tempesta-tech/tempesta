@@ -23,7 +23,7 @@
 #include "http_sess_conf.h"
 #include "http_sess.h"
 #include "vhost.h"
-#include "lib/alloc.h"
+#include "lib/fault_injection_alloc.h"
 
 /* Currently parsed vhost. */
 static TfwVhost *cur_vhost;

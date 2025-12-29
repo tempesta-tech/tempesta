@@ -19,7 +19,7 @@
  */
 #include <linux/error-injection.h>
 
-#include "alloc.h"
+#include "fault_injection_alloc.h"
 
 #ifdef CONFIG_FAULT_INJECTION
 
