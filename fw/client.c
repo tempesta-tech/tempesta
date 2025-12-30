@@ -139,6 +139,12 @@ tfw_client_put(TfwClient *cli)
 	tdb_rec_put(client_db, rec);
 }
 
+void
+tfw_client_get(TfwClient *cli)
+{
+	tdb_rec_keep(((TdbFRec *)cli) - 1);
+}
+
 typedef struct {
 	TfwAddr		addr;
 	TfwAddr		xff_addr;
@@ -193,6 +199,8 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 		ctx->init(cli);
 
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
+	atomic_set(&cli->mem, 0);
+	atomic_set(&cli->refcnt, 0);
 	ent->xff_addr = ctx->xff_addr;
 	tfw_str_to_cstr(&ctx->user_agent, ent->user_agent,
 			sizeof(ent->user_agent));

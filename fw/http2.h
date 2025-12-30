@@ -204,4 +204,10 @@ tfw_h2_is_ready_to_send(TfwH2Ctx *ctx)
 	return ctx->sched.root.active_cnt && ctx->rem_wnd;
 }
 
+static inline bool
+tfw_h2_or_stream_wnd_is_exceeded(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	return ctx->rem_wnd <= 0 || stream->rem_wnd <= 0;
+}
+
 #endif /* __HTTP2__ */

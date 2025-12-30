@@ -1797,7 +1797,7 @@ index 63de5c635..76e222130 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index 74149dc4e..a7244f2d0 100644
+index 74149dc4e..a10153df5 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -91,6 +91,9 @@
@@ -2419,7 +2419,17 @@ index 74149dc4e..a7244f2d0 100644
  
  	if (merge >= 0) {
  		fragfrom = &skb_shinfo(skb)->frags[0];
-@@ -4948,7 +5343,11 @@ struct sk_buff *skb_segment(struct sk_buff *head_skb,
+@@ -4305,6 +4700,9 @@ int skb_shift(struct sk_buff *tgt, struct sk_buff *skb, int shiftlen)
+ 
+ 	return shiftlen;
+ }
++#ifdef CONFIG_SECURITY_TEMPESTA
++EXPORT_SYMBOL(skb_shift);
++#endif
+ 
+ /**
+  * skb_prepare_seq_read - Prepare a sequential read of skb data
+@@ -4948,7 +5346,11 @@ struct sk_buff *skb_segment(struct sk_buff *head_skb,
  			}
  
  			*nskb_frag = (i < 0) ? skb_head_frag_to_page_desc(frag_skb) : *frag;
@@ -2431,7 +2441,7 @@ index 74149dc4e..a7244f2d0 100644
  			size = skb_frag_size(nskb_frag);
  
  			if (pos < offset) {
-@@ -5101,6 +5500,25 @@ static void skb_extensions_init(void) {}
+@@ -5101,6 +5503,25 @@ static void skb_extensions_init(void) {}
  
  void __init skb_init(void)
  {
@@ -2457,7 +2467,7 @@ index 74149dc4e..a7244f2d0 100644
  	net_hotdata.skbuff_cache = kmem_cache_create_usercopy("skbuff_head_cache",
  					      sizeof(struct sk_buff),
  					      0,
-@@ -5109,11 +5527,6 @@ void __init skb_init(void)
+@@ -5109,11 +5530,6 @@ void __init skb_init(void)
  					      offsetof(struct sk_buff, cb),
  					      sizeof_field(struct sk_buff, cb),
  					      NULL);
@@ -2469,7 +2479,7 @@ index 74149dc4e..a7244f2d0 100644
  	/* usercopy should only access first SKB_SMALL_HEAD_HEADROOM bytes.
  	 * struct skb_shared_info is located at the end of skb->head,
  	 * and should not be copied to/from user.
-@@ -5991,7 +6404,15 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
+@@ -5991,7 +6407,15 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
  {
  	if (head_stolen) {
  		skb_release_head_state(skb);
@@ -2485,7 +2495,7 @@ index 74149dc4e..a7244f2d0 100644
  	} else {
  		__kfree_skb(skb);
  	}
-@@ -6082,10 +6503,20 @@ bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
+@@ -6082,10 +6506,20 @@ bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
  	/* if the skb is not cloned this does nothing
  	 * since we set nr_frags to 0.
  	 */
@@ -2506,7 +2516,7 @@ index 74149dc4e..a7244f2d0 100644
  
  	to->truesize += delta;
  	to->len += len;
-@@ -6660,10 +7091,18 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -6660,10 +7094,18 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  	if (skb_pfmemalloc(skb))
  		gfp_mask |= __GFP_MEMALLOC;
  
@@ -2525,7 +2535,7 @@ index 74149dc4e..a7244f2d0 100644
  
  	/* Copy real data, and all frags */
  	skb_copy_from_linear_data_offset(skb, off, data, new_hlen);
-@@ -6676,7 +7115,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -6676,7 +7118,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  	if (skb_cloned(skb)) {
  		/* drop the old head gracefully */
  		if (skb_orphan_frags(skb, gfp_mask)) {
@@ -2537,7 +2547,7 @@ index 74149dc4e..a7244f2d0 100644
  			return -ENOMEM;
  		}
  		for (i = 0; i < skb_shinfo(skb)->nr_frags; i++)
-@@ -6693,7 +7136,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -6693,7 +7139,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  
  	skb->head = data;
  	skb->data = data;
@@ -2549,7 +2559,7 @@ index 74149dc4e..a7244f2d0 100644
  	skb_set_end_offset(skb, size);
  	skb_set_tail_pointer(skb, skb_headlen(skb));
  	skb_headers_offset_update(skb, 0);
-@@ -6776,15 +7223,27 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
+@@ -6776,15 +7226,27 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
  	if (skb_pfmemalloc(skb))
  		gfp_mask |= __GFP_MEMALLOC;
  
@@ -2577,7 +2587,7 @@ index 74149dc4e..a7244f2d0 100644
  		return -ENOMEM;
  	}
  	shinfo = (struct skb_shared_info *)(data + size);
-@@ -6820,13 +7279,21 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
+@@ -6820,13 +7282,21 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
  		/* skb_frag_unref() is not needed here as shinfo->nr_frags = 0. */
  		if (skb_has_frag_list(skb))
  			kfree_skb_list(skb_shinfo(skb)->frag_list);
