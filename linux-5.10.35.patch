@@ -634,6 +634,30 @@ index 038ce4e5e..7b09c1ccd 100644
  	__netif_tx_unlock(txq);
  
  	virtqueue_napi_complete(napi, sq->vq, 0);
+diff --git a/fs/proc/generic.c b/fs/proc/generic.c
+index 6c0a05f55..ecbf209ff 100644
+--- a/fs/proc/generic.c
++++ b/fs/proc/generic.c
+@@ -523,6 +523,9 @@ struct proc_dir_entry *proc_mkdir(const char *name,
+ 	return proc_mkdir_data(name, 0, parent, NULL);
+ }
+ EXPORT_SYMBOL(proc_mkdir);
++#ifdef CONFIG_SECURITY_TEMPESTA
++ALLOW_ERROR_INJECTION(proc_mkdir, NULL);
++#endif
+ 
+ struct proc_dir_entry *proc_create_mount_point(const char *name)
+ {
+@@ -580,6 +583,9 @@ struct proc_dir_entry *proc_create_data(const char *name, umode_t mode,
+ 	return proc_register(parent, p);
+ }
+ EXPORT_SYMBOL(proc_create_data);
++#ifdef CONFIG_SECURITY_TEMPESTA
++ALLOW_ERROR_INJECTION(proc_create_data, NULL);
++#endif
+  
+ struct proc_dir_entry *proc_create(const char *name, umode_t mode,
+ 				   struct proc_dir_entry *parent,
 diff --git a/include/crypto/aead.h b/include/crypto/aead.h
 index c32a6f566..5fe1addcc 100644
 --- a/include/crypto/aead.h
