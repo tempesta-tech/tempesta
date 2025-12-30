@@ -136,6 +136,7 @@ typedef struct {
  *                        calculated;
  * @req_rate_tf		- Time frame in which @req_rate and @req_burst are
  *                        calculated;
+ * @ip_block_duration	- Timeout in seconds after client must be unblocked;
  * @ip_block		- Block clients by IP address if set, if not - just
  *			  close the client connection.
  *
@@ -162,6 +163,7 @@ struct frang_global_cfg_t {
 	unsigned short		conn_rate_tf;
 	unsigned short		req_rate_tf;
 
+	unsigned int 		ip_block_duration;
 	bool			ip_block;
 };
 

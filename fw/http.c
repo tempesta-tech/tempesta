@@ -5524,7 +5524,8 @@ tfw_http_req_filter_block_ip(TfwHttpReq *req)
 		goto out;
 
 	if (dflt_vh->frang_gconf->ip_block)
-		tfw_filter_block_ip(cli);
+		tfw_filter_block_ip(cli,
+				    dflt_vh->frang_gconf->ip_block_duration);
 
 out:
 	tfw_vhost_put(dflt_vh);
