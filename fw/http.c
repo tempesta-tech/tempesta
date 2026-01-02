@@ -2970,6 +2970,52 @@ tfw_http_conn_release(TfwConn *conn)
 	}
 }
 
+static inline void
+tfw_http_free_req_carefully(TfwHttpReq *req, struct list_head *resp_del_queue)
+{
+	TfwHttpResp *resp = req->resp;
+
+	/*
+	 * If `resp->conn` is not zero and response keeps the last
+	 * reference to the connection, we can't free this response
+	 * under the `cli_conn->seq_qlock` or `cli->ret_qlock`.
+	 * If response will be freed here, server connection will be
+	 * released here and all requests from `fwd_list` will be freed
+	 * or resent (depends on `ss_active`). Such requests are freed
+	 * under the `cli_conn->seq_qlock` or resent under the
+	 * `cli->ret_qlock`, where `cli_conn` is a appropriate client
+	 * connection, which can be the same as current `cli_conn`.
+	 */
+	if (!resp->conn
+	    || !__tfw_connection_get_if_last_ref(resp->conn))
+	{
+		tfw_http_resp_pair_free(req);
+	} else {
+		TfwHttpMsg *hmreq = (TfwHttpMsg *)req;
+
+		list_add_tail(&resp->msg.seq_list, resp_del_queue);
+		if (req->conn)
+			tfw_http_conn_msg_unlink_conn(hmreq);
+		tfw_http_msg_free(hmreq);
+	}
+}
+
+static inline void
+tfw_http_clear_resp_del_queue(struct list_head *resp_del_queue)
+{
+	TfwHttpResp *resp, *tmp_resp;
+	/*
+	 * TODO #687 Should be removed during reworking current architecture of
+	 * the locking of `seq_queue` in client connections and `fwd_queue`
+	 * in server connection.
+	 */
+	list_for_each_entry_safe(resp, tmp_resp, resp_del_queue, msg.seq_list) {
+		tfw_connection_put(resp->conn);
+		tfw_http_conn_msg_unlink_conn((TfwHttpMsg *)resp);
+		tfw_http_msg_free((TfwHttpMsg *)resp);
+	}
+}
+
 /*
  * Drop client connection's resources.
  *
@@ -2989,7 +3035,6 @@ static void
 tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 {
 	TfwHttpReq *req, *tmp_req;
-	TfwHttpResp *resp, *tmp_resp;
 	LIST_HEAD(resp_del_queue);
 	struct list_head *seq_queue = &cli_conn->seq_queue;
 
@@ -3019,50 +3064,13 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 		smp_mb__before_atomic();
 		set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
 		if (unused) {
-			resp = req->resp;
-
-			/*
-			 * If `resp->conn` is not zero and response keeps the
-			 * last reference to the connection, we can't free
-			 * this response under the `cli_conn->seq_qlock`.
-			 * If response will be freed here, server connection
-			 * will be released here and all requests from
-			 * `fwd_list` will be freed. Such requests are freed
-			 * under the `cli_conn->seq_qlock`, where `cli_conn`
-			 * is a appropriate client connection, which can be
-			 * the same as current `cli_conn`.
-			 */
-			if (!resp->conn
-			    || !__tfw_connection_get_if_last_ref(resp->conn))
-			{
-				tfw_http_resp_pair_free(req);
-			} else {
-				TfwHttpMsg *hmreq = (TfwHttpMsg *)req;
-
-				list_add_tail(&resp->msg.seq_list,
-					      &resp_del_queue);
-				if (req->conn)
-					tfw_http_conn_msg_unlink_conn(hmreq);
-				tfw_http_msg_free(hmreq);
-			 }
-
+			tfw_http_free_req_carefully(req, &resp_del_queue);			
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 	}
 	spin_unlock(&cli_conn->seq_qlock);
 
-	/*
-	 * TODO #687 Should be removed during reworking current architecture of
-	 * the locking of `seq_queue` in client connections and `fwd_queue`
-	 * in server connection.
-	 */
-	list_for_each_entry_safe(resp, tmp_resp, &resp_del_queue,
-				 msg.seq_list)
-		{
-		tfw_connection_put(resp->conn);
-		tfw_http_conn_msg_unlink_conn((TfwHttpMsg *)resp);
-		tfw_http_msg_free((TfwHttpMsg *)resp);
-	}
+	tfw_http_clear_resp_del_queue(&resp_del_queue);
 }
 
 /*
@@ -4526,7 +4534,8 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
  * responses are taken care of by the caller.
  */
 static void
-__tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
+__tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue,
+		    struct list_head *resp_del_queue)
 {
 	TfwHttpReq *req, *tmp;
 
@@ -4547,7 +4556,7 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 		tfw_inc_global_hm_stats(req->resp->status);
 		list_del_init(&req->msg.seq_list);
 		if (!send_cont)
-			tfw_http_resp_pair_free(req);
+			tfw_http_free_req_carefully(req, resp_del_queue);
 		else
 			tfw_http_msg_free(req->pair);
 	}
@@ -4574,6 +4583,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	struct list_head *seq_queue = &cli_conn->seq_queue;
 	struct list_head *req_retent = NULL;
 	LIST_HEAD(ret_queue);
+	LIST_HEAD(resp_del_queue);
 
 	T_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
 	WARN_ON_ONCE(req->resp != resp);
@@ -4602,9 +4612,9 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 		 */
 		__tfw_http_ws_connection_put(cli_conn);
 		tfw_connection_close(req->conn, true);
-		tfw_http_resp_pair_free(req);
+		tfw_http_free_req_carefully(req, &resp_del_queue);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
-		return;
+		goto clear_del_queue;
 	}
 	BUG_ON(list_empty(&req->msg.seq_list));
 	set_bit(TFW_HTTP_B_RESP_READY, resp->flags);
@@ -4654,7 +4664,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	spin_lock_bh(&cli_conn->ret_qlock);
 	spin_unlock_bh(&cli_conn->seq_qlock);
 
-	__tfw_http_resp_fwd(cli_conn, &ret_queue);
+	__tfw_http_resp_fwd(cli_conn, &ret_queue, &resp_del_queue);
 
 	/* Zap request/responses that were not sent due to an error. */
 	if (!list_empty(&ret_queue)) {
@@ -4666,15 +4676,21 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 			list_del_init(&req->msg.seq_list);
 			if (!test_bit(TFW_HTTP_B_CONTINUE_RESP,
 				     req->resp->flags))
-				tfw_http_resp_pair_free(req);
-			else
+			{
+				tfw_http_free_req_carefully(req,
+							    &resp_del_queue);
+			} else {
 				tfw_http_msg_free(req->pair);
+			}
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 	}
 
 	spin_unlock_bh(&cli_conn->ret_qlock);
 	tfw_connection_put((TfwConn *)(cli_conn));
+
+clear_del_queue:
+	tfw_http_clear_resp_del_queue(&resp_del_queue);
 }
 
 int
