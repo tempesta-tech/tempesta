@@ -39,6 +39,7 @@
 #include "tls_internal.h"
 #include "ttls.h"
 #include "tls_ticket.h"
+#include "lib/fault_injection_alloc.h"
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
@@ -179,7 +180,7 @@ ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
 	sz += n * sizeof(**sg);
 
 	/* Don't use g_req for better spacial locality. */
-	req = kmalloc(sz, GFP_ATOMIC);
+	req = tfw_kmalloc(sz, GFP_ATOMIC);
 	if (!req)
 		return NULL;
 	*sg = (struct scatterlist *)((char *)req + aead_sz);
@@ -335,7 +336,7 @@ ttls_session_copy(TlsSess *dst, const TlsSess *src)
 	}
 
 	if (src->ticket) {
-		dst->ticket = kmalloc(src->ticket_len, GFP_ATOMIC);
+		dst->ticket = tfw_kmalloc(src->ticket_len, GFP_ATOMIC);
 		if (!dst->ticket)
 			return -ENOMEM;
 
@@ -834,7 +835,7 @@ ttls_make_aad(const TlsCtx *tls, TlsIOCtx *io, unsigned char *aad_buf)
  * Use per-cpu AEAD crypto requests in static memory instead of allocating them
  * each time from the heap. Tempesta TLS works in softirq context, so there are
  * no concurrent crypto requests on the same CPU and there is no preemption.
- * Fallabck to kmalloc() if we use not enough reserved memory in TlsReq and
+ * Fallback to kmalloc() if we use not enough reserved memory in TlsReq and
  * print a warning to reserve bit more memory.
  */
 struct aead_request *
@@ -844,7 +845,7 @@ ttls_aead_req_alloc(struct crypto_aead *tfm)
 
 	WARN_ON_ONCE(!in_serving_softirq());
 	if (WARN_ON_ONCE(ttls_aead_reqsize() < need))
-		return kzalloc(need, GFP_ATOMIC);
+		return tfw_kzalloc(need, GFP_ATOMIC);
 
 	return *this_cpu_ptr(&g_req);
 }
@@ -2064,7 +2065,7 @@ ttls_conf_own_cert(TlsPeerCfg *conf, TlsX509Crt *own_cert, TlsPkCtx *pk_key,
 {
 	TlsKeyCert *new;
 
-	if (!(new = kmalloc(sizeof(TlsKeyCert), GFP_KERNEL)))
+	if (!(new = tfw_kmalloc(sizeof(TlsKeyCert), GFP_KERNEL)))
 		return -ENOMEM;
 
 	new->cert = own_cert;
@@ -2160,7 +2161,7 @@ ttls_set_hostname(TlsCtx *tls, const char *hostname)
 	if (!hostname) {
 		tls->hostname = NULL;
 	} else {
-		tls->hostname = kmalloc(hostname_len + 1, GFP_ATOMIC);
+		tls->hostname = tfw_kmalloc(hostname_len + 1, GFP_ATOMIC);
 		if (!tls->hostname)
 			return -ENOMEM;
 
@@ -2947,7 +2948,7 @@ ttls_init(void)
 
 	for_each_online_cpu(cpu) {
 		struct aead_request **req = per_cpu_ptr(&g_req, cpu);
-		*req = kmalloc(ttls_aead_reqsize(), GFP_KERNEL);
+		*req = tfw_kmalloc(ttls_aead_reqsize(), GFP_KERNEL);
 		if (!*req)
 			goto err_free;
 	}

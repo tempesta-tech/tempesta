@@ -29,6 +29,7 @@
 #include "asn1.h"
 #include "bignum.h"
 #include "tls_internal.h"
+#include "lib/fault_injection_alloc.h"
 
 /**
  * Get the length of an ASN.1 element.
@@ -263,8 +264,8 @@ ttls_asn1_get_sequence_of(const unsigned char **p, const unsigned char *end,
 
 		/* Allocate and assign next pointer */
 		if (*p < end) {
-			cur->next = kmalloc(sizeof(ttls_asn1_sequence),
-					    GFP_KERNEL);
+			cur->next = tfw_kmalloc(sizeof(ttls_asn1_sequence),
+						GFP_KERNEL);
 			if (!cur->next)
 				return -ENOMEM;
 			cur = cur->next;

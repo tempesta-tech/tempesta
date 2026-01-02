@@ -46,6 +46,7 @@
 #include <linux/error-injection.h>
 
 #include "lib/str.h"
+#include "lib/fault_injection_alloc.h"
 #include "pool.h"
 
 #define TFW_POOL_HEAD_OFF	(TFW_POOL_ALIGN_SZ(sizeof(TfwPool))	\
@@ -283,7 +284,7 @@ tfw_pool_destroy(TfwPool *p)
 int
 tfw_pool_init(void)
 {
-	pg_cache = alloc_percpu(unsigned long [TFW_POOL_PGCACHE_SZ]);
+	pg_cache = tfw_alloc_percpu(unsigned long [TFW_POOL_PGCACHE_SZ]);
 	if (pg_cache == NULL)
 		return -ENOMEM;
 	return 0;

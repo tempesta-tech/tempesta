@@ -28,6 +28,7 @@
 #if DBG_APM > 0
 #define DEBUG DBG_APM
 #endif
+#include "lib/fault_injection_alloc.h"
 #include "lib/str.h"
 #include "apm.h"
 #include "cfg.h"
@@ -1234,7 +1235,7 @@ tfw_apm_data_init(TfwApmData *data)
 	for_each_online_cpu(icpu) {
 		TfwApmUBEnt *ubent;
 		TfwApmUBuf *ubuf = per_cpu_ptr(data->ubuf, icpu);
-		ubent = kmalloc_node(size, GFP_KERNEL, cpu_to_node(icpu));
+		ubent = tfw_kmalloc_node(size, GFP_KERNEL, cpu_to_node(icpu));
 		if (!ubent)
 			return ERR_PTR(-ENOMEM);
 		for (i = 0; i < 2 * TFW_APM_UBUF_SZ; ++i)
@@ -1263,7 +1264,7 @@ tfw_apm_ref_create(void)
 	TfwApmHMStats *hmstats;
 	TfwApmHMCfg *ent;
 
-	if ((ref = kzalloc(size, GFP_ATOMIC)) == NULL)
+	if ((ref = tfw_kzalloc(size, GFP_ATOMIC)) == NULL)
 		return ERR_PTR(-ENOMEM);
 
 	/*
@@ -1307,7 +1308,7 @@ tfw_apm_data_create(void)
 	TfwApmData *data;
 	void *r;
 
-	if ((data = kzalloc(size, GFP_ATOMIC)) == NULL)
+	if ((data = tfw_kzalloc(size, GFP_ATOMIC)) == NULL)
 		return ERR_PTR(-ENOMEM);
 
 	r = tfw_apm_data_init(data);
@@ -1600,7 +1601,7 @@ tfw_apm_hm_stats(void *apmref)
 	if (!hmctl->hmstats)
 		return NULL;
 
-	stats = kmalloc(tfw_hm_stats_size(tfw_hm_codes_cnt), GFP_KERNEL);
+	stats = tfw_kmalloc(tfw_hm_stats_size(tfw_hm_codes_cnt), GFP_KERNEL);
 	if (!stats)
 		return NULL;
 	tfw_hm_stats_init(stats, tfw_hm_codes_cnt);
@@ -1641,7 +1642,7 @@ tfw_cfgop_apm_add_hm(const char *name)
 {
 	int size = strlen(name) + 1;
 	BUG_ON(tfw_hm_entry);
-	tfw_hm_entry = kzalloc(sizeof(TfwApmHM) + size, GFP_KERNEL);
+	tfw_hm_entry = tfw_kzalloc(sizeof(TfwApmHM) + size, GFP_KERNEL);
 	if (!tfw_hm_entry) {
 		T_ERR_NL("Can't allocate health check entry '%s'\n", name);
 		return -ENOMEM;
@@ -1680,7 +1681,7 @@ tfw_cfgop_apm_add_hm_url(const char *url, TfwApmHM *hm_entry)
 	int size;
 
 	size = strlen(url);
-	mptr = kzalloc(size, GFP_KERNEL);
+	mptr = tfw_kzalloc(size, GFP_KERNEL);
 	if (!mptr) {
 		T_ERR_NL("Can't allocate memory for '%s'\n", url);
 		return -ENOMEM;
@@ -1695,8 +1696,8 @@ tfw_cfgop_apm_add_hm_url(const char *url, TfwApmHM *hm_entry)
 static inline int
 tfw_cfgop_apm_alloc_hm_codes(TfwApmHM *hm_entry)
 {
-	tfw_hm_entry->codes = kzalloc(BITS_TO_LONGS(512) * sizeof(long),
-				      GFP_KERNEL);
+	tfw_hm_entry->codes = tfw_kzalloc(BITS_TO_LONGS(512) * sizeof(long),
+					  GFP_KERNEL);
 	if (!tfw_hm_entry->codes) {
 		T_ERR_NL("Can't allocate memory for HTTP codes field for '%s' "
 			 "health check entry\n",
@@ -1768,7 +1769,7 @@ tfw_apm_create_def_hm(void)
 static TfwApmHMCfg *
 tfw_apm_create_hm_entry(void)
 {
-	TfwApmHMCfg *hm_entry = kzalloc(sizeof(TfwApmHMCfg), GFP_KERNEL);
+	TfwApmHMCfg *hm_entry = tfw_kzalloc(sizeof(TfwApmHMCfg), GFP_KERNEL);
 	if (!hm_entry)
 		return NULL;
 

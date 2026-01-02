@@ -33,6 +33,7 @@
 #include "log.h"
 #include "server.h"
 #include "procfs.h"
+#include "lib/fault_injection_alloc.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -993,7 +994,7 @@ tfw_cfgop_sg_copy_sched_arg(void **to, void *from)
 	}
 
 	/* Currently only one type of sched argument is used. */
-	if (!(*to = kzalloc(sizeof(TfwSchrefPredict), GFP_KERNEL)))
+	if (!(*to = tfw_kzalloc(sizeof(TfwSchrefPredict), GFP_KERNEL)))
 		return -ENOMEM;
 	memcpy(*to, from, sizeof(TfwSchrefPredict));
 
@@ -1214,7 +1215,7 @@ static bool
 tfw_cfgop_sg_set_hm_name(TfwCfgSrvGroup *sg_cfg, const char *hname)
 {
 	size_t size = strlen(hname) + 1;
-	sg_cfg->hm_name = kmalloc(size, GFP_KERNEL);
+	sg_cfg->hm_name = tfw_kmalloc(size, GFP_KERNEL);
 	if (!sg_cfg->hm_name)
 		return false;
 

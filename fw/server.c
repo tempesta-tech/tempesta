@@ -33,6 +33,7 @@
 #include "client.h"
 #include "log.h"
 #include "server.h"
+#include "lib/fault_injection_alloc.h"
 
 /* Use SLAB for frequent server allocations in forward proxy mode. */
 static struct kmem_cache *srv_cache;
@@ -220,7 +221,7 @@ tfw_sg_new(const char *name, unsigned int len, gfp_t flags)
 
 	T_DBG("Create new server group: '%s'\n", name);
 
-	sg = kzalloc(sizeof(*sg) + name_size, flags);
+	sg = tfw_kzalloc(sizeof(*sg) + name_size, flags);
 	if (!sg)
 		return NULL;
 

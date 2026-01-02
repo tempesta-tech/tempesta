@@ -103,6 +103,7 @@
 #include <linux/ctype.h>
 
 #include "http_tbl.h"
+#include "lib/fault_injection_alloc.h"
 #include "tempesta_fw.h"
 #include "cfg.h"
 #include "http_match.h"
@@ -521,8 +522,8 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 			return -EINVAL;
 		}
 
-		url->chunks = kzalloc((TFW_HTTP_MAX_REDIR_VARS + 1) *
-				      sizeof(TfwStr), GFP_KERNEL);
+		url->chunks = tfw_kzalloc((TFW_HTTP_MAX_REDIR_VARS + 1) *
+					  sizeof(TfwStr), GFP_KERNEL);
 		if (!url->chunks) {
 			T_ERR_NL("http_tbl: can't allocate memory for "
 				 "redirections\n");
@@ -534,7 +535,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 #define CREATE_CHUNK()                                                \
 do {                                                                  \
-	url->chunks[i].data = kmalloc(pos - begin + 1, GFP_KERNEL);   \
+	url->chunks[i].data = tfw_kmalloc(pos - begin + 1, GFP_KERNEL); \
 	if (!url->chunks[i].data) {                                   \
 		T_ERR_NL("http_tbl: can't allocate memory for "       \
 			 "redirections\n");                           \

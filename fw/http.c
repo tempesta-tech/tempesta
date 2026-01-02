@@ -119,6 +119,7 @@
 
 #include "sync_socket.h"
 #include "lib/common.h"
+#include "lib/fault_injection_alloc.h"
 
 #define S_H2_METHOD		":method"
 #define S_H2_SCHEME		":scheme"
@@ -8122,8 +8123,8 @@ tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 
 	tfw_wl_marks.sz = ce->val_n;
-	if (!(tfw_wl_marks.mrks = kmalloc(ce->val_n * sizeof(unsigned int),
-					  GFP_KERNEL)))
+	if (!(tfw_wl_marks.mrks = tfw_kmalloc(ce->val_n * sizeof(unsigned int),
+					      GFP_KERNEL)))
 		return -ENOMEM;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {

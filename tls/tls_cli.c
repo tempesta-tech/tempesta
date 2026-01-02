@@ -1799,7 +1799,7 @@ static int ssl_parse_new_session_ticket(TlsCtx *ssl)
 	ssl->session_negotiate->ticket = NULL;
 	ssl->session_negotiate->ticket_len = 0;
 
-	if ((ticket = kzalloc(ticket_len, GFP_ATOMIC)) == NULL)
+	if ((ticket = tfw_kzalloc(ticket_len, GFP_ATOMIC)) == NULL)
 	{
 		T_WARN("ticket memory allocation failed\n");
 		ttls_send_alert_msg(ssl, TTLS_ALERT_LEVEL_FATAL,

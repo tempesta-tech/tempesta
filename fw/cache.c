@@ -46,6 +46,7 @@
 #include "sync_socket.h"
 #include "work_queue.h"
 #include "lib/common.h"
+#include "lib/fault_injection_alloc.h"
 
 #if MAX_NUMNODES > ((1 << 16) - 1)
 #warning "Please set CONFIG_NODES_SHIFT to less than 16"
@@ -395,7 +396,7 @@ tfw_init_node_cpus(void)
 
 	T_DBG2("nr_online_nodes: %d", nr_online_nodes);
 
-	c_nodes = kzalloc(nr_online_nodes * sizeof(CaNode), GFP_KERNEL);
+	c_nodes = tfw_kzalloc(nr_online_nodes * sizeof(CaNode), GFP_KERNEL);
 	if(!c_nodes) {
 		T_ERR("Failed to allocate nodes map for cache work scheduler");
 		return -ENOMEM;
@@ -404,10 +405,11 @@ tfw_init_node_cpus(void)
 	for_each_node_with_cpus(node) {
 		nr_cpus = nr_cpus_node(node);
 		T_DBG2("node: %d  nr_cpus: %d",node, nr_cpus);
-		c_nodes[node].cpu = kmalloc(nr_cpus * sizeof(int), GFP_KERNEL);
+		c_nodes[node].cpu = tfw_kzalloc(nr_cpus * sizeof(int),
+						GFP_KERNEL);
 		if(!c_nodes[node].cpu) {
-			T_ERR("Failed to allocate CPU array for node %d for cache work scheduler",
-				node);
+			T_ERR("Failed to allocate CPU array for node "
+			      "%d for cache work scheduler", node);
 			return -ENOMEM;
 		}
 	}
@@ -3594,15 +3596,13 @@ tfw_cache_start(void)
 		return 0;
 
 	if ((r = tfw_init_node_cpus()))
-		goto node_cpus_alloc_err;
+		return r;
 
 	for_each_node_with_cpus(i) {
 		c_nodes[i].db = tdb_open(cache_cfg.db_path,
 					 cache_cfg.db_size, 0, i);
-		if (!c_nodes[i].db) {
-			r = -ENOMEM;
-			goto close_db;
-		}
+		if (!c_nodes[i].db)
+			return -ENOMEM;
 		c_nodes[i].db->hdr->before_free = tfw_cache_decrease_stat;
 	}
 #if 0
@@ -3619,39 +3619,23 @@ tfw_cache_start(void)
 		if (unlikely(r = tfw_cache_wq_init(i))) {
 			T_ERR_NL("%s: Can't initialize cache work"
 				 " queue for CPU #%d\n", __func__, i);
-			goto free_tasklet;
+			return r;
 		}
 	}
 
 #if defined(DEBUG)
 	for_each_online_cpu(i) {
-		char *dbg_buf = kmalloc_node(CE_DBGBUF_LEN, GFP_KERNEL,
-					     cpu_to_node(i));
+		char *dbg_buf = tfw_kmalloc_node(CE_DBGBUF_LEN, GFP_KERNEL,
+						 cpu_to_node(i));
 		if (!dbg_buf) {
 			T_WARN("Failed to allocate CE dump buffer\n");
-			goto dbg_buf_free;
+			return -ENOMEM;
 		}
 		per_cpu(ce_dbg_buf, i) = dbg_buf;
 	}
 #endif
 
 	return 0;
-
-#if defined(DEBUG)
-dbg_buf_free:
-	for_each_online_cpu(i)
-		kfree(per_cpu(ce_dbg_buf, i));
-#endif
-free_tasklet:
-	for_each_online_cpu(i)
-		tfw_cache_wq_clear(i);
-close_db:
-	for_each_node_with_cpus(i)
-		tdb_close(c_nodes[i].db);
-
-node_cpus_alloc_err:
-	tfw_release_node_cpus();
-	return r;
 }
 
 static void
@@ -3664,6 +3648,9 @@ tfw_cache_stop(void)
 	if (tfw_runstate_is_reconfig())
 		return;
 	if (!cache_cfg.cache)
+		return;
+
+	if (!c_nodes)
 		return;
 
 	for_each_online_cpu(i)

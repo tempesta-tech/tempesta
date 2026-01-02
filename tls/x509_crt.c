@@ -37,6 +37,7 @@
 #include "oid.h"
 #include "pem.h"
 #include "tls_internal.h"
+#include "lib/fault_injection_alloc.h"
 
 /* TODO: #830 start of unused definitions. */
 #define TTLS_X509_CRT_VERSION_1			0
@@ -502,8 +503,8 @@ x509_get_subject_alt_name(const unsigned char **p, const unsigned char *end,
 			if (cur->next)
 				return TTLS_ERR_X509_INVALID_EXTENSIONS;
 
-			cur->next = kzalloc(sizeof(ttls_asn1_sequence),
-					    GFP_KERNEL);
+			cur->next = tfw_kzalloc(sizeof(ttls_asn1_sequence),
+						GFP_KERNEL);
 			if (!cur->next)
 				return -ENOMEM;
 

@@ -92,6 +92,7 @@
 #include "cfg.h"
 #include "client.h"
 #include "log.h"
+#include "lib/fault_injection_alloc.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -118,7 +119,7 @@ __alloc_and_copy_literal(const char *src, size_t len, bool keep_bs)
 
 	BUG_ON(!src);
 
-	dst = kmalloc(len + 1, GFP_KERNEL);
+	dst = tfw_kmalloc(len + 1, GFP_KERNEL);
 	if (!dst) {
 		T_ERR_NL("can't allocate memory\n");
 		return NULL;
@@ -1085,6 +1086,11 @@ spec_handle_default(TfwCfgSpec *spec)
 	memset(&ps, 0, sizeof(ps));
 	ps.line = ps.in = ps.pos = fake_entry_buf;
 	parse_cfg_entry(&ps);
+	if (ps.err == -ENOMEM) {
+		entry_reset(&ps.e);
+		return ps.err;
+	}
+
 	BUG_ON(!ps.e.name);
 	BUG_ON(ps.err);
 	BUG_ON(ps.t != TOKEN_NA);
@@ -2066,7 +2072,7 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 	buf_size += 1; /* for '\0' */
 	*file_size = buf_size;
 
-	if (!(out_buf = kmalloc(buf_size, GFP_KERNEL))) {
+	if (!(out_buf = tfw_kmalloc(buf_size, GFP_KERNEL))) {
 		T_ERR_NL("can't allocate memory\n");
 		goto err_alloc;
 	}

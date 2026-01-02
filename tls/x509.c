@@ -32,6 +32,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "debug.h"
+#include "lib/fault_injection_alloc.h"
 #include "ttls.h"
 #include "asn1.h"
 #include "oid.h"
@@ -426,7 +427,8 @@ ttls_x509_get_name(const unsigned char **p, const unsigned char *end,
 			/* Mark this item as being no the only one in a set */
 			cur->next_merged = 1;
 
-			cur->next = kzalloc(sizeof(ttls_x509_name), GFP_KERNEL);
+			cur->next = tfw_kzalloc(sizeof(ttls_x509_name),
+						GFP_KERNEL);
 			if (!cur->next)
 				return TTLS_ERR_X509_ALLOC_FAILED;
 
@@ -437,7 +439,7 @@ ttls_x509_get_name(const unsigned char **p, const unsigned char *end,
 		if (*p == end)
 			return 0;
 
-		cur->next = kzalloc(sizeof(ttls_x509_name), GFP_KERNEL);
+		cur->next = tfw_kzalloc(sizeof(ttls_x509_name), GFP_KERNEL);
 		if (!cur->next)
 			return TTLS_ERR_X509_ALLOC_FAILED;
 
@@ -629,7 +631,8 @@ int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig
 	{
 		ttls_pk_rsassa_pss_options *pss_opts;
 
-		pss_opts = kzalloc(sizeof(ttls_pk_rsassa_pss_options), GFP_KERNEL);
+		pss_opts = tfw_kzalloc(sizeof(ttls_pk_rsassa_pss_options),
+				       GFP_KERNEL);
 		if (pss_opts == NULL)
 			return(TTLS_ERR_X509_ALLOC_FAILED);
 

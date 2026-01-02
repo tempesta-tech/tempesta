@@ -1,8 +1,7 @@
 /**
- *		Tempesta DB
+ *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,15 +17,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __FILE_H__
-#define __FILE_H__
+#ifndef __MM_H__
+#define __MM_H__
 
-#include "tdb.h"
+#include <linux/slab.h>
 
-int tdb_file_open(TDB *db, unsigned long size);
-void filp_umap_and_close(struct file *file, unsigned long addr,
-			 unsigned long len, int node);
-void tdb_file_close(TDB *db);
-int tdb_init_mappings(void);
-
-#endif /* __FILE_H__ */
+#endif /* __MM_H__ */
