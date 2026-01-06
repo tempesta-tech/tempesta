@@ -108,13 +108,6 @@
  *    soon as the last client releases the server connection.
  */
 
-
-typedef enum {
-	SOCK_SRV_CONN_SUCCESS,
-	SOCK_SRV_CONN_NEED_RELEASE = -1,
-	SOCK_SRV_CONN_NEED_CLOSE_SK = -2,
-} SockSrvConnResult;
-
 #define srv_warn(check, addr, fmt, ...)					\
 	T_WARN_MOD_ADDR(sock_srv, check, addr, TFW_WITH_PORT, fmt,	\
 			##__VA_ARGS__)
@@ -256,7 +249,7 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
  *
  * Used only in timer callback.
  */
-static SockSrvConnResult
+static void
 tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 {
 	int r;
@@ -276,11 +269,12 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 		 */
 		if (r == -ENOBUFS) {
 			T_WARN("Not enough memory to create server socket\n");
+			tfw_srv_conn_release(srv_conn);
 		} else {
 			T_ERR("Unable to create server socket\n");
 			tfw_srv_conn_stop(srv_conn);
 		}
-		return r == -ENOBUFS ? SOCK_SRV_CONN_NEED_RELEASE : 0;
+		return;
 	}
 
 	/*
@@ -327,10 +321,8 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 			T_ERR("Unable to initiate a connect to server: %d\n",
 				r);
 		/* Another try is handled in tfw_srv_conn_release() */
-		return SOCK_SRV_CONN_NEED_CLOSE_SK;
+		ss_close_not_connected_socket(srv_conn->sk);
 	}
-
-	return 0;
 }
 
 void
@@ -340,66 +332,40 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 
 	TfwServer *srv = from_timer(srv, t, rc_timer);
 	unsigned int i, count = 0;
-	bool stop = false;
-	TfwSrvConn *srv_conn, *tmp;
-	LIST_HEAD(conn_released_queue);
-	LIST_HEAD(conn_closed_queue);
-	SockSrvConnResult r;
+	TfwSrvConn *srv_conn;
+	bool was_reconnected = false, stop = false;
 
-	spin_lock_bh(&srv->reconn_lock);
-	for (i = 0; i < tfw_srv_tmo_nr; i++) {
-		if (!stop && !list_empty(&srv->reconns[i])) {
-			list_for_each_entry_safe(srv_conn, tmp,
-						 &srv->reconns[i],
-						 in_reconn_list)
-			{
-				/*
-				 * A new socket is created for each connect
-				 * attempt.
-				 */
-				list_del_init(&srv_conn->in_reconn_list);
-				srv->reconns_cnt--;
-				r = tfw_sock_srv_connect_try(srv_conn);
-				switch (r) {
-				case SOCK_SRV_CONN_NEED_RELEASE:
-					list_add(&srv_conn->tmp,
-						 &conn_released_queue);
-					break;
-				case SOCK_SRV_CONN_NEED_CLOSE_SK:
-					list_add(&srv_conn->tmp,
-						 &conn_closed_queue);
-					break;
-				case SOCK_SRV_CONN_SUCCESS:
-				default:
-					break;
-				}
-				if (count++ > TFW_SRV_MAX_RECONNECT_PER_TIME) {
-					stop = true;
-					break;
-				}
+	for (i = 0; i < tfw_srv_tmo_nr && !stop; i++) {
+		LIST_HEAD(to_send);
+
+		spin_lock_bh(&srv->reconn_lock);
+		list_splice_tail_init(&to_send, &srv->reconns[i]);
+		spin_unlock_bh(&srv->reconn_lock);
+			
+		list_for_each_entry(srv_conn, &to_send, in_reconn_list) {
+			list_del_init(&srv_conn->in_reconn_list);
+			srv->reconns_cnt--;
+			tfw_sock_srv_connect_try(srv_conn);
+			if (count++ > TFW_SRV_MAX_RECONNECT_PER_TIME) {
+				stop = true;
+				break;
 			}
 		}
 
-		if (stop && !list_empty(&srv->reconns[i]))
+		spin_lock_bh(&srv->reconn_lock);
+		was_reconnected = was_reconnected ||
+			!list_empty(&srv->reconns[i]);
+		list_splice_tail_init(&srv->reconns[i], &to_send);
+		spin_unlock_bh(&srv->reconn_lock);
+	}
+
+	while (!was_reconnected || i < tfw_srv_tmo_nr) {
+		if (!list_empty(&srv->reconns[i])) {
+			mod_timer(&srv->rc_timer,
+				  jiffies + msecs_to_jiffies(tfw_srv_tmo_vals[i]));
 			break;
-	}
-	spin_unlock_bh(&srv->reconn_lock);
-
-	list_for_each_entry_safe(srv_conn, tmp, &conn_released_queue, tmp)
-	{
-		list_del_init(&srv_conn->tmp);
-		tfw_srv_conn_release(srv_conn);
-	}
-
-	list_for_each_entry_safe(srv_conn, tmp, &conn_closed_queue, tmp)
-	{
-		list_del_init(&srv_conn->tmp);
-		ss_close_not_connected_socket(srv_conn->sk);
-	}
-
-	if (i < tfw_srv_tmo_nr) {
-		mod_timer(&srv->rc_timer,
-			  jiffies + msecs_to_jiffies(tfw_srv_tmo_vals[i]));
+		}
+		i++;
 	}
 
 #undef TFW_SRV_MAX_RECONNECT_PER_TIME
@@ -745,7 +711,6 @@ tfw_srv_conn_alloc(void)
 	memset((char *)srv_conn + sizeof(TfwConn), 0,
 	       sizeof(TfwSrvConn) - sizeof(TfwConn));
 	INIT_LIST_HEAD(&srv_conn->in_reconn_list);
-	INIT_LIST_HEAD(&srv_conn->tmp);
 	INIT_LIST_HEAD(&srv_conn->fwd_queue);
 	INIT_LIST_HEAD(&srv_conn->nip_queue);
 	spin_lock_init(&srv_conn->fwd_qlock);
@@ -767,7 +732,6 @@ static void
 tfw_srv_conn_free(TfwSrvConn *srv_conn)
 {
 	BUG_ON(!list_empty(&srv_conn->in_reconn_list));
-	BUG_ON(!list_empty(&srv_conn->tmp));
 
 	tfw_connection_unlink_from_peer((TfwConn *)srv_conn);
 

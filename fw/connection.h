@@ -218,7 +218,6 @@ tfw_cli_conn_inc_js_max_misses(TfwCliConn *conn, unsigned int freq)
  * See the description of special features of this structure in sock_srv.c.
  *
  * @in_reconn_list	- entry in server reconnect list;
- * @tmp			- entry in list for correct connetion release;
  * @fwd_queue		- queue of messages to be sent to a back-end server;
  * @nip_queue		- queue of non-idempotent messages in server's
  *			  @fwd_queue;
@@ -238,7 +237,6 @@ tfw_cli_conn_inc_js_max_misses(TfwCliConn *conn, unsigned int freq)
 typedef struct {
 	TFW_CONN_COMMON;
 	struct list_head	in_reconn_list;
-	struct list_head	tmp;
 	struct list_head	fwd_queue;
 	struct list_head	nip_queue;
 	spinlock_t		fwd_qlock;
