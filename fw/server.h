@@ -38,11 +38,40 @@
 typedef struct tfw_srv_group_t TfwSrvGroup;
 typedef struct tfw_scheduler_t TfwScheduler;
 
+/*
+ * Timeout between connect attempts is increased with each unsuccessful
+ * attempt. Length of the timeout for each attempt is chosen to follow
+ * a variant of exponential backoff delay algorithm.
+ *
+ * It's essential that the new connection is established and the failed
+ * connection is restored ASAP, so the min retry interval is set to 1.
+ * The next step is good for a cyclic reconnect, e.g. if an upstream
+ * ia configured to reset a connection periodically. The next steps are
+ * almost a pure backoff algo starting from 100ms, which is a good RTT
+ * for a fast 10Gbps link. The timeout is not increased after 1 second
+ * as it has moderate overhead, and it's still good in response time.
+ */
+static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
+/*
+ * The number of  reconnection attempts during increasing timeout (quick
+ * reconnect) stage.
+ * This number is not included in the total count of reconnection attempts.
+ */
+static const unsigned int tfw_srv_tmo_nr = ARRAY_SIZE(tfw_srv_tmo_vals);
+/*
+ * max_recns can be the maximum value for the data type to mean
+ * the unlimited number of attempts, which is the value that should
+ * never be reached. UINT_MAX seconds is more than 136 years. It's
+ * safe to assume that it's not reached in a single run of Tempesta.
+ */
+#define TFW_SRV_MAX_RECONNECT  (UINT_MAX - ARRAY_SIZE(tfw_srv_tmo_vals))
+
 /**
  * Server descriptor, a TfwPeer successor.
  *
  * @list	- member pointer in the list of servers of a server group;
  * @gs_timer	- grace shutdown timer;
+ * @rc_timer	- reconnect timer;
  * @sg		- back-reference to the server group;
  * @sched_data	- private scheduler data for the server;
  * @apmref	- opaque handle for APM stats;
@@ -51,12 +80,16 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @refcnt	- number of users of the server structure instance;
  * @weight	- static server weight for load balancers;
  * @flags	- server related flags: TFW_CFG_M_ACTION and HM atomic flags;
+ * @reconns_cnt	- count of connections should be reconneted;
+ * @reconns	- connections should be reconneted;
+ * @reconn_lock	- lock for adding to reconns; 
  * @cleanup	- called right before server is destroyed;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	struct list_head	list;
 	struct timer_list	gs_timer;
+	struct timer_list	rc_timer;
 	TfwSrvGroup		*sg;
 	void __rcu		*sched_data;
 	void			*apmref;
@@ -65,6 +98,9 @@ typedef struct {
 	atomic64_t		refcnt;
 	unsigned int		weight;
 	unsigned long		flags;
+	unsigned int		reconns_cnt;
+	struct list_head	reconns[ARRAY_SIZE(tfw_srv_tmo_vals)];
+	spinlock_t		reconn_lock;
 	void			(*cleanup)(void *);
 } TfwServer;
 
@@ -265,34 +301,6 @@ tfw_srv_conn_suitable_common(TfwSrvConn *srv_conn)
 		&& !tfw_srv_conn_queue_full(srv_conn);
 }
 
-/*
- * Timeout between connect attempts is increased with each unsuccessful
- * attempt. Length of the timeout for each attempt is chosen to follow
- * a variant of exponential backoff delay algorithm.
- *
- * It's essential that the new connection is established and the failed
- * connection is restored ASAP, so the min retry interval is set to 1.
- * The next step is good for a cyclic reconnect, e.g. if an upstream
- * ia configured to reset a connection periodically. The next steps are
- * almost a pure backoff algo starting from 100ms, which is a good RTT
- * for a fast 10Gbps link. The timeout is not increased after 1 second
- * as it has moderate overhead, and it's still good in response time.
- */
-static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
-/*
- * The number of  reconnection attempts during increasing timeout (quick
- * reconnect) stage.
- * This number is not included in the total count of reconnection attempts.
- */
-static const unsigned int tfw_srv_tmo_nr = ARRAY_SIZE(tfw_srv_tmo_vals);
-/*
- * max_recns can be the maximum value for the data type to mean
- * the unlimited number of attempts, which is the value that should
- * never be reached. UINT_MAX seconds is more than 136 years. It's
- * safe to assume that it's not reached in a single run of Tempesta.
- */
-#define TFW_SRV_MAX_RECONNECT  (UINT_MAX - ARRAY_SIZE(tfw_srv_tmo_vals))
-
 static inline bool
 tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 {
@@ -321,6 +329,7 @@ tfw_srv_suspended(TfwServer *srv)
 	return test_bit(TFW_SRV_B_SUSPEND, &srv->flags);
 }
 
+void tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t);
 /* Server group routines. */
 TfwSrvGroup *tfw_sg_lookup(const char *name, unsigned int len);
 TfwSrvGroup *tfw_sg_lookup_reconfig(const char *name, unsigned int len);
