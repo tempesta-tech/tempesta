@@ -92,6 +92,8 @@ tfw_server_destroy(TfwServer *srv)
 	/* Close all connections before freeing the server! */
 	BUG_ON(!list_empty(&srv->conn_list));
 	BUG_ON(srv->reconns_cnt);
+	printk(KERN_ALERT "%px srv->reconns_idx %u tfw_srv_tmo_nr %u\n",
+		srv, srv->reconns_idx, tfw_srv_tmo_nr);
 	BUG_ON(srv->reconns_idx < tfw_srv_tmo_nr);
 	BUG_ON(timer_pending(&srv->gs_timer));
 	BUG_ON(timer_pending(&srv->rc_timer));

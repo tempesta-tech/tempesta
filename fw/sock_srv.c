@@ -143,16 +143,15 @@ static inline bool
 tfw_srv_conn_del_timer_sync(TfwSrvConn *srv_conn)
 {
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
-	struct list_head *prev;
-	unsigned idx = tfw_srv_tmo_nr;
+	unsigned int i;
 
 	spin_lock_bh(&srv->reconn_lock);
-	if (list_empty(&srv_conn->in_reconn_list)) {
+	if (likely(list_empty(&srv_conn->in_reconn_list))) {
 		spin_unlock_bh(&srv->reconn_lock);
+		del_timer_sync(&srv->rc_timer);
 		return false;
 	}
 
-	prev = srv_conn->in_reconn_list.prev;
 	list_del_init(&srv_conn->in_reconn_list);
 	if (unlikely(!(--srv->reconns_cnt))) {
 		srv->reconns_idx = tfw_srv_tmo_nr;
@@ -161,23 +160,18 @@ tfw_srv_conn_del_timer_sync(TfwSrvConn *srv_conn)
 		return true;
 	}
 
-	if (list_empty(prev)) {
-		idx = prev - srv->reconns;
+	if (likely(!list_empty(&srv->reconns[srv->reconns_idx]))) {
+		spin_unlock_bh(&srv->reconn_lock);
+		return true;
+	}
 
-		if (idx == srv->reconns_idx) {
-			for (idx = idx + 1; idx < tfw_srv_tmo_nr; idx++) {
-				if (!list_empty(&srv->reconns[idx]))
-					break;
-			}
-			BUG_ON(idx == tfw_srv_tmo_nr);
+	for (i = srv->reconns_idx + 1; i < tfw_srv_tmo_nr; i++) {
+		if (!list_empty(&srv->reconns[i])) {
+			srv->reconns_idx = i;
+			break;
 		}
 	}
 	spin_unlock_bh(&srv->reconn_lock);
-
-	if (idx != tfw_srv_tmo_nr) {
-		mod_timer(&srv->rc_timer,
-			  jiffies + msecs_to_jiffies(tfw_srv_tmo_vals[idx]));
-	}
 
 	return true;
 }
@@ -352,7 +346,7 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 	TfwSrvConn *srv_conn, *tmp;
 	LIST_HEAD(to_send);
 	unsigned count = 0;
-	bool update;
+	bool update = false;
 	
 	spin_lock_bh(&srv->reconn_lock);
 	list_splice_tail_init(&srv->reconns[srv->reconns_idx], &to_send);
@@ -371,16 +365,20 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 		list_splice_init(&to_send, &srv->reconns[srv->reconns_idx]);
 	else
 		list_splice_tail_init(&to_send, &srv->reconns[srv->reconns_idx]);
-	if (list_empty(&srv->reconns[srv->reconns_idx]))
-		update = (srv->reconns_idx++ < tfw_srv_tmo_nr);
+
+	while (srv->reconns_idx < tfw_srv_tmo_nr) {
+		if (!list_empty(&srv->reconns[srv->reconns_idx])) {
+			update = true;
+			break;
+		}
+		srv->reconns_idx++;
+	}
 	spin_unlock_bh(&srv->reconn_lock);
 
 	if (update) {
 		mod_timer(&srv->rc_timer,
 			  jiffies + msecs_to_jiffies(tfw_srv_tmo_vals[srv->reconns_idx]));
 	}
-
-	
 
 #undef TFW_SRV_MAX_RECONNECT_PER_TIME
 }
