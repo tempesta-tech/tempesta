@@ -225,7 +225,6 @@ tfw_cli_conn_inc_js_max_misses(TfwCliConn *conn, unsigned int freq)
  * @flags		- atomic flags related to server connection's state;
  * @qsize		- current number of requests in server's @fwd_queue;
  * @recns		- the number of reconnect attempts;
- * @reconns_idx		- index in server @reconns array;
  * @last_msg_sent	- request that was sent last in a server connection;
  * @curr_msg_sent	- current sent request. Usually equal to @msg_sent, but
  *			  when the server connection is re-established it points
@@ -244,7 +243,6 @@ typedef struct {
 	unsigned long		flags;
 	unsigned int		qsize;
 	unsigned int		recns;
-	unsigned int		reconns_idx;
 	TfwMsg			*last_msg_sent;
 	TfwMsg			*curr_msg_sent;
 	unsigned long		jbusytstamp;
