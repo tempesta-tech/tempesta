@@ -1499,11 +1499,13 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 
 	memset(loc, 0, sizeof(TfwLocation));
 	if (op != TFW_HTTP_MATCH_O_REGEX) {
-		if ((argmem = tfw_kmalloc(len + 1, GFP_KERNEL)) == NULL)
+		argmem = tfw_kmalloc(len + 1, GFP_KERNEL);
+		if (!argmem)
 			return -ENOMEM;
 	}
 	else {/*If it is a regex we need only number of DB*/
-		if ((argmem = tfw_kmalloc(2 + 1, GFP_KERNEL)) == NULL)
+		argmem = tfw_kmalloc(sizeof(USHRT_MAX) + 1, GFP_KERNEL);
+		if (!argmem)
 			return -ENOMEM;
 	}
 
