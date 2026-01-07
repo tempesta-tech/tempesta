@@ -80,6 +80,7 @@ static const unsigned int tfw_srv_tmo_nr = ARRAY_SIZE(tfw_srv_tmo_vals);
  * @refcnt	- number of users of the server structure instance;
  * @weight	- static server weight for load balancers;
  * @flags	- server related flags: TFW_CFG_M_ACTION and HM atomic flags;
+ * @reconns_idx	- the least active index in @reconns array;
  * @reconns_cnt	- count of connections should be reconneted;
  * @reconns	- connections should be reconneted;
  * @reconn_lock	- lock for adding to reconns; 
@@ -98,6 +99,7 @@ typedef struct {
 	atomic64_t		refcnt;
 	unsigned int		weight;
 	unsigned long		flags;
+	unsigned int		reconns_idx;
 	unsigned int		reconns_cnt;
 	struct list_head	reconns[ARRAY_SIZE(tfw_srv_tmo_vals)];
 	spinlock_t		reconn_lock;
