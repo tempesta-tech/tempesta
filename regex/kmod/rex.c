@@ -9,6 +9,8 @@
 
 #include "hs_runtime.h"
 
+#include "lib/fault_injection_alloc.h"
+
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/version.h>
@@ -394,7 +396,7 @@ static ssize_t rexcfg_database_write(struct config_item *item,
 	if (hs_serialized_database_size(bytes, nbytes, &alloc_size))
 		return -EIO;
 
-	db = kmalloc(sizeof(*db) + alloc_size, GFP_KERNEL);
+	db = tfw_kmalloc(sizeof(*db) + alloc_size, GFP_KERNEL);
 	if (!db)
 		return -ENOMEM;
 
@@ -409,7 +411,7 @@ static ssize_t rexcfg_database_write(struct config_item *item,
 	}
 
 	BUG_ON(hs_scratch_size(proto, &alloc_size));
-	db->scratch = __alloc_percpu(alloc_size, 64);
+	db->scratch = tfw__alloc_percpu(alloc_size, 64);
 	if (!db->scratch) {
 		kfree(db);
 		hs_free_scratch(proto);
@@ -570,7 +572,7 @@ static struct config_item *rex_make_item(struct config_group *group,
 	struct rex_policy *rex;
 	int id;
 
-	rex = kzalloc(sizeof(*rex), GFP_KERNEL);
+	rex = tfw_kzalloc(sizeof(*rex), GFP_KERNEL);
 	if (!rex)
 		return ERR_PTR(-ENOMEM);
 

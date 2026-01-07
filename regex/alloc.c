@@ -34,6 +34,8 @@
 #include <stdlib.h>
 #include <string.h>
 #else
+#include "lib/fault_injection_alloc.h"
+
 #include <linux/types.h>
 #include <linux/slab.h>
 #include <linux/preempt.h>
@@ -50,7 +52,7 @@
 
 static void *default_malloc(size_t size) {
     WARN_ON_ONCE(in_serving_softirq());
-    return kmalloc(size, GFP_KERNEL);
+    return tfw_kmalloc(size, GFP_KERNEL);
 }
 
 static void default_free(void *ptr) {
