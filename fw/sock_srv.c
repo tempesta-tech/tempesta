@@ -139,8 +139,9 @@ tfw_srv_conn_mod_timer(TfwSrvConn *srv_conn, unsigned int idx)
 	}
 	spin_unlock_bh(&srv->reconn_lock);
 
-	if (need_mod_timer)
+	if (need_mod_timer) {
 		mod_timer(&srv->rc_timer, jiffies + msecs_to_jiffies(timeout));
+	}
 }
 
 static inline bool
@@ -154,6 +155,7 @@ tfw_srv_conn_del_timer_sync(TfwSrvConn *srv_conn)
 		spin_unlock_bh(&srv->reconn_lock);
 		return false;
 	}
+
 	list_del_init(&srv_conn->in_reconn_list);
 	stop = !(--srv->reconns_cnt);
 	spin_unlock_bh(&srv->reconn_lock);
@@ -332,17 +334,19 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 
 	TfwServer *srv = from_timer(srv, t, rc_timer);
 	unsigned int i, count = 0;
-	TfwSrvConn *srv_conn;
+	TfwSrvConn *srv_conn, *tmp;
 	bool was_reconnected = false, stop = false;
 
-	for (i = 0; i < tfw_srv_tmo_nr && !stop; i++) {
+	for (i = 0; i < tfw_srv_tmo_nr; i++) {
 		LIST_HEAD(to_send);
 
 		spin_lock_bh(&srv->reconn_lock);
-		list_splice_tail_init(&to_send, &srv->reconns[i]);
+		list_splice_tail_init(&srv->reconns[i], &to_send);
 		spin_unlock_bh(&srv->reconn_lock);
 			
-		list_for_each_entry(srv_conn, &to_send, in_reconn_list) {
+		list_for_each_entry_safe(srv_conn, tmp, &to_send,
+					 in_reconn_list)
+		{
 			list_del_init(&srv_conn->in_reconn_list);
 			srv->reconns_cnt--;
 			tfw_sock_srv_connect_try(srv_conn);
@@ -355,11 +359,17 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 		spin_lock_bh(&srv->reconn_lock);
 		was_reconnected = was_reconnected ||
 			!list_empty(&srv->reconns[i]);
-		list_splice_tail_init(&srv->reconns[i], &to_send);
+		list_splice_tail_init(&to_send, &srv->reconns[i]);
 		spin_unlock_bh(&srv->reconn_lock);
+
+		if (stop)
+			break;
 	}
 
-	while (!was_reconnected || i < tfw_srv_tmo_nr) {
+	if (was_reconnected)
+		return;
+
+	while (i < tfw_srv_tmo_nr) {
 		if (!list_empty(&srv->reconns[i])) {
 			mod_timer(&srv->rc_timer,
 				  jiffies + msecs_to_jiffies(tfw_srv_tmo_vals[i]));
