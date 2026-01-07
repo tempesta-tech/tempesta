@@ -144,6 +144,7 @@ tfw_srv_conn_del_timer_sync(TfwSrvConn *srv_conn)
 {
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	struct list_head *prev;
+	unsigned idx = tfw_srv_tmo_nr;
 
 	spin_lock_bh(&srv->reconn_lock);
 	if (list_empty(&srv_conn->in_reconn_list)) {
@@ -158,16 +159,25 @@ tfw_srv_conn_del_timer_sync(TfwSrvConn *srv_conn)
 		spin_unlock_bh(&srv->reconn_lock);
 		del_timer_sync(&srv->rc_timer);
 		return true;
-	} else if (list_empty(prev)) {
-		//unsigned idx = prev - srv->reconns;
+	}
 
-		//if (idx == srv->reconns_idx)
-			//Update
-	} else {
-		// Update ???
+	if (list_empty(prev)) {
+		idx = prev - srv->reconns;
+
+		if (idx == srv->reconns_idx) {
+			for (idx = idx + 1; idx < tfw_srv_tmo_nr; idx++) {
+				if (!list_empty(&srv->reconns[idx]))
+					break;
+			}
+			BUG_ON(idx == tfw_srv_tmo_nr);
+		}
 	}
 	spin_unlock_bh(&srv->reconn_lock);
 
+	if (idx != tfw_srv_tmo_nr) {
+		mod_timer(&srv->rc_timer,
+			  jiffies + msecs_to_jiffies(tfw_srv_tmo_vals[idx]));
+	}
 
 	return true;
 }
@@ -339,41 +349,38 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 #define TFW_SRV_MAX_RECONNECT_PER_TIME	100
 
 	TfwServer *srv = from_timer(srv, t, rc_timer);
-	unsigned int i, count = 0;
 	TfwSrvConn *srv_conn, *tmp;
-	bool stop = false;
-
-	for (i = 0; i < tfw_srv_tmo_nr; i++) {
-		LIST_HEAD(to_send);
-
-		spin_lock_bh(&srv->reconn_lock);
-		list_splice_tail_init(&srv->reconns[i], &to_send);
-		spin_unlock_bh(&srv->reconn_lock);
+	LIST_HEAD(to_send);
+	unsigned count = 0;
+	bool update;
+	
+	spin_lock_bh(&srv->reconn_lock);
+	list_splice_tail_init(&srv->reconns[srv->reconns_idx], &to_send);
+	spin_unlock_bh(&srv->reconn_lock);
 			
-		list_for_each_entry_safe(srv_conn, tmp, &to_send,
-					 in_reconn_list)
-		{
-			list_del_init(&srv_conn->in_reconn_list);
-			srv->reconns_cnt--;
-			tfw_sock_srv_connect_try(srv_conn);
-			if (count++ > TFW_SRV_MAX_RECONNECT_PER_TIME) {
-				stop = true;
-				break;
-			}
-		}
-
-		spin_lock_bh(&srv->reconn_lock);
-		if (!list_empty(&srv->reconns[i]))
-			list_splice_init(&to_send, &srv->reconns[i]);
-		else
-			list_splice_tail_init(&to_send, &srv->reconns[i]);
-		spin_unlock_bh(&srv->reconn_lock);
-
-		if (stop)
+	list_for_each_entry_safe(srv_conn, tmp, &to_send, in_reconn_list) {
+		list_del_init(&srv_conn->in_reconn_list);
+		srv->reconns_cnt--;
+		tfw_sock_srv_connect_try(srv_conn);
+		if (count++ > TFW_SRV_MAX_RECONNECT_PER_TIME)
 			break;
 	}
 
-	/* Update timer!!! */
+	spin_lock_bh(&srv->reconn_lock);
+	if (!list_empty(&srv->reconns[srv->reconns_idx]))
+		list_splice_init(&to_send, &srv->reconns[srv->reconns_idx]);
+	else
+		list_splice_tail_init(&to_send, &srv->reconns[srv->reconns_idx]);
+	if (list_empty(&srv->reconns[srv->reconns_idx]))
+		update = (srv->reconns_idx++ < tfw_srv_tmo_nr);
+	spin_unlock_bh(&srv->reconn_lock);
+
+	if (update) {
+		mod_timer(&srv->rc_timer,
+			  jiffies + msecs_to_jiffies(tfw_srv_tmo_vals[srv->reconns_idx]));
+	}
+
+	
 
 #undef TFW_SRV_MAX_RECONNECT_PER_TIME
 }
