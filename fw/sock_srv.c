@@ -129,6 +129,8 @@ tfw_srv_conn_mod_timer(TfwSrvConn *srv_conn, unsigned int idx)
 	update = list_empty(&srv->reconns[idx]) && idx < srv->reconns_idx;
 	list_add_tail(&srv_conn->in_reconn_list, &srv->reconns[idx]);
 	++srv->reconns_cnt;
+
+
 	if (update)
 		srv->reconns_idx = idx;
 	spin_unlock_bh(&srv->reconn_lock);
@@ -148,7 +150,6 @@ tfw_srv_conn_del_timer_sync(TfwSrvConn *srv_conn)
 	spin_lock_bh(&srv->reconn_lock);
 	if (likely(list_empty(&srv_conn->in_reconn_list))) {
 		spin_unlock_bh(&srv->reconn_lock);
-		del_timer_sync(&srv->rc_timer);
 		return false;
 	}
 
@@ -156,7 +157,6 @@ tfw_srv_conn_del_timer_sync(TfwSrvConn *srv_conn)
 	if (unlikely(!(--srv->reconns_cnt))) {
 		srv->reconns_idx = tfw_srv_tmo_nr;
 		spin_unlock_bh(&srv->reconn_lock);
-		del_timer_sync(&srv->rc_timer);
 		return true;
 	}
 
@@ -235,6 +235,8 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 static void
 tfw_srv_conn_release(TfwSrvConn *srv_conn)
 {
+	TfwServer *srv = (TfwServer *)srv_conn->peer;
+
 	tfw_connection_release((TfwConn *)srv_conn);
 	/*
 	 * conn->sk may be zeroed if we get here after a failed
@@ -249,7 +251,7 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 	 * callback). The only reason not to start new reconnect
 	 * attempt is removing server from the current configuration.
 	 */
-	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
+	if (likely(!test_bit(TFW_SRV_B_REMOVED, &srv->flags)))
 		tfw_sock_srv_connect_try_later(srv_conn);
 	else
 		tfw_srv_conn_stop(srv_conn);
@@ -340,7 +342,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 void
 tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 {
-#define TFW_SRV_MAX_RECONNECT_PER_TIME	100
+#define TFW_SRV_MAX_RECONNECT_PER_TIME	10
 
 	TfwServer *srv = from_timer(srv, t, rc_timer);
 	TfwSrvConn *srv_conn, *tmp;
@@ -375,7 +377,7 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 	}
 	spin_unlock_bh(&srv->reconn_lock);
 
-	if (update) {
+	if (update && likely(!test_bit(TFW_SRV_B_REMOVED, &srv->flags))) {
 		mod_timer(&srv->rc_timer,
 			  jiffies + msecs_to_jiffies(tfw_srv_tmo_vals[srv->reconns_idx]));
 	}
@@ -442,7 +444,7 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 	TfwConn *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
-	if (test_bit(TFW_CONN_B_DEL, &((TfwSrvConn *)conn)->flags)) {
+	if (test_bit(TFW_SRV_B_REMOVED, &srv->flags)) {
 		/**
 		 * This is executed when we intentionally close a server
 		 * connection during shutdown process. Now @sk is closed (but
@@ -689,6 +691,10 @@ tfw_sock_srv_abort_srv(TfwServer *srv)
 static int
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
+	srv->flags |= TFW_SRV_F_REMOVED;
+	smp_mb__after_atomic();
+	del_timer_sync(&srv->rc_timer);
+
 	return tfw_peer_for_each_conn((TfwPeer *)srv, tfw_sock_srv_disconnect);
 }
 

@@ -107,7 +107,8 @@ typedef struct {
 } TfwServer;
 
 /*
- * Bits and corresponding flags for server's health monitor states.
+ * Bits and corresponding flags for server's (health monitor and some
+ * internal) states.
  * These flags are intended for @flags field of 'TfwServer' structure.
  * NOTE: In cfg.h for this field there are also flags definitions, which
  * are responsible for server's configuration processing.
@@ -117,11 +118,15 @@ enum {
 	TFW_SRV_B_HMONITOR = 0x8,
 
 	/* Server is excluded from processing. */
-	TFW_SRV_B_SUSPEND
+	TFW_SRV_B_SUSPEND,
+
+	/* Server will be removed from configuration. */
+	TFW_SRV_B_REMOVED
 };
 
 #define	TFW_SRV_F_HMONITOR		(1 << TFW_SRV_B_HMONITOR)
 #define	TFW_SRV_F_SUSPEND		(1 << TFW_SRV_B_SUSPEND)
+#define TFW_SRV_F_REMOVED		(1 << TFW_SRV_B_REMOVED)
 
 /**
  * The servers group with the same load balancing, failovering and eviction
