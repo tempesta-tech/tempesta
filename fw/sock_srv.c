@@ -498,7 +498,6 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 		 */
 		if (__tfw_connection_get_if_not_death(conn)) {
 			TfwServer *srv = (TfwServer *)conn->peer;
-			int r = 0;
 
 			/*
 			 * We set TFW_CFG_B_DEL flag when we gracefully
@@ -515,11 +514,12 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 			if (test_bit(TFW_CFG_B_DEL, &srv->flags)) {
 				tfw_connection_abort(conn);
 			} else {
-				r = tfw_connection_close(conn, true);
+				if (tfw_connection_close(conn, true))
+					tfw_connection_abort(conn);
 			}
 
 			tfw_connection_put(conn);
-			return r;
+			return 0;
 		}
 		/*
 		 * If stop flag is set, we can exit. Otherwise, continue waiting
