@@ -854,7 +854,7 @@ write_regex(const char *arg)
 
 	fl = filp_open(file_name, O_CREAT | O_WRONLY, 0600);
 	if (IS_ERR(fl)) {
-		T_ERR_NL("Cannot create regex file %s\n",
+		T_ERR_NL("Cannot create regex file %s. Check if the directory exists.\n",
 		          file_name);
 		return -EINVAL;
 	}
@@ -971,8 +971,13 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 		*op_out = TFW_HTTP_MATCH_O_PREFIX;
 
 	if (!wc_arg && regex) {
+		int r;
+
+		if ((r = write_regex(arg))) {
+			kfree(arg_out);
+			return ERR_PTR(r);
+		}
 		*op_out = TFW_HTTP_MATCH_O_REGEX;
-		write_regex(arg);
 	}
 
 	/*
