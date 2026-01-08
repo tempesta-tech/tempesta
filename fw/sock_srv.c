@@ -35,26 +35,6 @@
 #include "procfs.h"
 #include "lib/fault_injection_alloc.h"
 
-static inline void
-check(TfwServer *srv, const char *str)
-{
-	unsigned int i, count = 0;
-
-	spin_lock_bh(&srv->reconn_lock);
-	for (i = 0; i < tfw_srv_tmo_nr; i++) {
-		TfwSrvConn *srv_conn;
-
-		list_for_each_entry(srv_conn, &srv->reconns[i], in_reconn_list)
-			count++;
-	}
-	if (count != srv->reconns_cnt) {
-		printk(KERN_ALERT "%s %u %u", str, count, srv->reconns_cnt);
-		BUG();
-	}
-
-	spin_unlock_bh(&srv->reconn_lock);
-}
-
 /*
  * ------------------------------------------------------------------------
  *	Server connection establishment.
@@ -156,13 +136,6 @@ tfw_srv_conn_mod_timer(TfwSrvConn *srv_conn, unsigned int idx)
 		srv->reconns_idx = idx;
 	spin_unlock_bh(&srv->reconn_lock);
 
-	printk(KERN_ALERT "tfw_srv_conn_mod_timer %px %px %u %d idx %u | "
-		" %ps %ps %ps %ps %ps",
-		srv, srv_conn, srv->reconns_cnt, update, idx,
-		__builtin_return_address(0), __builtin_return_address(1),
-		__builtin_return_address(2), __builtin_return_address(3),
-		__builtin_return_address(4));
-
 	if (update) {
 		mod_timer(&srv->rc_timer,
 			  jiffies + msecs_to_jiffies(tfw_srv_tmo_vals[idx]));
@@ -174,9 +147,6 @@ tfw_srv_conn_del_timer_sync(TfwSrvConn *srv_conn)
 {
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	unsigned int i;
-
-	printk(KERN_ALERT "tfw_srv_conn_del_timer_sync %px %px %u %d",
-		srv, srv_conn, srv->reconns_cnt, list_empty(&srv_conn->in_reconn_list));
 
 	spin_lock_bh(&srv->reconn_lock);
 	if (likely(list_empty(&srv_conn->in_reconn_list))) {
@@ -381,11 +351,6 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 	unsigned count = 0;
 	bool update = false;
 
-	printk(KERN_ALERT "tfw_sock_srv_connect_retry_timer_cb %px %u %d",
-		srv, srv->reconns_cnt, test_bit(TFW_SRV_B_REMOVED, &srv->flags));
-	
-	check(srv, "111");
-
 	spin_lock_bh(&srv->reconn_lock);
 	list_splice_tail_init(&srv->reconns[srv->reconns_idx], &to_send);
 	spin_unlock_bh(&srv->reconn_lock);
@@ -398,9 +363,6 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 		if (count++ > TFW_SRV_MAX_RECONNECT_PER_TIME)
 			break;
 	}
-
-	printk(KERN_ALERT "tfw_sock_srv_connect_retry_timer_cb %px %u %d AAA 111 count %u",
-		srv, srv->reconns_cnt, test_bit(TFW_SRV_B_REMOVED, &srv->flags), count);
 
 	spin_lock_bh(&srv->reconn_lock);
 	if (!list_empty(&srv->reconns[srv->reconns_idx]))
@@ -417,11 +379,6 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 		srv->reconns_idx++;
 	}
 	spin_unlock_bh(&srv->reconn_lock);
-
-	check(srv, "222");
-
-	printk(KERN_ALERT "tfw_sock_srv_connect_retry_timer_cb %px %u %d AAA 222",
-		srv, srv->reconns_cnt, test_bit(TFW_SRV_B_REMOVED, &srv->flags));
 
 	if (update && likely(!test_bit(TFW_SRV_B_REMOVED, &srv->flags))) {
 		mod_timer(&srv->rc_timer,
@@ -739,14 +696,7 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
 	srv->flags |= TFW_SRV_F_REMOVED;
 	smp_mb__after_atomic();
-	
-	printk(KERN_ALERT "tfw_sock_srv_disconnect_srv %px %u BBB",
-		srv, srv->reconns_cnt);
-
 	del_timer_sync(&srv->rc_timer);
-
-	printk(KERN_ALERT "tfw_sock_srv_disconnect_srv %px %u AAA",
-		srv, srv->reconns_cnt);
 
 	return tfw_peer_for_each_conn((TfwPeer *)srv, tfw_sock_srv_disconnect);
 }
