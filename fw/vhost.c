@@ -1530,7 +1530,13 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 
 	switch (op) {
 	case TFW_HTTP_MATCH_O_REGEX:
-		write_regex(arg);
+		int r;
+
+		if ((r = write_regex(arg))) {
+			kfree(argmem);
+			kfree(data);
+			return r;
+		}
 		/*
 		* Save number_of_db_regex to use it in tfw_match_regex
 		*/
