@@ -33,7 +33,7 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 	if (const auto val = tree.get_optional<std::string>("log_path"))
 		log_path = *val;
 
-	if (const auto node = tree.get_child_optional("access_log")) {
+	if (const auto node = tree.get_child_optional(clickhouse_mmap_field_name)) {
 		if (const auto path_val = node->get_optional<std::string>("plugin_path"))
 			access_log_plugin_path = *path_val;
 
@@ -41,13 +41,20 @@ TfwLoggerConfig::parse_from_ptree(const pt::ptree &tree)
 		clickhouse_mmap->parse_from_ptree(*node);
 	}
 
-	if (const auto node = tree.get_child_optional("xfw_events")) {
+	if (const auto node = tree.get_child_optional(clickhouse_xfw_field_name)) {
 		if (const auto path_val = node->get_optional<std::string>("plugin_path"))
 			xfw_events_plugin_path = *path_val;
 
 		clickhouse_xfw.emplace();
 		clickhouse_xfw->parse_from_ptree(*node);
 	}
+
+	if(!clickhouse_mmap && !clickhouse_xfw)
+		throw std::runtime_error("No plugin configuration is provided. "
+					 "At least one of the following "
+					 "must be specified: " +
+					 clickhouse_mmap_field_name + ", " +
+					 clickhouse_xfw_field_name);
 }
 
 void

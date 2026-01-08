@@ -37,6 +37,9 @@ struct TfwLoggerConfig {
 	std::optional<PluginConfig> clickhouse_mmap;
 	std::optional<PluginConfig> clickhouse_xfw;
 
+	static constexpr std::string clickhouse_xfw_field_name  = "xfw_events";
+	static constexpr std::string clickhouse_mmap_field_name = "access_log";
+
 	static std::optional<TfwLoggerConfig>
 	load_from_file(const fs::path &path);
 
