@@ -479,6 +479,8 @@ tfw_exit(void)
 		exit_hooks[i]();
 
 	unregister_net_sysctl_table(tfw_sysctl_hdr);
+
+	tfw_server_reset();
 }
 
 static int __init
