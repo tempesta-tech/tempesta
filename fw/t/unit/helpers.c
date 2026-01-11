@@ -47,6 +47,11 @@ static TfwConn conn_req, conn_resp;
 
 unsigned int tfw_cli_max_concurrent_streams;
 
+void
+print_conns(void)
+{
+}
+
 TfwHttpReq *
 test_req_alloc(size_t data_len)
 {

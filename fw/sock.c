@@ -42,6 +42,9 @@
 #include "work_queue.h"
 #include "http_limits.h"
 
+TfwConnDbgInfo conns[CONNS_CNT_MAX][2];
+static atomic_t conns_cnt;
+
 typedef struct {
 	struct sock	*sk;
 	struct sk_buff	*skb_head;
@@ -251,8 +254,11 @@ ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 	SsCblNode *cn;
 
 	cn = kmem_cache_alloc(ss_cbacklog_cache, GFP_ATOMIC);
-	if (!cn)
+	if (!cn) {
+		printk(KERN_ALERT "ss_turnstile_push failed on cpu "
+		       "(%d) with action %d", cpu, sw->action);
 		return -ENOMEM;
+	}
 	cn->ticket = ticket;
 	memcpy(&cn->sw, sw, sizeof(*sw));
 	spin_lock_bh(&cb->lock);
@@ -1599,6 +1605,7 @@ ss_tx_action(void)
 	struct sk_buff *skb;
 	TfwRBQueue *wq = this_cpu_ptr(&si_wq);
 	long ticket = 0;
+	int dbg_rc = -1;
 
 	/*
 	 * @budget limits the loop to prevent live lock on constantly arriving
@@ -1610,6 +1617,30 @@ ss_tx_action(void)
 		struct sock *sk = sw.sk;
 
 		bh_lock_sock(sk);
+
+		if (!ss_active() && sw.action == SS_CLOSE) {
+			dbg_rc = atomic_fetch_add(1, &conns_cnt);
+
+			if (dbg_rc < CONNS_CNT_MAX) {
+				conns[dbg_rc][0].sk = sk;
+				conns[dbg_rc][0].conn = sk->sk_user_data;
+				conns[dbg_rc][0].sw_flags = sw.flags;
+				conns[dbg_rc][0].sk_is_dead =
+					sock_flag(sk, SOCK_DEAD);
+				conns[dbg_rc][0].ss_conn_closing =
+					 sk->sk_user_data &&
+					 (SS_CONN_TYPE(sk) & Conn_Closing);
+				conns[dbg_rc][0].ss_conn_shutdown =
+					 sk->sk_user_data &&
+					 (SS_CONN_TYPE(sk) & Conn_Shutdown);
+				conns[dbg_rc][0].state = sk->sk_state;
+				conns[dbg_rc][0].ss_proto_type =
+					sk->sk_user_data ? SS_CONN_TYPE(sk) : 0;
+				conns[dbg_rc][0].ss_syncronize_after =
+					READ_ONCE(ss_syncronize_after);
+			}
+		}
+
 		/*
 		 * We can call ss_tx_action() for DEAD or shutdowned sock
 		 * in two cases:
@@ -1700,6 +1731,26 @@ ss_tx_action(void)
 			BUG();
 		}
 dead_sock:
+
+		if (dbg_rc >= 0 && dbg_rc < CONNS_CNT_MAX) {
+			conns[dbg_rc][1].sk = sk;
+			conns[dbg_rc][1].conn = sk->sk_user_data;
+			conns[dbg_rc][1].sw_flags = sw.flags;
+			conns[dbg_rc][1].sk_is_dead =
+				sock_flag(sk, SOCK_DEAD);
+			conns[dbg_rc][1].ss_conn_closing =
+				sk->sk_user_data &&
+				(SS_CONN_TYPE(sk) & Conn_Closing);
+			conns[dbg_rc][1].ss_conn_shutdown =
+				sk->sk_user_data &&
+				(SS_CONN_TYPE(sk) & Conn_Shutdown);
+			conns[dbg_rc][1].state = sk->sk_state;
+			conns[dbg_rc][1].ss_proto_type =
+				sk->sk_user_data ? SS_CONN_TYPE(sk) : 0;
+			conns[dbg_rc][1].ss_syncronize_after =
+				READ_ONCE(ss_syncronize_after);
+		}
+
 		sock_put(sk); /* paired with push() calls */
 		if (sw.skb_head)
 			ss_skb_destroy_opaque_data(sw.skb_head);
@@ -2005,4 +2056,28 @@ tfw_sync_socket_exit(void)
 		ss_backlog_validate_cleanup(cpu);
 	}
 	kmem_cache_destroy(ss_cbacklog_cache);
+}
+
+void
+print_conns(void)
+{
+	unsigned int i;
+	int dbg_rc = atomic_read(&conns_cnt);
+
+	for (i = 0; i < dbg_rc; i++) {
+		printk(KERN_ALERT "conns[%u]: sk %px %px conn %px %px "
+		       "sw_flags %d %d state %d %d ss_proto_type %d %d "
+		       "sk_is_dead %d %d ss_conn_closing %d %d "
+		       "ss_conn_shutdown %d %d ss_syncronize_after %d %d\n",
+		       i, conns[i][0].sk, conns[i][1].sk,
+		       conns[i][0].conn, conns[i][1].conn,
+		       conns[i][0].sw_flags, conns[i][1].sw_flags,
+		       conns[i][0].state, conns[i][1].state,
+		       conns[i][0].ss_proto_type, conns[i][1].ss_proto_type,
+		       conns[i][0].sk_is_dead, conns[i][1].sk_is_dead,
+		       conns[i][0].ss_conn_closing, conns[i][1].ss_conn_closing,
+		       conns[i][0].ss_conn_shutdown, conns[i][1].ss_conn_shutdown,
+		       conns[i][0].ss_syncronize_after, 
+		       conns[i][1].ss_syncronize_after);
+	}
 }
