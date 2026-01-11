@@ -47,6 +47,15 @@ static TfwConn conn_req, conn_resp;
 
 unsigned int tfw_cli_max_concurrent_streams;
 
+#ifdef DBG_ENABLE_2556_DEBUG
+
+void
+print_conns(void)
+{
+}
+
+#endif /* DBG_ENABLE_2556_DEBUG */
+
 TfwHttpReq *
 test_req_alloc(size_t data_len)
 {

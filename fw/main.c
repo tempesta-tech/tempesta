@@ -45,6 +45,12 @@ typedef void (*exit_fn)(void);
 exit_fn exit_hooks[32];
 size_t  exit_hooks_n;
 
+#ifdef DBG_ENABLE_2556_DEBUG
+
+bool ss_syncronize_after = false;
+
+#endif /* DBG_ENABLE_2556_DEBUG */
+
 typedef enum {
 	TFW_STATE_STOPPED = 0,
 	TFW_STATE_STARTED,
@@ -178,9 +184,17 @@ tfw_mods_stop(void)
 		 * clients.
 		 */
 		if (!ss_synchronize()) {
+#ifdef DBG_ENABLE_2556_DEBUG
+			WRITE_ONCE(ss_syncronize_after, true);
+#endif /* DBG_ENABLE_2556_DEBUG */
 			tfw_cli_abort_all();
 			/* Check that all the connections are terminated now. */
+#ifdef DBG_ENABLE_2556_DEBUG
+			if (WARN_ON(!ss_synchronize()))
+				print_conns();
+#else
 			WARN_ON(!ss_synchronize());
+#endif /* DBG_ENABLE_2556_DEBUG */
 		}
 		ss_synced = true;
 	}

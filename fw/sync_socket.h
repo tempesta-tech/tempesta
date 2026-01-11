@@ -185,6 +185,7 @@ int ss_listen(struct sock *sk, int backlog);
 void ss_getpeername(struct sock *sk, TfwAddr *addr);
 void ss_wait_newconn(void);
 bool ss_synchronize(void);
+long ss_cnt(void);
 void ss_start(void);
 void ss_stop(void);
 bool ss_active(void);
