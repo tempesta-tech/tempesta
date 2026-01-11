@@ -39,6 +39,13 @@
 #include "work_queue.h"
 #include "http_limits.h"
 
+#ifdef DBG_ENABLE_2556_DEBUG
+
+TfwConnDbgInfo conns[CONNS_CNT_MAX][3];
+static atomic_t conns_cnt;
+
+#endif /* DBG_ENABLE_2556_DEBUG */
+
 typedef struct {
 	struct sock	*sk;
 	struct sk_buff	*skb_head;
@@ -192,6 +199,16 @@ ss_active_guard_exit(unsigned long val)
 static void
 ss_conn_drop_guard_exit(struct sock *sk)
 {
+	unsigned int i;
+	int dbg_rc = atomic_read(&conns_cnt);
+
+
+	for (i = 0; i < dbg_rc; i++) {
+		if (conns[i][0].sk == sk) {
+			conns[i][2].sk = sk;
+			conns[i][2].conn = sk->sk_user_data;
+		}
+	}
 	/*
 	 * There are two cases when `sk_>sk_user_data` could be
 	 * equal to zero:
@@ -1588,6 +1605,9 @@ ss_tx_action(void)
 	struct sk_buff *skb;
 	TfwRBQueue *wq = this_cpu_ptr(&si_wq);
 	long ticket = 0;
+#ifdef DBG_ENABLE_2556_DEBUG
+	int dbg_rc = -1;
+#endif /* DBG_ENABLE_2556_DEBUG */
 
 	/*
 	 * @budget limits the loop to prevent live lock on constantly arriving
@@ -1599,6 +1619,32 @@ ss_tx_action(void)
 		struct sock *sk = sw.sk;
 
 		bh_lock_sock(sk);
+
+#ifdef DBG_ENABLE_2556_DEBUG
+		if (!ss_active() && sw.action == SS_CLOSE) {
+			dbg_rc = atomic_fetch_add(1, &conns_cnt);
+
+			if (dbg_rc < CONNS_CNT_MAX) {
+				conns[dbg_rc][0].sk = sk;
+				conns[dbg_rc][0].conn = sk->sk_user_data;
+				conns[dbg_rc][0].sw_flags = sw.flags;
+				conns[dbg_rc][0].sk_is_dead =
+					sock_flag(sk, SOCK_DEAD);
+				conns[dbg_rc][0].ss_conn_closing =
+					 sk->sk_user_data &&
+					 (SS_CONN_TYPE(sk) & Conn_Closing);
+				conns[dbg_rc][0].ss_conn_shutdown =
+					 sk->sk_user_data &&
+					 (SS_CONN_TYPE(sk) & Conn_Shutdown);
+				conns[dbg_rc][0].state = sk->sk_state;
+				conns[dbg_rc][0].ss_proto_type =
+					sk->sk_user_data ? SS_CONN_TYPE(sk) : 0;
+				conns[dbg_rc][0].ss_syncronize_after =
+					READ_ONCE(ss_syncronize_after);
+			}
+		}
+#endif /* DBG_ENABLE_2556_DEBUG */
+
 		/*
 		 * We can call ss_tx_action() for DEAD or shutdowned sock
 		 * in two cases:
@@ -1689,6 +1735,28 @@ ss_tx_action(void)
 			BUG();
 		}
 dead_sock:
+
+#ifdef DBG_ENABLE_2556_DEBUG
+		if (dbg_rc >= 0 && dbg_rc < CONNS_CNT_MAX) {
+			conns[dbg_rc][1].sk = sk;
+			conns[dbg_rc][1].conn = sk->sk_user_data;
+			conns[dbg_rc][1].sw_flags = sw.flags;
+			conns[dbg_rc][1].sk_is_dead =
+				sock_flag(sk, SOCK_DEAD);
+			conns[dbg_rc][1].ss_conn_closing =
+				sk->sk_user_data &&
+				(SS_CONN_TYPE(sk) & Conn_Closing);
+			conns[dbg_rc][1].ss_conn_shutdown =
+				sk->sk_user_data &&
+				(SS_CONN_TYPE(sk) & Conn_Shutdown);
+			conns[dbg_rc][1].state = sk->sk_state;
+			conns[dbg_rc][1].ss_proto_type =
+				sk->sk_user_data ? SS_CONN_TYPE(sk) : 0;
+			conns[dbg_rc][1].ss_syncronize_after =
+				READ_ONCE(ss_syncronize_after);
+		}
+#endif /* DBG_ENABLE_2556_DEBUG */
+
 		sock_put(sk); /* paired with push() calls */
 		if (sw.skb_head)
 			ss_skb_destroy_opaque_data(sw.skb_head);
@@ -1766,6 +1834,28 @@ ss_wait_newconn(void)
 		}
 	}
 }
+
+long
+ss_cnt(void)
+{
+	int cpu;
+	long acc = 0;
+
+	for_each_online_cpu(cpu) {
+		atomic64_t *act_cnt = &per_cpu(__ss_act_cnt, cpu);
+		int n_conn = atomic64_read(act_cnt) >> SS_ACT_SHIFT;
+		int n_q = ss_wq_size(cpu);
+		if (n_conn + n_q) {
+			irq_work_sync(&per_cpu(ipi_work, cpu));
+			schedule(); /* let softirq finish works */
+		}
+		acc += n_conn;
+	}
+	BUG_ON(acc < 0);
+
+	return acc;
+}
+
 
 /**
  * Wait until there are no queued works and no running tasklets.
@@ -1995,3 +2085,34 @@ tfw_sync_socket_exit(void)
 	}
 	kmem_cache_destroy(ss_cbacklog_cache);
 }
+
+#ifdef DBG_ENABLE_2556_DEBUG
+
+void
+print_conns(void)
+{
+	unsigned int i;
+	int dbg_rc = atomic_read(&conns_cnt);
+
+	printk(KERN_ALERT "dbg_rc %d cnt %ld\n", dbg_rc, ss_cnt());
+	for (i = 0; i < dbg_rc; i++) {
+		printk(KERN_ALERT "conns[%u]: sk %px %px conn %px %px "
+		       "sw_flags %d %d state %d %d ss_proto_type %d %d "
+		       "sk_is_dead %d %d ss_conn_closing %d %d "
+		       "ss_conn_shutdown %d %d ss_syncronize_after %d %d | %px %px\n",
+		       i, conns[i][0].sk, conns[i][1].sk,
+		       conns[i][0].conn, conns[i][1].conn,
+		       conns[i][0].sw_flags, conns[i][1].sw_flags,
+		       conns[i][0].state, conns[i][1].state,
+		       conns[i][0].ss_proto_type, conns[i][1].ss_proto_type,
+		       conns[i][0].sk_is_dead, conns[i][1].sk_is_dead,
+		       conns[i][0].ss_conn_closing, conns[i][1].ss_conn_closing,
+		       conns[i][0].ss_conn_shutdown, conns[i][1].ss_conn_shutdown,
+		       conns[i][0].ss_syncronize_after, 
+		       conns[i][1].ss_syncronize_after,
+		       conns[i][2].sk,
+		       conns[i][2].conn);
+	}
+}
+
+#endif /* DBG_ENABLE_2556_DEBUG */

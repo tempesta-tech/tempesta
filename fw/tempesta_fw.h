@@ -126,4 +126,26 @@ tfw_srv_loop_sched_rcu(void)
 	rcu_barrier();
 }
 
+#ifdef DBG_ENABLE_2556_DEBUG
+
+typedef struct {
+	void *sk;
+	void *conn;
+	int sw_flags;
+	int state;
+	int ss_proto_type;
+	bool sk_is_dead;
+	bool ss_conn_closing;
+	bool ss_conn_shutdown;
+	bool ss_syncronize_after;
+} TfwConnDbgInfo;
+
+#define CONNS_CNT_MAX 10000
+
+extern bool ss_syncronize_after;
+extern TfwConnDbgInfo conns[CONNS_CNT_MAX][3];
+extern void print_conns(void);
+
+#endif /* DBG_ENABLE_2556_DEBUG */
+
 #endif /* __TEMPESTA_FW_H__ */
