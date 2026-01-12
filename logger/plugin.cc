@@ -133,9 +133,16 @@ Plugin::Plugin(const std::string &plugin_path, const PluginConfig &config,
 	//TODO: split to several minor functions: load_library, get_plugin_api, init_plugin
 	void * handle = dlopen(plugin_path.c_str(),
 			 RTLD_LAZY | RTLD_LOCAL | RTLD_DEEPBIND);
-	if (!handle)
-		throw tus::Except("Failed to load plugin {}: {}",
-				  plugin_path, dlerror());
+	if (!handle) {
+		std::string tilde_message;
+		if (plugin_path.find('~') != std::string::npos) {
+			tilde_message =
+				"Paths with \'~\' are not supported. "
+				"Please use absolute canonical form.";
+		}
+		throw tus::Except("Failed to load plugin {}: {} ({})",
+				  plugin_path, dlerror(), tilde_message);
+	}
 	handle_ = DlHandle(handle);
 
 	auto get_api = reinterpret_cast<TfwLoggerPluginGetApiFunc>(
