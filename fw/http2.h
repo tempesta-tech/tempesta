@@ -205,7 +205,7 @@ tfw_h2_is_ready_to_send(TfwH2Ctx *ctx)
 }
 
 static inline bool
-tfw_h2_or_stream_wnd_is_exceeded(TfwH2Ctx *ctx, TfwStream *stream)
+tfw_h2_conn_or_stream_wnd_is_exceeded(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	return ctx->rem_wnd <= 0 || stream->rem_wnd <= 0;
 }

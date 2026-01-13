@@ -609,8 +609,8 @@ tfw_peer_for_each_conn(TfwPeer *p, int (*cb)(TfwConn *))
 }
 
 extern unsigned int tfw_cli_max_concurrent_streams;
-extern u64 tfw_cli_soft_limit;
-extern u64 tfw_cli_hard_limit;
+extern u64 tfw_cli_soft_mem_limit;
+extern u64 tfw_cli_hard_mem_limit;
 
 void tfw_connection_unlink_to_sk(TfwConn *conn);
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
