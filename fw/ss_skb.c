@@ -395,7 +395,7 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	skb->tail -= tail_len;
 	skb->data_len += tail_len;
 	skb->truesize += tail_len;
-	ss_skb_adjust_sk_mem(skb, tail_len);
+	ss_skb_adjust_client_mem(skb, tail_len);
 
 	/* Make the fragment with the tail part. */
 	__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
@@ -1311,7 +1311,7 @@ ss_skb_split(struct sk_buff *skb, int len)
 	skb->truesize -= nlen;
 	buff->mark = skb->mark;
 
-	ss_skb_adjust_sk_mem(skb, -nlen);
+	ss_skb_adjust_client_mem(skb, -nlen);
 
 	/*
 	 * These are orphaned SKBs that are taken out of the TCP/IP
@@ -1752,7 +1752,7 @@ ss_skb_destructor(struct sk_buff *skb)
 {
 	TfwClient *cli = (TfwClient *)skb->sk;
 
-	ss_skb_adjust_sk_mem(skb, -TFW_SKB_CB(skb)->mem);
+	ss_skb_adjust_client_mem(skb, -TFW_SKB_CB(skb)->mem);
 	tfw_client_put(cli);
 }
 
@@ -1775,12 +1775,12 @@ ss_skb_set_owner(struct sk_buff *skb, void *owner, unsigned int mem)
 		tfw_client_get((TfwClient *)owner);
 		skb->sk = owner;
 		skb->destructor = ss_skb_destructor;
-		ss_skb_adjust_sk_mem(skb, mem);
+		ss_skb_adjust_client_mem(skb, mem);
 	}
 }
 
 void
-ss_skb_adjust_sk_mem(struct sk_buff *skb, int delta)
+ss_skb_adjust_client_mem(struct sk_buff *skb, int delta)
 {
 	TfwClient *cli = (TfwClient *)skb->sk;
 

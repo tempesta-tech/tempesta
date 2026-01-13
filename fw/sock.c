@@ -422,7 +422,7 @@ ss_skb_can_collapse(struct sk_buff *to, struct sk_buff *from,
 	return true;
 }
 
-static bool
+static int
 ss_skb_try_collapse(struct sock *sk, struct sk_buff *skb,
 		    unsigned int mark, unsigned char tls_type,
 		    unsigned long snd_wnd)
@@ -598,7 +598,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	if (ss_skb_on_send(conn, skb_head))
 		goto cleanup;
-	else if (*skb_head)
+	if (*skb_head)
 		SS_CALL(connection_on_send, sk->sk_user_data, skb_head);
 
 	if (flags & SS_F_CONN_CLOSE)

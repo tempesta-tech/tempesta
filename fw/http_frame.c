@@ -2273,7 +2273,7 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
-		if (tfw_h2_or_stream_wnd_is_exceeded(ctx, stream))
+		if (tfw_h2_conn_or_stream_wnd_is_exceeded(ctx, stream))
 			ADJUST_BLOCKED_STREAMS_AND_EXIT(0, HTTP2_DATA);
 
 		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_DATA,
@@ -2333,8 +2333,10 @@ do {									\
 		} else {
 			if (unlikely(stream->xmit.postponed)
 			    && !stream->xmit.frame_length
-			    && !ctx->cur_send_headers) {
+			    && !ctx->cur_send_headers)
+			{
 				struct sk_buff **head = &stream->xmit.postponed;
+
 				r = tfw_h2_stream_send_postponed(sk, head,
 								 mss_now,
 								 snd_wnd);
@@ -2400,8 +2402,10 @@ do {									\
 			return r;
 		}
 		if (unlikely(stream->xmit.postponed)
-		    && !ctx->cur_send_headers) {
+		    && !ctx->cur_send_headers)
+		{
 			struct sk_buff **head = &stream->xmit.postponed;
+
 			r = tfw_h2_stream_send_postponed(sk, head,
 							 mss_now,
 							 snd_wnd);
