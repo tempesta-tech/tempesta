@@ -83,8 +83,7 @@ struct tfw_skb_cb {
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
 
 void ss_skb_set_owner(struct sk_buff *skb, void *owner, unsigned int delta);
-void ss_skb_adjust_sk_mem(struct sk_buff *skb, int delta);
-void ss_skb_adjust_mem(struct sk_buff *skb, int delta);
+void ss_skb_adjust_client_mem(struct sk_buff *skb, int delta);
 
 static inline bool
 ss_skb_is_within_fragment(char *begin_fragment, char *position,
@@ -325,7 +324,7 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 	skb->len += delta;
 	skb->data_len += delta;
 	skb->truesize += delta;
-	ss_skb_adjust_sk_mem(skb, delta);
+	ss_skb_adjust_client_mem(skb, delta);
 }
 
 /*
