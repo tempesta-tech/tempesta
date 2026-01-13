@@ -323,7 +323,9 @@ tfw_connection_push(TfwConn *conn, unsigned int mss_now)
 		 * shutdown the whole connection.
 		 */
 		if (unlikely(SS_CONN_TYPE(sk) & Conn_Shutdown)
-		    && (!h2->error || tfw_h2_or_stream_wnd_is_exceeded(h2, h2->error)))
+		    && (!h2->error
+			|| tfw_h2_conn_or_stream_wnd_is_exceeded(h2,
+								 h2->error)))
 			r = tfw_connection_shutdown(conn);
 		if (!tfw_h2_is_ready_to_send(h2))
 			sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);

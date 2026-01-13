@@ -422,7 +422,7 @@ ss_skb_can_collapse(struct sk_buff *to, struct sk_buff *from,
 }
 
 static int
-ss_skb_try_collapce(struct sock *sk, struct sk_buff *skb,
+ss_skb_try_collapse(struct sock *sk, struct sk_buff *skb,
 		    unsigned int mark, unsigned char tls_type,
 		    unsigned long snd_wnd)
 {
@@ -474,7 +474,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	       smp_processor_id(), __func__, sk, skb, skb->data_len,
 	       skb->len, skb->truesize, mark, tls_type);
 
-	if ((r = ss_skb_try_collapce(sk, skb, mark, tls_type, snd_wnd)) < 0) {
+	if ((r = ss_skb_try_collapse(sk, skb, mark, tls_type, snd_wnd)) < 0) {
 		ss_skb_init_for_xmit(skb);
 		/* Restore mark after `ss_skb_init_for_xmit`. */
 		skb->mark = mark;
@@ -588,7 +588,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	if (ss_skb_on_send(conn, skb_head))
 		goto cleanup;
-	else if (*skb_head)
+	if (*skb_head)
 		SS_CALL(connection_on_send, sk->sk_user_data, skb_head);
 
 	if (flags & SS_F_CONN_CLOSE)
