@@ -262,22 +262,23 @@ tfw_connection_push(TfwConn *conn, unsigned int mss_now)
 	int r;
 
 	assert_spin_locked(&sk->sk_lock.slock);
-	/*
-	 * This function is called under the socket lock, same as dropping a
-	 * connection. Moreover this function is never called when socket
-	 * state is TCP_CLOSE. When client closes the connection, we drop it
-	 * from tcp_done() -> ss_conn_drop_guard_exit(), and socket state is
-	 * set to TCP_CLOSE, so this function will never be called after it.
-         */
-	BUG_ON(!conn);
-
-	BUG_ON(SS_CONN_TYPE(sk) & Conn_Closing);
+	WARN_ON(SS_CONN_TYPE(sk) & Conn_Closing);
 
 	/*
 	 * Update snd_cwnd if nedeed, to correct caclulation
 	 * of count of bytes to send.
 	 */
 	tcp_slow_start_after_idle_check(sk);
+
+	/*
+	 * First of all Tempesta FW entails skb from connection write queue
+	 * (all http1 data, control frames, tls alerts and so on for http2),
+	 * then if `snd_wnd` is not exceeded make frames for http2.
+	 */
+	r = ss_skb_tcp_entail_list(sk, &conn->write_queue,
+				   mss_now, &snd_wnd);
+	if (unlikely(r))
+		return r;
 
 	/*
 	 * This function can be called both for HTTP1 and HTTP2 connections.
@@ -287,16 +288,7 @@ tfw_connection_push(TfwConn *conn, unsigned int mss_now)
 	h2 = TFW_CONN_PROTO(conn) == TFW_FSM_H2 ?
 		tfw_h2_context_safe(conn) : NULL;
 	if (!h2) {
-		r = ss_skb_tcp_entail_list(sk, &conn->write_queue,
-					   mss_now, &snd_wnd);
-		if (unlikely(r))
-			return r;
-
-		/*
-		 * `snd_wnd` is not 0 if all skbs was entailed to socket
-		 * write queue.
-		 */
-		if (!conn->write_queue) {
+		if (unlikely(!conn->write_queue)) {
 			sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);
 			if (unlikely(SS_CONN_TYPE(sk) & Conn_Shutdown))
 				r = tfw_connection_shutdown(conn);
@@ -304,26 +296,19 @@ tfw_connection_push(TfwConn *conn, unsigned int mss_now)
 		return r;
 	}
 
-	/*
-	 * First of all Tempesta FW entails skb from connection write
-	 * queue (control frames, tls alerts and so on), then if
-	 * `snd_wnd` is not exceeded make frames.
-	 */
-	r = ss_skb_tcp_entail_list(sk, &conn->write_queue, mss_now, &snd_wnd);
-	if (unlikely(r))
-		return r;
-
 	r = tfw_h2_make_frames(sk, h2, mss_now, snd_wnd);
 	if (unlikely(r))
 		return r;
 
-	if (!conn->write_queue) {
+	if (unlikely(!conn->write_queue)) {
 		/*
 		 * If connection is shutdowned and error responce was sent
 		 * shutdown the whole connection.
 		 */
 		if (unlikely(SS_CONN_TYPE(sk) & Conn_Shutdown)
-		    && (!h2->error || tfw_h2_or_stream_wnd_is_exceeded(h2, h2->error)))
+		    && (!h2->error
+			|| tfw_h2_conn_or_stream_wnd_is_exceeded(h2,
+								 h2->error)))
 			r = tfw_connection_shutdown(conn);
 		if (!tfw_h2_is_ready_to_send(h2))
 			sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);

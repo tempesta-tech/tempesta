@@ -48,8 +48,8 @@ static struct kmem_cache *tfw_h2_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
 unsigned int tfw_cli_max_concurrent_streams;
-u64 tfw_cli_soft_limit;
-u64 tfw_cli_hard_limit;
+u64 tfw_cli_soft_mem_limit;
+u64 tfw_cli_hard_mem_limit;
 
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
@@ -670,10 +670,10 @@ tfw_cfgop_client_mem(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		}
 		switch (i) {
 		case 0:
-			tfw_cli_soft_limit = mem;
+			tfw_cli_soft_mem_limit = mem;
 			break;
 		case 1:
-			tfw_cli_hard_limit = mem;
+			tfw_cli_hard_mem_limit = mem;
 			break;
 		default:
 			/* Should be checked early. */
@@ -681,13 +681,13 @@ tfw_cfgop_client_mem(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		}
 	}
 
-	if (!tfw_cli_hard_limit) {
-		tfw_cli_hard_limit = (tfw_cli_soft_limit < U64_MAX / 2) ?
-			tfw_cli_soft_limit * 2 : U64_MAX;
-	} else if (tfw_cli_hard_limit < tfw_cli_soft_limit) {
+	if (!tfw_cli_hard_mem_limit) {
+		tfw_cli_hard_mem_limit = (tfw_cli_soft_mem_limit < U64_MAX / 2) ?
+			tfw_cli_soft_mem_limit * 2 : U64_MAX;
+	} else if (tfw_cli_hard_mem_limit < tfw_cli_soft_mem_limit) {
 		T_ERR_NL("Invalid 'client_mem' value: hard limit (%llu) is"
-			 " greater then soft (%llu)", tfw_cli_hard_limit,
-			 tfw_cli_soft_limit);
+			 " greater then soft (%llu)", tfw_cli_hard_mem_limit,
+			 tfw_cli_soft_mem_limit);
 		return -EINVAL;
 	}
 
