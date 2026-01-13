@@ -116,7 +116,7 @@ templater()
 		line=$(echo "$raw_line" | sed -e '/request /s/\\r\\n/\x0d\x0a/g')
 		if [[ ${line:0:1} = \# ]]; then
 			:
-		elif [[ $line =~ '!include' ]]; then
+		elif [[ $line =~ ^[[:space:]]*!include[[:space:]]+.+$ ]]; then
 			IFS=' '
 			read -ra path <<< "$line"
 
