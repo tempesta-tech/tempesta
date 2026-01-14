@@ -729,7 +729,7 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			T_DBG3("[%d]: %s: drop skb=%px data_len=%u len=%u\n",
 			       smp_processor_id(), __func__,
 			       skb, skb->data_len, skb->len);
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 			continue;
 		}
 

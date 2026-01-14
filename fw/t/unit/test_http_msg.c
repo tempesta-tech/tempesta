@@ -119,7 +119,9 @@ __test_resp_data_alloc(TfwStr *head_data, TfwStr *paged_data,
 	if (!skb)
 		return false;
 
-	ss_skb_set_owner(skb, tfw_http_msg_client((TfwHttpMsg*)resp), skb->truesize);
+	ss_skb_set_owner(skb, ss_skb_dflt_destructor,
+			 tfw_http_msg_client((TfwHttpMsg*)resp),
+			 skb->truesize);
 	skb->next = skb->prev = skb;
 	it = &resp->iter;
 	resp->msg.skb_head = it->skb = it->skb_head = skb;
