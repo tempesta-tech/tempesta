@@ -1149,21 +1149,36 @@ tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 void
 tfw_h2_resp_fwd(TfwHttpResp *resp)
 {
-	bool resp_in_xmit =
-		(TFW_SKB_CB(resp->msg.skb_head)->opaque_data == resp);
+	bool resp_in_xmit = !!TFW_SKB_CB(resp->msg.skb_head)->stream_id;
 	TfwHttpReq *req = resp->req;
 	TfwConn *conn = req->conn;
 	int status = READ_ONCE(resp->status);
+	bool need_extra_put = false;
 
 	tfw_connection_get(conn);
+	/*
+	 * We need this extra get, because if send fails, connection
+	 * will be put during freeing skbs of sending response (in
+	 * skb destructor).
+	 */
+	if (resp_in_xmit) {
+		void *owner = TFW_SKB_CB(resp->msg.skb_head)->opaque_data;
+
+		BUG_ON(owner != resp->req->conn->peer);
+		TFW_SKB_CB(resp->msg.skb_head)->opaque_data = resp;
+		TFW_SKB_CB(resp->msg.skb_head)->destructor =
+			tfw_h2_stream_skb_destructor;
+		need_extra_put = true;
+		tfw_connection_get(conn);
+	}
 	do_access_log(resp);
 
 	if (tfw_cli_conn_send((TfwCliConn *)conn, (TfwMsg *)resp)) {
 		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
-		tfw_connection_close(conn, true);
 		/* We can't send response, so we should free it here. */
-		resp_in_xmit = false;
+		tfw_connection_close(conn, true);
+		resp_in_xmit = !resp_in_xmit || !resp->msg.skb_head;
 	} else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 		tfw_inc_global_hm_stats(status);
@@ -1171,6 +1186,8 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 
 	if (!resp_in_xmit)
 		tfw_http_resp_pair_free_and_put_conn(resp);
+	if (need_extra_put)
+		tfw_connection_put(conn);
 }
 
 /*
@@ -1807,7 +1824,7 @@ __tfw_http_free_cleanup(TfwHttpMsgCleanup *cleanup)
 	struct sk_buff *skb;
 
 	while ((skb = ss_skb_dequeue(&cleanup->skb_head)))
-		__kfree_skb(skb);
+		__ss_kfree_skb(skb);
 
 	for (i = 0; i < cleanup->pages_sz; i++)
 		/*
@@ -4572,14 +4589,16 @@ tfw_http_resp_get_conn_flags(TfwHttpResp *resp)
 static int
 tfw_http_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
 {
-	struct sk_buff *nskb;
+	void *opaque_data = TFW_SKB_CB(resp->msg.skb_head)->opaque_data;
 	TfwMsgIter *iter = &resp->iter;
+	struct sk_buff *nskb;
 
 	nskb = ss_skb_alloc(0);
 	if (unlikely(!nskb))
 		return -ENOMEM;
 
-	ss_skb_set_owner(nskb, resp->msg.skb_head->sk, nskb->truesize);
+	ss_skb_set_owner(nskb, ss_skb_dflt_destructor,
+			 opaque_data, nskb->truesize);
 	nskb->mark = resp->msg.skb_head->mark;
 	cleanup->skb_head = resp->msg.skb_head;
 	resp->msg.skb_head = NULL;
@@ -5413,10 +5432,11 @@ int
 tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 {
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
-	struct tfw_skb_cb *tfw_cb = TFW_SKB_CB(*skb_head);
+	TfwHttpResp *resp = TFW_SKB_CB(*skb_head)->opaque_data;
+	unsigned int stream_id = TFW_SKB_CB(*skb_head)->stream_id;
 	TfwStream *stream;
 
-	stream = tfw_h2_find_not_closed_stream(ctx, tfw_cb->stream_id, false);
+	stream = tfw_h2_find_not_closed_stream(ctx, stream_id, false);
 	/*
 	 * Very unlikely case. We check that stream is active, before
 	 * calling ss_send, but there is a very small chance, that
@@ -5426,8 +5446,11 @@ tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 	if (unlikely(!stream))
 		return -EPIPE;
 
-	BUG_ON(stream->xmit.skb_head);
-	stream->xmit.resp = (TfwHttpResp *)tfw_cb->opaque_data;
+	BUG_ON(stream->xmit.skb_head || stream->xmit.resp);
+	TFW_SKB_CB(*skb_head)->opaque_data = resp->req->conn->peer;
+	TFW_SKB_CB(*skb_head)->destructor = ss_skb_dflt_destructor;
+	stream->xmit.resp = resp;
+
 	if (test_bit(TFW_HTTP_B_CLOSE_ERROR_RESPONSE, stream->xmit.resp->flags))
 		ctx->error = stream;
 	swap(stream->xmit.skb_head, *skb_head);
@@ -6252,7 +6275,7 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 	if (test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags)) {
 		TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 		if (unlikely(skb)) {
-			__kfree_skb(skb);
+			__ss_kfree_skb(skb);
 			skb = NULL;
 		}
 	}
@@ -6271,7 +6294,7 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 			TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 			tfw_http_conn_error_log(req->conn, "Can't create"
 						" pipelined request");
-			__kfree_skb(skb);
+			__ss_kfree_skb(skb);
 		}
 	}
 
@@ -6553,8 +6576,10 @@ next_msg:
 	 * For tls connections we already set `skb->owner` before
 	 * tls decryption.
 	 */
-	if (!skb->sk)
-		ss_skb_set_owner(skb, conn->peer, skb->truesize);
+	if (!TFW_SKB_CB(skb)->opaque_data) {
+		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
+				 conn->peer, skb->truesize);
+	}
 
 	r = frang_client_mem_limit((TfwCliConn *)conn, false);
 	if (unlikely(r)) {
@@ -7407,7 +7432,8 @@ next_msg:
 		else
 			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP,
 					     hmresp->req->flags);
-		ss_skb_set_owner(skb, cli_conn->peer, skb->truesize);
+		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
+				 cli_conn->peer, skb->truesize);
 
 		r = frang_client_mem_limit(cli_conn, false);
 		if (unlikely(r)) {
@@ -7582,7 +7608,7 @@ next_msg:
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 			tfw_http_conn_error_log(conn, "Can't create pipelined"
 						      " response");
-			__kfree_skb(skb);
+			__ss_kfree_skb(skb);
 			skb = NULL;
 			conn_stop = true;
 		}
@@ -7776,7 +7802,7 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	return r;
 
 err:
-	__kfree_skb(skb);
+	__ss_kfree_skb(skb);
 	return r;
 }
 
