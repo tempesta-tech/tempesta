@@ -207,39 +207,22 @@ tfw_server_live(TfwServer *srv)
 	return atomic64_read(&srv->refcnt) > 0;
 }
 
-static inline void
-tfw_server_get(TfwServer *srv)
-{
-	atomic64_inc(&srv->refcnt);
-}
-
-static inline void
-tfw_server_put(TfwServer *srv)
-{
-	long rc;
-
-	if (unlikely(!srv))
-		return;
-
-	rc = atomic64_dec_return(&srv->refcnt);
-	BUG_ON(rc < 0);
-	if (likely(rc))
-		return;
-	tfw_server_destroy(srv);
-}
+void tfw_server_get(TfwServer *srv, void *srv_conn);
+void tfw_server_put(TfwServer *srv, void *srv_conn);
+void tfw_server_reset(void);
 
 static inline void
 tfw_server_pin_sess(TfwServer *srv)
 {
 	atomic64_inc(&srv->sess_n);
-	tfw_server_get(srv);
+	tfw_server_get(srv, NULL);
 }
 
 static inline void
 tfw_server_unpin_sess(TfwServer *srv)
 {
 	atomic64_dec(&srv->sess_n);
-	tfw_server_put(srv);
+	tfw_server_put(srv, NULL);
 }
 
 /*
