@@ -54,6 +54,7 @@ enum {
 
 typedef int (*on_send_cb_t)(void *conn, struct sk_buff **skb_head);
 typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
+typedef void (*on_send_fail_cb_t)(void *conn, struct sk_buff *skb_head);
 
 /*
  * Tempesta FW sk_buff private data.
@@ -61,6 +62,7 @@ typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
  * @destructor		- destructor of the opaque data, should be set if data is
  *                        not NULL
  * @on_send		- callback to special handling this skb before sending;
+ * @on_send_fail	- 
  * @on_tcp_entail 	- callback to special handling this skb before pushing
  *                        to socket write queue;
  * @mem			- memory used for this skb, used to account appropriate
@@ -72,9 +74,12 @@ typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
  */
 struct tfw_skb_cb {
 	void 		*opaque_data;
-	void 		(*destructor)(void *opaque_data);
+	void 		(*destructor)(struct sk_buff *);
 	on_send_cb_t	on_send;
-	on_tcp_entail_t on_tcp_entail;
+	union {
+		on_send_fail_cb_t	on_send_fail;
+		on_tcp_entail_t 	on_tcp_entail;
+	};
 	long int	mem;
 	unsigned int 	stream_id;
 	bool		is_head;
@@ -82,9 +87,11 @@ struct tfw_skb_cb {
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
 
-void ss_skb_set_owner(struct sk_buff *skb, void *owner, unsigned int delta);
+void ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
+		      void *owner, unsigned int delta);
 void ss_skb_adjust_sk_mem(struct sk_buff *skb, int delta);
 void ss_skb_adjust_mem(struct sk_buff *skb, int delta);
+void ss_skb_dflt_destructor(struct sk_buff *skb);
 
 static inline bool
 ss_skb_is_within_fragment(char *begin_fragment, char *position,
@@ -97,33 +104,13 @@ static inline void
 ss_skb_setup_head_of_list(struct sk_buff *skb_head, unsigned int mark,
 			  unsigned char tls_type)
 {
+	BUILD_BUG_ON(sizeof(struct tfw_skb_cb) >
+		     sizeof(((struct sk_buff *)(0))->cb));
+
 	if (tls_type)
 		skb_set_tfw_tls_type(skb_head, tls_type);
 	skb_head->mark = mark;
 	TFW_SKB_CB(skb_head)->is_head = true;
-}
-
-static inline void
-ss_skb_setup_opaque_data(struct sk_buff *skb_head, void *opaque_data,
-			 void (*destructor)(void *))
-{
-	TFW_SKB_CB(skb_head)->opaque_data = opaque_data;
-	TFW_SKB_CB(skb_head)->destructor = destructor;
-}
-
-static inline void
-ss_skb_destroy_opaque_data(struct sk_buff *skb_head)
-{
-	void *opaque_data = TFW_SKB_CB(skb_head)->opaque_data;
-	void (*destructor)(void *) = TFW_SKB_CB(skb_head)->destructor;
-
-	BUILD_BUG_ON(sizeof(struct tfw_skb_cb) >
-		     sizeof(((struct sk_buff *)(0))->cb));
-
-	if (opaque_data) {
-		BUG_ON(!destructor);
-		destructor(opaque_data);
-	}
 }
 
 static inline int
@@ -136,6 +123,15 @@ ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 		r = on_send(conn, skb_head);
 
 	return r;
+}
+
+static inline void
+ss_skb_on_send_fail(void *conn, struct sk_buff *skb_head)
+{
+	on_send_fail_cb_t on_send_fail = TFW_SKB_CB(skb_head)->on_send_fail;
+
+	if (on_send_fail)
+		on_send_fail(conn, skb_head);
 }
 
 static inline void
@@ -205,6 +201,35 @@ ss_skb_queue_splice(struct sk_buff **skb_head, struct sk_buff **skb)
 	(*skb)->prev = tail;
 
 	*skb = NULL;
+}
+
+static inline void
+ss_skb_orphan(struct sk_buff *skb)
+{
+	void (*destructor)(struct sk_buff *) = TFW_SKB_CB(skb)->destructor;
+
+	if (destructor) {
+		BUG_ON(!TFW_SKB_CB(skb)->opaque_data);
+		destructor(skb);
+		TFW_SKB_CB(skb)->destructor = NULL;
+		TFW_SKB_CB(skb)->opaque_data = NULL;
+	} else {
+		BUG_ON(TFW_SKB_CB(skb)->opaque_data);
+	}
+}
+
+static inline void
+__ss_kfree_skb(struct sk_buff *skb)
+{
+	ss_skb_orphan(skb);
+	__kfree_skb(skb);
+}
+
+static inline void
+ss_kfree_skb(struct sk_buff *skb)
+{
+	ss_skb_orphan(skb);
+	kfree_skb(skb);
 }
 
 static inline void
@@ -316,7 +341,7 @@ ss_skb_queue_purge(struct sk_buff **skb_head)
 {
 	struct sk_buff *skb;
 	while ((skb = ss_skb_dequeue(skb_head)) != NULL)
-		kfree_skb(skb);
+		ss_kfree_skb(skb);
 }
 
 static inline void

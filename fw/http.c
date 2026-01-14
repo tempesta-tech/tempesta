@@ -1149,7 +1149,7 @@ void
 tfw_h2_resp_fwd(TfwHttpResp *resp)
 {
 	bool resp_in_xmit =
-		(TFW_SKB_CB(resp->msg.skb_head)->opaque_data == resp);
+		(TFW_SKB_CB(resp->msg.skb_head)->stream_id != 0);
 	TfwHttpReq *req = resp->req;
 	TfwConn *conn = req->conn;
 	int status = READ_ONCE(resp->status);
@@ -1806,7 +1806,7 @@ __tfw_http_free_cleanup(TfwHttpMsgCleanup *cleanup)
 	struct sk_buff *skb;
 
 	while ((skb = ss_skb_dequeue(&cleanup->skb_head)))
-		__kfree_skb(skb);
+		__ss_kfree_skb(skb);
 
 	for (i = 0; i < cleanup->pages_sz; i++)
 		/*
@@ -4566,14 +4566,16 @@ tfw_http_resp_get_conn_flags(TfwHttpResp *resp)
 static int
 tfw_http_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
 {
-	struct sk_buff *nskb;
+	void *opaque_data = TFW_SKB_CB(resp->msg.skb_head)->opaque_data;
 	TfwMsgIter *iter = &resp->iter;
+	struct sk_buff *nskb;
 
 	nskb = ss_skb_alloc(0);
 	if (unlikely(!nskb))
 		return -ENOMEM;
 
-	ss_skb_set_owner(nskb, resp->msg.skb_head->sk, nskb->truesize);
+	ss_skb_set_owner(nskb, ss_skb_dflt_destructor,
+			 opaque_data, nskb->truesize);
 	nskb->mark = resp->msg.skb_head->mark;
 	cleanup->skb_head = resp->msg.skb_head;
 	resp->msg.skb_head = NULL;
@@ -5423,7 +5425,6 @@ tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 		return -EPIPE;
 
 	BUG_ON(stream->xmit.skb_head);
-	stream->xmit.resp = (TfwHttpResp *)tfw_cb->opaque_data;
 	if (test_bit(TFW_HTTP_B_CLOSE_ERROR_RESPONSE, stream->xmit.resp->flags))
 		ctx->error = stream;
 	swap(stream->xmit.skb_head, *skb_head);
@@ -5432,6 +5433,18 @@ tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 		tfw_h2_sched_activate_stream(&ctx->sched, stream);
 
 	return 0;
+}
+
+void
+tfw_h2_on_send_fail_clear_resp(void *conn, struct sk_buff *skb_head)
+{
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	struct tfw_skb_cb *tfw_cb = TFW_SKB_CB(skb_head);
+	TfwStream *stream;
+
+	stream = tfw_h2_find_not_closed_stream(ctx, tfw_cb->stream_id, false);
+	if (likely(stream && stream->xmit.resp))
+		tfw_http_resp_pair_free_and_put_conn(stream->xmit.resp);
 }
 
 /**
@@ -6253,7 +6266,7 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 	if (test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags)) {
 		TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 		if (unlikely(skb)) {
-			__kfree_skb(skb);
+			__ss_kfree_skb(skb);
 			skb = NULL;
 		}
 	}
@@ -6272,7 +6285,7 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 			TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 			tfw_http_conn_error_log(req->conn, "Can't create"
 						" pipelined request");
-			__kfree_skb(skb);
+			__ss_kfree_skb(skb);
 		}
 	}
 
@@ -6553,8 +6566,10 @@ next_msg:
 	 * For tls connections we already set `skb->owner` before
 	 * tls decryption.
 	 */
-	if (!skb->sk)
-		ss_skb_set_owner(skb, conn->peer, skb->truesize);
+	if (!TFW_SKB_CB(skb)->opaque_data) {
+		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
+				 conn->peer, skb->truesize);
+	}
 
 	r = frang_client_mem_limit((TfwCliConn *)conn, false);
 	if (unlikely(r)) {
@@ -7402,7 +7417,8 @@ next_msg:
 	cli_conn = (TfwCliConn *)hmresp->req->conn;
 
 	if (likely(!test_bit(TFW_HTTP_B_HMONITOR, hmresp->req->flags))) {
-		ss_skb_set_owner(skb, cli_conn->peer, skb->truesize);
+		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
+				 cli_conn->peer, skb->truesize);
 
 		r = frang_client_mem_limit(cli_conn, false);
 		if (unlikely(r)) {
@@ -7573,7 +7589,7 @@ next_msg:
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 			tfw_http_conn_error_log(conn, "Can't create pipelined"
 						      " response");
-			__kfree_skb(skb);
+			__ss_kfree_skb(skb);
 			skb = NULL;
 			conn_stop = true;
 		}
@@ -7767,7 +7783,7 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	return r;
 
 err:
-	__kfree_skb(skb);
+	__ss_kfree_skb(skb);
 	return r;
 }
 

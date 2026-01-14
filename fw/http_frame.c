@@ -294,6 +294,19 @@ tfw_h2_on_send_dflt(void *conn, struct sk_buff **skb_head)
 	return 0;
 }
 
+static int
+tfw_h2_on_send_ack(void *conn, struct sk_buff **skb_head)
+{
+	int r;
+
+	r = tfw_h2_on_send_dflt(conn, skb_head);
+	if (unlikely(r))
+		return r;
+
+	TFW_SKB_CB(*skb_head)->on_tcp_entail = tfw_h2_on_tcp_entail_ack;
+	return 0;
+}
+
 /**
  * Prepare and send HTTP/2 frame to the client; @hdr must contain
  * the valid data to fill in the frame's header; @data may carry
@@ -352,10 +365,8 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_dflt;
 	}
 
-	if (hdr->type == HTTP2_SETTINGS && hdr->flags == HTTP2_F_ACK) {
-		TFW_SKB_CB(msg.skb_head)->on_tcp_entail =
-			tfw_h2_on_tcp_entail_ack;
-	}
+	if (hdr->type == HTTP2_SETTINGS && hdr->flags == HTTP2_F_ACK)
+		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_ack;
 
 	if ((r = tfw_connection_send(conn, &msg)))
 		goto err;
@@ -1927,7 +1938,7 @@ next_msg:
 		while (unlikely(h2->skb_head->len <= h2->data_off)) {
 			struct sk_buff *skb = ss_skb_dequeue(&h2->skb_head);
 			h2->data_off -= skb->len;
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 			/*
 			 * Special case when the frame is postponed just
 			 * in the beginning of the app data, after all
@@ -1947,7 +1958,7 @@ next_msg:
 		pskb = h2->skb_head;
 		if ((r = ss_skb_chop_head_tail(NULL, pskb,
 					       h2->data_off, 0))) {
-			kfree_skb(nskb);
+			ss_kfree_skb(nskb);
 			goto out;
 		}
 		h2->data_off = 0;
@@ -1956,7 +1967,7 @@ next_msg:
 		/* TODO #1490: Check this place, when working on the task. */
 		if (r && r != T_DROP) {
 			WARN_ON_ONCE(r == T_POSTPONE);
-			kfree_skb(nskb);
+			ss_kfree_skb(nskb);
 			goto out;
 		}
 	}
@@ -1973,7 +1984,7 @@ next_msg:
 		while (unlikely(h2->skb_head != end)) {
 			pskb = ss_skb_dequeue(&h2->skb_head);
 			h2->data_off -= pskb->len;
-			kfree_skb(pskb);
+			ss_kfree_skb(pskb);
 		}
 
 		pskb = h2->skb_head;
@@ -1984,7 +1995,7 @@ next_msg:
 		/* TODO #1490: Check this place, when working on the task. */
 		if (r && r != T_DROP) {
 			WARN_ON_ONCE(r == T_POSTPONE);
-			kfree_skb(nskb);
+			ss_kfree_skb(nskb);
 			goto out;
 		}
 	}
@@ -2069,7 +2080,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 
 		while (skb && unlikely(!skb->len)) {
 			ss_skb_unlink(&stream->xmit.skb_head, skb);
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 			skb = stream->xmit.skb_head;
 		}
 	}

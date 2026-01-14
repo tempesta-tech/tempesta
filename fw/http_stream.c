@@ -149,7 +149,7 @@ tfw_h2_stream_purge_send_queue(TfwStream *stream)
 		BUG_ON(!skb);
 
 		len -= skb->len;
-		kfree_skb(skb);
+		ss_kfree_skb(skb);
 	}
 	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.t_len
 		= stream->xmit.frame_length = 0;
@@ -828,12 +828,11 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 		return -EPIPE;
 	}
 
-	ss_skb_setup_opaque_data(skb_head, resp,
-				 tfw_http_resp_pair_free_and_put_conn);
 	TFW_SKB_CB(skb_head)->on_send = tfw_h2_on_send_resp;
+	TFW_SKB_CB(skb_head)->on_send_fail = tfw_h2_on_send_fail_clear_resp;
 	TFW_SKB_CB(skb_head)->stream_id = stream->id;
 
-	stream->xmit.resp = NULL;
+	stream->xmit.resp = resp;
 	stream->xmit.skb_head = NULL;
 	stream->xmit.h_len = h_len;
 	stream->xmit.b_len = b_len;
