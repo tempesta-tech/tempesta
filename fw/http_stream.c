@@ -149,7 +149,7 @@ tfw_h2_stream_purge_send_queue(TfwStream *stream)
 		BUG_ON(!skb);
 
 		len -= skb->len;
-		kfree_skb(skb);
+		ss_kfree_skb(skb);
 	}
 	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.t_len
 		= stream->xmit.frame_length = 0;
@@ -812,6 +812,16 @@ tfw_h2_delete_stream(TfwH2Ctx *ctx, TfwStream *stream)
 	kmem_cache_free(stream_cache, stream);
 }
 
+void
+tfw_h2_stream_skb_destructor(struct sk_buff *skb)
+{
+	TfwHttpResp *resp = (TfwHttpResp *)TFW_SKB_CB(skb)->opaque_data;
+
+	TFW_SKB_CB(skb)->opaque_data = resp->req->conn->peer;
+	ss_skb_dflt_destructor(skb);
+	tfw_http_resp_pair_free_and_put_conn(resp);
+}
+
 int
 tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 			    unsigned long h_len, unsigned long b_len)
@@ -828,8 +838,6 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 		return -EPIPE;
 	}
 
-	ss_skb_setup_opaque_data(skb_head, resp,
-				 tfw_http_resp_pair_free_and_put_conn);
 	TFW_SKB_CB(skb_head)->on_send = tfw_h2_on_send_resp;
 	TFW_SKB_CB(skb_head)->stream_id = stream->id;
 
