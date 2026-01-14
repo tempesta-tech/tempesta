@@ -45,6 +45,8 @@ typedef void (*exit_fn)(void);
 exit_fn exit_hooks[32];
 size_t  exit_hooks_n;
 
+bool ss_syncronize_after = false;
+
 typedef enum {
 	TFW_STATE_STOPPED = 0,
 	TFW_STATE_STARTED,
@@ -178,9 +180,11 @@ tfw_mods_stop(void)
 		 * clients.
 		 */
 		if (!ss_synchronize()) {
+			WRITE_ONCE(ss_syncronize_after, true);
 			tfw_cli_abort_all();
 			/* Check that all the connections are terminated now. */
-			WARN_ON(!ss_synchronize());
+			if (WARN_ON(!ss_synchronize()))
+				print_conns();
 		}
 		ss_synced = true;
 	}
