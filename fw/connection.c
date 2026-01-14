@@ -187,7 +187,7 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 				next = split;
 			}
 		} else {
-			__kfree_skb(skb);
+			__ss_kfree_skb(skb);
 		}
 	}
 
