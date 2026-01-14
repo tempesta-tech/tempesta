@@ -465,7 +465,7 @@ ss_skb_try_collapse(struct sock *sk, struct sk_buff *skb,
 	sk_mem_charge(sk, nlen);
 
 	if (!skb->len) {
-		__kfree_skb(skb);
+		__ss_kfree_skb(skb);
 		return 0;
 	}
 
@@ -490,6 +490,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		skb->mark = mark;
 		if (tls_type)
 			skb_set_tfw_tls_type(skb, tls_type);
+		skb_tfw_set_in_socket_write_queue(skb);
 		ss_forced_mem_schedule(sk, skb->truesize);
 		tcp_skb_entail(sk, skb);
 		tp->write_seq += skb->len;
@@ -508,8 +509,6 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 	struct sk_buff *tail, *next, *to_destroy;
 	unsigned char tls_type = 0;
 	unsigned int mark = 0;
-	void *opaque_data = NULL;
-	void (*destructor)(void *) = NULL;
 	int r;
 
 	while ((*snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now))) {
@@ -527,8 +526,6 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 		if (TFW_SKB_CB(skb)->is_head) {
 			tls_type = skb_tfw_tls_type(skb);
 			mark = skb->mark;
-			opaque_data = TFW_SKB_CB(skb)->opaque_data;
-			destructor = TFW_SKB_CB(skb)->destructor;
 			tail = tcp_write_queue_tail(sk);
 		}
 		/*
@@ -540,7 +537,7 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 			T_DBG3("[%d]: %s: drop skb=%pK data_len=%u len=%u\n",
 			       smp_processor_id(), __func__,
 			       skb, skb->data_len, skb->len);
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 			continue;
 		}
 
@@ -556,9 +553,8 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 		}
 	}
 
-	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head) {
+	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head)
 		ss_skb_setup_head_of_list(*skb_head, mark, tls_type);
-	}
 
 	return 0;
 
@@ -570,7 +566,9 @@ restore_sk_write_queue:
 			tcp_wmem_free_skb(sk, to_destroy);
 		}
 	}
-	ss_skb_setup_opaque_data(*skb_head, opaque_data, destructor);
+	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head)
+		ss_skb_setup_head_of_list(*skb_head, mark, tls_type);
+
 	return r;	
 }
 
@@ -632,7 +630,6 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	return;
 
 cleanup:
-	ss_skb_destroy_opaque_data(*skb_head);
 	ss_skb_queue_purge(skb_head);
 }
 
@@ -692,8 +689,10 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 				r = -ENOMEM;
 				goto err;
 			}
-			memset(twin_skb->cb, 0, sizeof(twin_skb)->cb);
-			ss_skb_set_owner(twin_skb, skb->sk, skb_headlen(skb));
+			memset(twin_skb->cb, 0, sizeof(twin_skb->cb));
+			ss_skb_set_owner(twin_skb, ss_skb_dflt_destructor,
+					 TFW_SKB_CB(skb)->opaque_data,
+					 skb_headlen(skb));
 			ss_skb_queue_tail(&sw.skb_head, twin_skb);
 			skb = skb->next;
 		} while (skb != *skb_head);
@@ -1789,11 +1788,9 @@ ss_tx_action(void)
 		}
 dead_sock:
 		sock_put(sk); /* paired with push() calls */
-		if (sw.skb_head)
-			ss_skb_destroy_opaque_data(sw.skb_head);
 
 		while ((skb = ss_skb_dequeue(&sw.skb_head)))
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 	}
 
 	/*
