@@ -273,7 +273,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	}
 
 	/* Activate keepalive timer. */
-	mod_timer(&conn->timer,
+	mod_timer(&((TfwCliConn *)conn)->timer,
 		  jiffies +
 		  msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
 
