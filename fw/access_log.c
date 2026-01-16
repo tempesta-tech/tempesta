@@ -551,6 +551,10 @@ cfg_access_log_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		if (strcasecmp(val, "off") == 0) {
 			off = true;
 		} else if (strcasecmp(val, "dmesg") == 0) {
+#ifndef DEBUG
+			T_WARN("Using the access log via `dmesg` has significant performance"
+			       " overhead and may lead to kernel hangs under high loa\n");
+#endif
 			access_log_type |= ACCESS_LOG_DMESG;
 		} else if (strcasecmp(val, "mmap") == 0) {
 			access_log_type |= ACCESS_LOG_MMAP;
