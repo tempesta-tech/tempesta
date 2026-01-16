@@ -181,6 +181,7 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 static void
 tfw_srv_conn_release(TfwSrvConn *srv_conn)
 {
+	ss_skb_queue_purge(&srv_conn->write_queue);
 	tfw_connection_release((TfwConn *)srv_conn);
 	/*
 	 * conn->sk may be zeroed if we get here after a failed
@@ -399,6 +400,8 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_new		= tfw_sock_srv_connect_complete,
 	.connection_drop	= tfw_sock_srv_connect_drop,
 	.connection_recv	= tfw_connection_recv,
+	.connection_on_send	= tfw_connection_on_send,
+	.connection_push	= tfw_connection_push,
 };
 
 static int

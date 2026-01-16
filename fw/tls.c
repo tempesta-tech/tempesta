@@ -54,7 +54,7 @@ tfw_tls_purge_io_ctx(TlsIOCtx *io)
 	struct sk_buff *skb;
 
 	while ((skb = ss_skb_dequeue(&io->skb_list)))
-		kfree_skb(skb);
+		ss_kfree_skb(skb);
 	ttls_reset_io_ctx(io);
 }
 
@@ -89,6 +89,8 @@ tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 next_msg:
 	spin_lock(&tls->lock);
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
+	ss_skb_set_owner(skb, ss_skb_dflt_destructor,
+			 conn->peer, skb->truesize);
 
 	/* Call TLS layer to place skb into a TLS record on top of skb_list. */
 	parsed = 0;
@@ -169,7 +171,7 @@ next_msg:
 				TTLS_TAG_LEN);
 		if (r) {
 			tfw_tls_purge_io_ctx(&tls->io_in);
-			kfree_skb(nskb);
+			ss_kfree_skb(nskb);
 			spin_unlock(&tls->lock);
 			return T_BAD;
 		}
@@ -185,7 +187,7 @@ next_msg:
 		/* Do upcall to http or websocket */
 		r = tfw_connection_recv(conn, data_up.skb);
 		if (r && r != T_POSTPONE && r != T_DROP) {
-			kfree_skb(nskb);
+			ss_kfree_skb(nskb);
 			return r;
 		}
 	} else {
@@ -537,6 +539,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 {
 	int r, flags = 0;
 	TfwTlsConn *conn = container_of(tls, TfwTlsConn, tls);
+	TfwCliConn *cli_conn = &conn->cli_conn;
 	TlsIOCtx *io = &tls->io_out;
 	TfwMsgIter it;
 	TfwStr str = {};
@@ -564,11 +567,12 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 	T_DBG("TLS %lu bytes +%u segments (%u bytes, last msgtype %#x)"
 	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
 	      str.len, sgt ? sgt->nents : 0, io->msglen, io->msgtype, conn,
-	      conn->cli_conn.sk->sk_write_xmit, ttls_xfrm_ready(tls));
+	      cli_conn->sk->sk_write_xmit, ttls_xfrm_ready(tls));
 
-	if ((r = tfw_msg_iter_setup(&it, &io->skb_list, str.len)))
+	if ((r = tfw_msg_iter_setup(&it, cli_conn->peer, &io->skb_list,
+				    str.len)))
 		goto out;
-	if ((r = tfw_msg_write(&it, &str)))
+	if ((r = tfw_msg_iter_write(&it, &str)))
 		goto out;
 	/* Only one skb should has been allocated. */
 	WARN_ON_ONCE(it.skb->next != io->skb_list
@@ -584,6 +588,8 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 					r = -ENOMEM;
 					goto out;
 				}
+				ss_skb_set_owner(skb, ss_skb_dflt_destructor,
+						 cli_conn->peer, skb->truesize);
 				ss_skb_queue_tail(&io->skb_list, skb);
 				i = 0;
 			}
@@ -642,9 +648,9 @@ tfw_tls_conn_dtor(void *c)
 
 	if (tls) {
 		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 		while ((skb = ss_skb_dequeue(&tls->io_out.skb_list)))
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 
 		if (tls->peer_conf)
 			tfw_vhost_put(tfw_vhost_from_tls_conf(tls->peer_conf));

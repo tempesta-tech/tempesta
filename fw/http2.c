@@ -676,7 +676,7 @@ tfw_h2_stream_xmit_prepare_resp(TfwStream *stream)
 			resp->iter.skb = resp->msg.skb_head->prev;
 			resp->iter.frag =
 				skb_shinfo(resp->iter.skb)->nr_frags - 1;
-			tfw_http_msg_setup_transform_pool(mit, &resp->iter,
+			tfw_http_msg_setup_transform_pool(mit, (TfwHttpMsg *)resp,
 							  resp->pool);
 
 			r = tfw_h2_hpack_encode_trailer_headers(resp);
@@ -729,7 +729,7 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			T_DBG3("[%d]: %s: drop skb=%px data_len=%u len=%u\n",
 			       smp_processor_id(), __func__,
 			       skb, skb->data_len, skb->len);
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 			continue;
 		}
 
@@ -759,7 +759,7 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			}
 		}
 		*len -= skb->len;
-		 ss_skb_tcp_entail(sk, skb, mark, tls_type);
+		WARN_ON(ss_skb_tcp_entail(sk, skb, mark, tls_type, skb->len));
 	}
 
 	/*
