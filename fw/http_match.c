@@ -72,7 +72,7 @@
 #include "http_msg.h"
 #include "cfg.h"
 #include "lib/fault_injection_alloc.h"
-#include "regex/kmod/rex.h"
+#include "regex.h"
 
 /**
  * Map an operator to that flags passed to tfw_str_eq_*() functions.
@@ -89,21 +89,6 @@ map_op_to_str_eq_flags(tfw_http_match_op_t op)
 	};
 	BUG_ON(flags_tbl[op] < 0);
 	return flags_tbl[op];
-}
-
-bool
-tfw_match_regex(const char *cstr, const TfwStr *arg)
-{
-	int r;
-	struct rex_scan_attr attr = {};
-
-	memcpy(&attr.database_id, cstr, sizeof(unsigned short));
-
-	if (!arg->len)
-		return false;
-
-	r = rex_scan_tfwstr(arg, &attr);
-	return (!r && attr.nr_events && attr.last_event.expression);
 }
 
 static bool
@@ -798,97 +783,6 @@ tfw_http_escape_pre_post(char *out, const char *str, size_t str_len)
 	return new_len;
 }
 
-/*
- * Here we create text file for every regex string which
- * can be readed by hscollider.
- * Next hscollider compile it and save to temporary DB.
- * After it will be loaded to regex module DB.
- * All operations after creating will be done in script start_regex.sh
- *
- * As it potentially possible situation then one DB conains several
- * expressions, here are two variables:
- * number_of_db_regex - nomber of databes which we will use to look for
- * expression;
- * number_of_regex - number of expression to know wich exactly expression
- * was matched (parsing for it has not not implemented yet)
- *
- * After this function, number_of_db_regex will be written to start of arg,
- * so the lenght of regex string must be longer then two bytes.
- *
- * Directory /tmp/tempesata is created from
- * tempesta.sh script.
- */
-int
-write_regex(const char *arg)
-{
-	struct file *fl;
-	loff_t off = 0;
-	int r;
-	char file_name[32];
-	char reg_number[6];
-	int len = strlen(arg);
-	int len1;
-
-	/*
-	 * Length of regexp string must be greater or equal to sizeof(number_of_regex)
-	 * because we use memory allocated for this string for storing id
-	 * of the regexp.
-	 */
-	if (len < sizeof(number_of_regex)) {
-		T_ERR_NL("String of regex too short.\n");
-		return -EINVAL;
-	}
-
-	if (number_of_db_regex == USHRT_MAX) {
-		T_ERR_NL("Maximum number of regular expression databases has been reached.\n");
-		return -EINVAL;
-	}
-
-	if (number_of_regex == USHRT_MAX) {
-		T_ERR_NL("Maximum number of regular expressions has been reached.\n");
-		return -EINVAL;
-	}
-
-	++number_of_db_regex;
-	sprintf(file_name, "/opt/tempesta/regex/%u.txt", number_of_db_regex);
-
-	fl = filp_open(file_name, O_CREAT | O_WRONLY, 0600);
-	if (IS_ERR(fl)) {
-		T_ERR_NL("Cannot create regex file %s. Check if the directory exists.\n",
-		          file_name);
-		return -EINVAL;
-	}
-	BUG_ON(!fl || !fl->f_path.dentry);
-
-	if (!fl->f_op->fallocate) {
-		T_ERR_NL("File requires filesystem with fallocate support\n");
-		filp_close(fl, NULL);
-		return -EINVAL;
-	}
-
-	++number_of_regex;
-	sprintf(reg_number, "%i:", number_of_regex);
-	len1 = strlen(reg_number);
-	r = kernel_write(fl, (void *)reg_number, len1, &off);
-	if (r != len1)
-		goto err;
-
-	r = kernel_write(fl, (void *)arg, len, &off);
-	if (r != len)
-		goto err;
-
-	r = kernel_write(fl, "\n", 1, &off);
-	if (r != 1)
-		goto err;
-
-	filp_close(fl, NULL);
-	return 0;
-err:
-	T_ERR_NL("Cannot write regex\n");
-	filp_close(fl, NULL);
-	return r;
-}
-
 static void
 find_spaces(const char *s, size_t len, size_t *begin_spaces_out,
 	    size_t *end_spaces_out)
@@ -917,6 +811,7 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 		    tfw_http_match_op_t *op_out)
 {
 	char *arg_out, *pos;
+	unsigned short regex_idx;
 	size_t name_len = 0, full_name_len = 0, len = strlen(arg),
 	       n_begin_off = 0, n_end_off = 0, arg_begin_off = 0,
 	       arg_end_off = 0;
@@ -973,7 +868,7 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	if (!wc_arg && regex) {
 		int r;
 
-		if ((r = write_regex(arg))) {
+		if ((r = tfw_write_regex(arg, &regex_idx))) {
 			kfree(arg_out);
 			return ERR_PTR(r);
 		}
@@ -1009,11 +904,9 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 		len = tfw_http_escape_pre_post(pos, arg + arg_begin_off, len);
 	*size_out += full_name_len + len + 1;
 
-	/*
-	 * Save number_of_db_regex to use it in tfw_match_regex
-	 */
+	/* Save regex_idx to use it in tfw_match_regex */
 	if (*op_out == TFW_HTTP_MATCH_O_REGEX)
-		memcpy(pos, &number_of_db_regex, sizeof(number_of_db_regex));
+		memcpy(pos, &regex_idx, sizeof(regex_idx));
 
 	return arg_out;
 }

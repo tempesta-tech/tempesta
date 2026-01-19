@@ -503,6 +503,7 @@ tfw_init(void)
 	/* The order of initialization is highly important. */
 	DO_INIT(pool);
 	DO_INIT(cfg);
+	DO_INIT(regex);
 	DO_INIT(access_log);
 	DO_INIT(apm);
 	DO_INIT(vhost);

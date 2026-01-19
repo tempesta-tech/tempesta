@@ -389,9 +389,6 @@ struct TfwCfgSpec {
 	void (*cleanup)(TfwCfgSpec *self);
 };
 
-extern unsigned short number_of_regex;
-extern unsigned short number_of_db_regex;
-
 /**
  * Walks over a NULL-terminated array of TfwCfgSpec structures.
  */
