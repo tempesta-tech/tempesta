@@ -42,6 +42,8 @@ lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
 logger_path=${LOGGER_PATH:="$TFW_ROOT/logger"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
+regex_setup_script=${REGEX_SETUP_SCRIPT_PATH:="$TFW_ROOT/scripts/regex_setup.sh"}
+regex_dir_path=${REGEX_DIR_PATH:="/opt/tempesta/regex"}
 tfw_logger_config="$TFW_ROOT/etc/tfw_logger.json"
 tfw_netconsole_host="$TFW_NETCONSOLE_HOST"
 tfw_netconsole_port="$TFW_NETCONSOLE_PORT"
@@ -171,6 +173,16 @@ prepare_db_directory()
 	rm -f /opt/tempesta/db/*.tdb;
 }
 
+prepare_regex_directory()
+{
+	mkdir -p $regex_dir_path
+}
+
+regex_cleanup()
+{
+	rmdir /sys/kernel/config/rex/* 2> /dev/null
+}
+
 load_one_module()
 {
 	if [ -z "$1" ]; then
@@ -208,7 +220,9 @@ load_modules()
 	load_one_module "$rgx_path/$rgx_mod.ko" ||
 		error "cannot load regex module"
 
-	load_one_module "$tfw_path/$tfw_mod.ko" "tfw_cfg_path=$tfw_cfg_temp" ||
+	load_one_module "$tfw_path/$tfw_mod.ko" "tfw_cfg_path=$tfw_cfg_temp \
+			regex_setup_script_path=$regex_setup_script \
+			regex_dir_path=$regex_dir_path"||
 		error "cannot load tempesta module"
 }
 
@@ -217,6 +231,7 @@ unload_modules()
 	echo "Un-loading Tempesta kernel modules..."
 
 	rmmod $tfw_mod
+	regex_cleanup
 	rmmod $rgx_mod
 	rmmod $tdb_mod
 	rmmod $tls_mod
@@ -428,6 +443,7 @@ start()
 		echo "...load Tempesta modules"
 		load_modules;
 
+		prepare_regex_directory
 		prepare_db_directory;
 	elif [[ ${TFW_STATE} == "stop" ]]; then
 		prepare_db_directory;

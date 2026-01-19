@@ -110,9 +110,6 @@
  * them. Helpers below facilitate that.
  */
 
-unsigned short number_of_regex = 0;
-unsigned short number_of_db_regex = 0;
-
 static const char *
 __alloc_and_copy_literal(const char *src, size_t len, bool keep_bs)
 {

@@ -9,6 +9,8 @@ Environment="TFW_PATH=/usr/src/tempesta/fw"
 Environment="TDB_PATH=/usr/src/tempesta/db/core"
 Environment="TLS_PATH=/usr/src/tempesta/tls"
 Environment="LIB_PATH=/usr/src/tempesta/lib"
+Environment="REGEX_PATH=/usr/src/tempesta/regex"
+Environment="REGEX_SETUP_SCRIPT_PATH=/lib/tempesta/scripts/regex_setup.sh"
 Environment=TFW_CFG_PATH=/etc/tempesta/tempesta_fw.conf
 Environment="TFW_SYSTEMD=1"
 Environment="TFW_NETCONSOLE_HOST="
