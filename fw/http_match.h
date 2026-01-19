@@ -171,10 +171,6 @@ int tfw_http_search_cookie(const char *cstr, unsigned long clen,
 			   TfwStr **pos, TfwStr *end, TfwStr *val,
 			   tfw_http_match_op_t op, bool is_resp_hdr);
 
-int write_regex(const char *arg);
-
-bool tfw_match_regex(const char *cstr, const TfwStr *arg);
-
 #define tfw_http_chain_rules_for_each(chain, func)			\
 ({									\
 	int r = 0;							\

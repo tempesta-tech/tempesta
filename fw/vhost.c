@@ -40,7 +40,7 @@
 #include "tls_conf.h"
 #include "lib/log.h"
 #include "lib/fault_injection_alloc.h"
-#include "regex/kmod/rex.h"
+#include "regex.h"
 
 /*
  * The hash table entry for mapping @sni to @vhost for SAN certificates handling.
@@ -1531,17 +1531,16 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 	switch (op) {
 	case TFW_HTTP_MATCH_O_REGEX:
 		int r;
+		unsigned short regex_idx;
 
-		if ((r = write_regex(arg))) {
+		if ((r = tfw_write_regex(arg, &regex_idx))) {
 			kfree(argmem);
 			kfree(data);
 			return r;
 		}
-		/*
-		* Save number_of_db_regex to use it in tfw_match_regex
-		*/
-		memcpy((void *)loc->arg, (void *)&number_of_db_regex,
-		       sizeof(number_of_db_regex));
+
+		/* Save regex_idx to use it in tfw_match_regex */
+		memcpy((void *)loc->arg, (void *)&regex_idx, sizeof(regex_idx));
 		break;
 	default:
 		memcpy((void *)loc->arg, (void *)arg, len + 1);
@@ -2715,9 +2714,6 @@ static int
 tfw_vhost_cfgstart(void)
 {
 	TfwVhost *vh_dflt;
-
-	number_of_regex = 0;
-	number_of_db_regex = 0;
 
 	BUG_ON(tfw_vhosts_reconfig);
 	tfw_vhosts_reconfig = tfw_kmalloc(sizeof(TfwVhostList), GFP_KERNEL);

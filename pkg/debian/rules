@@ -14,6 +14,7 @@ override_dh_auto_install:
 	dh_install db usr/src/tempesta
 	dh_install tls usr/src/tempesta
 	dh_install lib usr/src/tempesta
+	dh_install regex usr/src/tempesta
 	dh_install Makefile usr/src/tempesta
 	dh_install etc/* /etc/tempesta
 	dh_install scripts /lib/tempesta
