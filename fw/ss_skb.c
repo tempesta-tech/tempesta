@@ -1307,12 +1307,6 @@ ss_skb_split(struct sk_buff *skb, int len)
 	buff->mark = skb->mark;
 
 	/*
-	 * Initialize GSO segments counter to let TCP set it according to
-	 * the current MSS on egress path.
-	 */
-	tcp_skb_pcount_set(skb, 0);
-
-	/*
 	 * These are orphaned SKBs that are taken out of the TCP/IP
 	 * stack and are completely owned by Tempesta. There is no
 	 * need to correct the sequence numbers, adjust TCP flags,
