@@ -83,7 +83,7 @@
  *   - Extended string matching operators: "regex", "substring".
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -434,13 +434,14 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		}
 
 		arg = tfw_http_arg_adjust(in_arg, field, in_field_val,
-					  cfg_rule->regex, &arg_size, &name_size, &type,
-					  &op);
+					  cfg_rule->regex, &arg_size,
+					  &name_size, &type, &op);
 		if (IS_ERR(arg))
 			return PTR_ERR(arg);
 	}
 
-	val = tfw_http_val_adjust(in_field_val, field, &val_len, &type_val, &op_val);
+	val = tfw_http_val_adjust(in_field_val, field, &val_len, &type_val,
+				  &op_val);
 	if (IS_ERR(val)) {
 		kfree(arg);
 		return PTR_ERR(val);

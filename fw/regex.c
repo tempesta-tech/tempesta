@@ -158,7 +158,7 @@ bool
 tfw_match_regex(const char *cstr, const TfwStr *arg)
 {
 	int r;
-	struct rex_scan_attr attr = {};
+	struct rex_scan_attr attr = {0};
 
 	memcpy(&attr.database_id, cstr, sizeof(unsigned short));
 
