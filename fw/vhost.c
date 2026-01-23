@@ -1421,6 +1421,11 @@ tfw_cfgop_out_cache_control_ignore(TfwCfgSpec *cs, TfwCfgEntry *ce)
 /*
  * Find a location directive entry. The entry is looked up
  * in the array that holds all location directives.
+ *
+ * NOTE: This works only for non-regex locations. Regex locations may have the
+ * same pattern. It seems not worth trying to detect duplicate patterns,
+ * because two similar but not identical patterns can still resolve to the same
+ * location.
  */
 static TfwLocation *
 tfw_location_lookup(TfwVhost *vhost, tfw_match_t op, const char *arg, size_t len)
@@ -1487,22 +1492,21 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 		  size_t len, TfwPool *pool)
 {
 	char *argmem, *data;
+	unsigned short regex_idx;
 	size_t size = sizeof(FrangVhostCfg)
 		    + sizeof(TfwCaPolicy *) * TFW_CAPOLICY_ARRAY_SZ
 		    + sizeof(TfwNipDef *) * TFW_NIPDEF_ARRAY_SZ
 		    + sizeof(TfwHdrModsDesc) * TFW_USRHDRS_ARRAY_SZ * 2;
 
 	memset(loc, 0, sizeof(TfwLocation));
-	if (op != TFW_HTTP_MATCH_O_REGEX) {
-		argmem = tfw_kmalloc(len + 1, GFP_KERNEL);
-		if (!argmem)
-			return -ENOMEM;
-	}
-	else {/*If it is a regex we need only number of DB*/
-		argmem = tfw_kmalloc(sizeof(USHRT_MAX) + 1, GFP_KERNEL);
-		if (!argmem)
-			return -ENOMEM;
-	}
+	/* If it is a regex we need only number of DB, otherwise full string. */
+	if (op == TFW_HTTP_MATCH_O_REGEX)
+		len = sizeof(regex_idx);
+
+	/* Add 1 - it always null-terminated even for regex. */
+	argmem = tfw_kzalloc(len + 1, GFP_KERNEL);
+	if (!argmem)
+		return -ENOMEM;
 
 	if ((data = tfw_kzalloc(size, GFP_KERNEL)) == NULL) {
 		kfree(argmem);
@@ -1528,23 +1532,20 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 	loc->mod_hdrs[TFW_VHOST_HDRMOD_RESP].hdrs =
 		loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].hdrs + TFW_USRHDRS_ARRAY_SZ;
 
-	switch (op) {
-	case TFW_HTTP_MATCH_O_REGEX:
+	if (op == TFW_HTTP_MATCH_O_REGEX) {
 		int r;
-		unsigned short regex_idx;
 
-		if ((r = tfw_write_regex(arg, &regex_idx))) {
+		r = tfw_write_regex(arg, &regex_idx);
+		if (r) {
 			kfree(argmem);
 			kfree(data);
 			return r;
 		}
 
 		/* Save regex_idx to use it in tfw_match_regex */
-		memcpy((void *)loc->arg, (void *)&regex_idx, sizeof(regex_idx));
-		break;
-	default:
-		memcpy((void *)loc->arg, (void *)arg, len + 1);
-		break;
+		memcpy((void *)loc->arg, (void *)&regex_idx, len);
+	} else {
+		memcpy((void *)loc->arg, (void *)arg, len);
 	}
 
 	return 0;

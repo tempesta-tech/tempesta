@@ -827,6 +827,11 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	if (wc_arg && !raw_hdr_name)
 		return NULL;
 
+	if (wc_arg && regex) {
+		T_ERR_NL("http_match: use simple wildcard argument: hdr == *. Instead regex.\n");
+		return ERR_PTR(-EINVAL);
+	}
+
 	if (raw_hdr_name && field != TFW_HTTP_MATCH_F_COOKIE) {
 		name_len = strlen(raw_hdr_name);
 		/* Forbid "" string in name. */
@@ -844,6 +849,9 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 		if (!len)
 			return ERR_PTR(-EINVAL);
 	}
+
+	if (regex)
+		len = sizeof(regex_idx);
 
 	if (!(arg_out = tfw_kzalloc(full_name_len + len + 1, GFP_KERNEL))) {
 		T_ERR_NL("http_match: unable to allocate rule argument.\n");
@@ -865,7 +873,7 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	if (wc_arg || (len > 1 && arg[len - 1] == '*' && arg[len - 2] != '\\'))
 		*op_out = TFW_HTTP_MATCH_O_PREFIX;
 
-	if (!wc_arg && regex) {
+	if (regex) {
 		int r;
 
 		if ((r = tfw_write_regex(arg, &regex_idx))) {

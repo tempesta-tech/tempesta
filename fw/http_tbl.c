@@ -434,13 +434,14 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		}
 
 		arg = tfw_http_arg_adjust(in_arg, field, in_field_val,
-					  cfg_rule->regex, &arg_size, &name_size, &type,
-					  &op);
+					  cfg_rule->regex, &arg_size,
+					  &name_size, &type, &op);
 		if (IS_ERR(arg))
 			return PTR_ERR(arg);
 	}
 
-	val = tfw_http_val_adjust(in_field_val, field, &val_len, &type_val, &op_val);
+	val = tfw_http_val_adjust(in_field_val, field, &val_len, &type_val,
+				  &op_val);
 	if (IS_ERR(val)) {
 		kfree(arg);
 		return PTR_ERR(val);
