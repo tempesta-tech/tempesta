@@ -230,12 +230,6 @@ ss_conn_drop_guard_exit(struct sock *sk)
 	ss_active_guard_exit(SS_V_ACT_LIVECONN);
 }
 
-static int
-ss_fill_write_queue(struct sock *sk, unsigned int mss)
-{
-	return SS_CALL(connection_push, sk->sk_user_data, mss);
-}
-
 static void
 ss_ipi(struct irq_work *work)
 {
@@ -596,8 +590,6 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	if (ss_skb_on_send(conn, skb_head))
 		goto cleanup;
-	if (*skb_head)
-		SS_CALL(connection_on_send, sk->sk_user_data, skb_head);
 
 	if (flags & SS_F_CONN_CLOSE)
 		return;
@@ -1361,7 +1353,6 @@ ss_set_callbacks(struct sock *sk)
 	sk->sk_data_ready = ss_tcp_data_ready;
 	sk->sk_state_change = ss_tcp_state_change;
 	sk->sk_destroy_cb = ss_conn_drop_guard_exit;
-	sk->sk_fill_write_queue = ss_fill_write_queue;
 }
 EXPORT_SYMBOL(ss_set_callbacks);
 
@@ -1637,7 +1628,7 @@ __sk_close_locked(struct sock *sk, int flags)
 {
 	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 
-	if (ss_fill_write_queue(sk, mss_now)) {
+	if (sk->sk_fill_write_queue(sk, mss_now)) {
 		ss_linkerror(sk, 0);
 		bh_unlock_sock(sk);
 		return;
@@ -1664,11 +1655,11 @@ ss_do_shutdown(struct sock *sk)
 {
 	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	/*
-	 * `tcp_shutdown` will ne called from `ss_fill_write_queue`
+	 * `tcp_shutdown` will ne called from `sk->sk_fill_write_queue`
 	 * after sending all pending data.
 	 */
 	SS_CONN_TYPE(sk) |= Conn_Shutdown;
-	if (ss_fill_write_queue(sk, mss_now))
+	if (sk->sk_fill_write_queue(sk, mss_now))
 		ss_linkerror(sk, 0);
 }
 

@@ -176,6 +176,12 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 	return r;
 }
 
+static int
+tfw_sock_clnt_fill_write_queue(struct sock *sk, unsigned int mss_now)
+{
+	return tfw_connection_fill_sk_write_queue(sk->sk_user_data, mss_now);
+}
+
 /**
  * This hook is called when a new client connection is established.
  */
@@ -236,6 +242,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		 */
 		sk->sk_write_xmit = tfw_tls_encrypt;
 	}
+	sk->sk_fill_write_queue = tfw_sock_clnt_fill_write_queue;
 
 	/* Activate keepalive timer. */
 	mod_timer(&conn->timer,
@@ -310,8 +317,6 @@ static const SsHooks tfw_sock_http_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
 	.connection_recv	= tfw_connection_recv,
-	.connection_on_send	= tfw_connection_on_send,
-	.connection_push	= tfw_connection_push,
 };
 
 static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
@@ -319,8 +324,6 @@ static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
 	.connection_drop	= tfw_sock_clnt_drop,
 	.connection_recv	= tfw_tls_connection_recv,
 	.connection_recv_finish = tfw_connection_recv_finish,
-	.connection_on_send	= tfw_connection_on_send,
-	.connection_push	= tfw_connection_push,
 };
 
 /*

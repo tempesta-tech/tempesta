@@ -70,8 +70,6 @@ static const SsHooks tfw_ws_srv_ss_hooks = {
 	.connection_new		= NULL,
 	.connection_drop	= tfw_ws_srv_ss_hook_drop,
 	.connection_recv	= tfw_connection_recv,
-	.connection_on_send	= tfw_connection_on_send,
-	.connection_push	= tfw_connection_push,
 };
 
 /**

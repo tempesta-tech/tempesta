@@ -233,13 +233,6 @@ tfw_connection_unlink_to_sk(TfwConn *conn)
 	ss_sock_put(sk);
 }
 
-void
-tfw_connection_on_send(TfwConn *conn, struct sk_buff **skb_head)
-{
-	ss_skb_queue_splice(&conn->write_queue, skb_head);
-	sock_set_flag(conn->sk, SOCK_TEMPESTA_HAS_DATA);
-}
-
 static inline int
 tfw_connection_shutdown(TfwConn *conn)
 {
@@ -254,7 +247,7 @@ tfw_connection_shutdown(TfwConn *conn)
 }
 
 int
-tfw_connection_push(TfwConn *conn, unsigned int mss_now)
+tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now)
 {
 	struct sock *sk = conn->sk;
 	TfwH2Ctx *h2;

@@ -92,18 +92,6 @@ typedef struct ss_hooks {
 
 	/* Callback to make some job after processing received data. */
 	void (*connection_recv_finish)(TfwConn *conn);
-
-	/*
-	 * Default callback which is called before push skb
-	 * to socket write queue.
-	 */
-	void (*connection_on_send)(TfwConn *conn, struct sk_buff **skb_head);
-
-	/*
-	 * Push skbs from connection write queue to socket write queue
-	 * according TCP window.
-	 */
-	int (*connection_push)(TfwConn *conn, unsigned int mss_now);
 } SsHooks;
 
 /**
