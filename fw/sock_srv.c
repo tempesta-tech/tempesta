@@ -202,6 +202,12 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 		tfw_srv_conn_stop(srv_conn);
 }
 
+static int
+tfw_sock_srv_fill_write_queue(struct sock *sk, unsigned int mss_now)
+{
+	return tfw_connection_fill_sk_write_queue(sk->sk_user_data, mss_now);
+}
+
 /**
  * Initiate a non-blocking connect attempt.
  * Returns immediately without waiting until a connection is established.
@@ -253,6 +259,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	tfw_srv_conn_init_as_dead(srv_conn);
 	sk->sk_uid.val = SS_SRV_USER;
 	ss_set_callbacks(sk);
+	sk->sk_fill_write_queue = tfw_sock_srv_fill_write_queue;
 	/*
 	 * Set connection destructor such that connection failover can
 	 * take place if the connection attempt fails.
@@ -400,8 +407,6 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_new		= tfw_sock_srv_connect_complete,
 	.connection_drop	= tfw_sock_srv_connect_drop,
 	.connection_recv	= tfw_connection_recv,
-	.connection_on_send	= tfw_connection_on_send,
-	.connection_push	= tfw_connection_push,
 };
 
 static int
