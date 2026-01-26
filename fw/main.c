@@ -183,6 +183,9 @@ tfw_mods_stop(void)
 		 * client database must provide valid references to stored
 		 * clients.
 		 */
+#ifdef DBG_ENABLE_2556_DEBUG
+		WRITE_ONCE(ss_syncronize_after, true);
+#endif
 		if (!ss_synchronize()) {
 #ifdef DBG_ENABLE_2556_DEBUG
 			WRITE_ONCE(ss_syncronize_after, true);
@@ -199,6 +202,8 @@ tfw_mods_stop(void)
 		ss_synced = true;
 	}
 	BUG_ON(tfw_ss_users);
+
+	print_conns();
 
 	T_LOG("modules are stopped\n");
 }

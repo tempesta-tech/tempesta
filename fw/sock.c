@@ -268,8 +268,11 @@ ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 	SsCblNode *cn;
 
 	cn = kmem_cache_alloc(ss_cbacklog_cache, GFP_ATOMIC);
-	if (!cn)
+	if (!cn) {
+		T_ERR("Failed to allocate memory during turnstile push."
+		      " Connection may remain open!\n");
 		return -ENOMEM;
+	}
 	cn->ticket = ticket;
 	memcpy(&cn->sw, sw, sizeof(*sw));
 	spin_lock_bh(&cb->lock);
