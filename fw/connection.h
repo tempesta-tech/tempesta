@@ -629,7 +629,6 @@ int tfw_connection_close(TfwConn *conn, bool sync);
 void tfw_connection_abort(TfwConn *conn);
 void tfw_connection_drop(TfwConn *conn);
 void tfw_connection_release(TfwConn *conn);
-void tfw_connection_on_send(TfwConn *conn, struct sk_buff **sk_buff);
-int tfw_connection_push(TfwConn *conn, unsigned int mss_now);
+int tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now);
 
 #endif /* __TFW_CONNECTION_H__ */
