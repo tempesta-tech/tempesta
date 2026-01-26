@@ -87,6 +87,7 @@ void ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
 		      void *owner, unsigned int delta);
 void ss_skb_adjust_client_mem(struct sk_buff *skb, int delta);
 void ss_skb_dflt_destructor(struct sk_buff *skb);
+void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
 
 static inline bool
 ss_skb_is_within_fragment(char *begin_fragment, char *position,
@@ -116,6 +117,8 @@ ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 
 	if (on_send)
 		r = on_send(conn, skb_head);
+	if (!r && *skb_head)
+		ss_skb_on_send_dflt(conn, skb_head);
 
 	return r;
 }
