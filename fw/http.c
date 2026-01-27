@@ -2864,7 +2864,10 @@ static TfwMsg *
 tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 {
 	int type = TFW_CONN_TYPE(conn);
-	TfwHttpMsg *hm = __tfw_http_msg_alloc(type, true);
+	void *owner = type & Conn_Clnt ? conn->peer : NULL;
+	TfwHttpMsg *hm;
+
+	hm = __tfw_http_msg_alloc(owner, type, true);
 	if (unlikely(!hm))
 		return NULL;
 
@@ -2881,7 +2884,7 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2) {
 		TfwHttpReq *req = (TfwHttpReq *)hm;
 
-		if(!(req->pit.pool = __tfw_pool_new(0)))
+		if(!(req->pit.pool = __tfw_pool_new(0, owner)))
 			goto clean;
 		req->pit.parsed_hdr = &req->stream->parser.hdr;
 		__set_bit(TFW_HTTP_B_H2, req->flags);
@@ -7849,7 +7852,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	TfwHttpActionResult res;
 	int r;
 
-	if (!(req = tfw_http_msg_alloc_req_light()))
+	if (!(req = tfw_http_msg_alloc_req_light(NULL)))
 		return;
 	hmreq = (TfwHttpMsg *)req;
 	if (tfw_msg_iter_setup(&it, NULL, &hmreq->msg.skb_head, msg.len))

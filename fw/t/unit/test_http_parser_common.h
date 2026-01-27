@@ -552,6 +552,7 @@ extern TfwHttpReq *req, *sample_req;
 extern TfwHttpResp *resp;
 extern TfwH2Conn conn;
 extern TfwStream stream;
+extern TfwClient client;
 
 int set_sample_req(unsigned char *str);
 

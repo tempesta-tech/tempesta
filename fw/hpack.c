@@ -1155,7 +1155,7 @@ tfw_huffman_init(TfwHPack *__restrict hp)
 }
 
 int
-tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
+tfw_hpack_init(TfwHPack *__restrict hp, void *owner, unsigned int htbl_sz)
 {
 	bool np;
 	TfwHPackETbl *et = &hp->enc_tbl;
@@ -1169,14 +1169,14 @@ tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 	tfw_huffman_init(hp);
 
 	dt->window = hp->max_window = htbl_sz;
-	if (!(dt->pool = __tfw_pool_new(0)))
+	if (!(dt->pool = __tfw_pool_new(0, owner)))
 		return -ENOMEM;
-	if (!(dt->h_pool = __tfw_pool_new(0)))
+	if (!(dt->h_pool = __tfw_pool_new(0, owner)))
 		goto err_dt;
 
 	et->window = htbl_sz;
 	et->rb_size = HPACK_ENC_TABLE_MAX_SIZE;
-	if (!(et->pool = __tfw_pool_new(HPACK_ENC_TABLE_MAX_SIZE)))
+	if (!(et->pool = __tfw_pool_new(HPACK_ENC_TABLE_MAX_SIZE, owner)))
 		goto err_et;
 	et->rbuf = tfw_pool_alloc_np(et->pool, HPACK_ENC_TABLE_MAX_SIZE,
 				     &np);
