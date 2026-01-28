@@ -98,7 +98,9 @@ http_match_suite_setup(void)
 {
 	test_req = test_req_alloc(1);
 
-	test_table = tfw_pool_new(TfwHttpTable, TFW_POOL_ZERO);
+	test_table = tfw_pool_new(TfwHttpTable,
+				  tfw_http_msg_client((TfwHttpMsg *)test_req),
+				  TFW_POOL_ZERO);
 	BUG_ON(!test_table);
 	INIT_LIST_HEAD(&test_table->head);
 
