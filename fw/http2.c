@@ -320,7 +320,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
 	rset->wnd_sz = DEF_WND_SIZE;
 	ctx->conn = conn;
 
-	return tfw_hpack_init(&ctx->hpack, HPACK_TABLE_DEF_SIZE);
+	return tfw_hpack_init(&ctx->hpack, ((TfwConn *)conn)->peer,
+			      HPACK_TABLE_DEF_SIZE);
 }
 
 void

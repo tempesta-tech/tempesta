@@ -32,14 +32,12 @@
  *			  no any classification logic is used;
  * list_head		- entry in the lru list;
  * @mem			- memory used by current client;
- * @refcnt		- refcount for light versions of get/put client;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
 	struct list_head	list;
 	atomic_t		mem;
-	atomic_t		refcnt;
 } TfwClient;
 
 int tfw_client_init(void);
