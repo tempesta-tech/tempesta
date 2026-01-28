@@ -123,17 +123,15 @@ test_run_all(void)
 	EXPECT_EQ(atomic_read(&((TfwClient *)conn_req.peer)->mem), 0);
 	__fpu_schedule();
 
-	test_case_alloc_h2();
+	TEST_SETUP(test_http2_parser_setup_fn);
+	TEST_TEARDOWN(test_http2_parser_teardown_fn);
 
 	TEST_SUITE_MPART_RUN(http2_parser);
-	test_req_resp_cleanup();
 	EXPECT_EQ(atomic_read(&((TfwClient *)conn_req.peer)->mem), 0);
 	__fpu_schedule();
 
-	test_case_cleanup_h2();
 
 	TEST_SUITE_RUN(http2_parser_hpack);
-	test_req_resp_cleanup();
 	EXPECT_EQ(atomic_read(&((TfwClient *)conn_req.peer)->mem), 0);
 	__fpu_schedule();
 

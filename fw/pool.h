@@ -53,18 +53,20 @@ typedef struct tfw_pool_chunk_t {
  * Memory pool descriptor.
  *
  * @curr	- current chunk to allocate memory from;
+ * @owner	- owner for memory accounting;
  * @order,@off	- cached members of @curr;
  */
 typedef struct {
 	TfwPoolChunk	*curr;
+	void		*owner;
 	unsigned int	order;
 	unsigned int	off;
 } TfwPool;
 
-#define tfw_pool_new(struct_name, mask)					\
+#define tfw_pool_new(struct_name, owner, mask)				\
 ({									\
  	struct_name *s = NULL;						\
-	TfwPool *p = __tfw_pool_new(sizeof(struct_name));		\
+	TfwPool *p = __tfw_pool_new(sizeof(struct_name), owner);	\
 	if (likely(p)) {						\
  		s = tfw_pool_alloc(p, sizeof(struct_name));		\
  		BUG_ON(!s);						\
@@ -79,7 +81,7 @@ typedef struct {
 
 int tfw_pool_init(void);
 void tfw_pool_exit(void);
-TfwPool *__tfw_pool_new(size_t n);
+TfwPool *__tfw_pool_new(size_t n, void *owner);
 void *__tfw_pool_alloc_page(TfwPool *p, size_t n, bool align);
 void tfw_pool_free(TfwPool *p, void *ptr, size_t n);
 void tfw_pool_clean(TfwPool *p);
