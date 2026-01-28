@@ -31,7 +31,7 @@ void
 create_str_pool(void)
 {
 	BUG_ON(str_pool);
-	str_pool = __tfw_pool_new(1);
+	str_pool = __tfw_pool_new(1, NULL);
 	BUG_ON(!str_pool);
 }
 

@@ -31,13 +31,11 @@
  *			  Typically it's large and wastes memory in vain if
  *			  no any classification logic is used;
  * @mem			- memory used by current client;
- * @refcnt		- refcount for light versions of get/put client;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
 	atomic_t		mem;
-	atomic_t		refcnt;
 } TfwClient;
 
 int tfw_client_init(void);
