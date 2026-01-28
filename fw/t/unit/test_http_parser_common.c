@@ -433,6 +433,7 @@ test_case_cleanup_h2(void)
 {
 	BUG_ON(!conn.h2);
 
+	tfw_h2_context_clear(conn.h2);
 	tfw_h2_context_free(conn.h2);
 	conn.h2 = NULL;
 }

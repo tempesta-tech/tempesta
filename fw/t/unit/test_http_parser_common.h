@@ -564,6 +564,20 @@ int do_split_and_parse(int type, int chunk_mode);
 
 int validate_data_fully_parsed(int type, size_t sz_diff);
 
+static inline void
+test_http2_parser_setup_fn(void)
+{
+	test_case_alloc_h2();
+	test_case_parse_prepare_h2();
+}
+
+static inline void
+test_http2_parser_teardown_fn(void)
+{
+	test_req_resp_cleanup();
+	test_case_cleanup_h2();
+}
+
 #define __TRY_PARSE_EXPECT_PASS(type, sz_diff, chunk_mode)		\
 chunk_size_index = 0;							\
 while (({								\
@@ -620,6 +634,8 @@ do {									\
 #define FOR_REQ_H2(frames_definition)					\
 	ASSIGN_FRAMES_FOR_H2(frames_definition);			\
 	PRINT_REQ_H2();							\
+	test_req_resp_cleanup();					\
+	tfw_h2_context_clear(conn.h2);					\
 	test_case_parse_prepare_h2();					\
 	TRY_PARSE_EXPECT_PASS(FUZZ_REQ_H2, CHUNK_ON)
 
@@ -636,6 +652,8 @@ do {									\
 #define EXPECT_BLOCK_REQ_H2(frames_definition)				\
 	ASSIGN_FRAMES_FOR_H2(frames_definition);			\
 	PRINT_REQ_H2();							\
+	test_req_resp_cleanup();					\
+	tfw_h2_context_clear(conn.h2);					\
 	test_case_parse_prepare_h2();					\
 	TRY_PARSE_EXPECT_BLOCK(FUZZ_REQ_H2, CHUNK_ON)
 

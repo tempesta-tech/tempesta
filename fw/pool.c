@@ -110,7 +110,7 @@ tfw_pool_free_pages(TfwClient *cli, unsigned long addr, unsigned int order)
 	pgn = this_cpu_ptr(&pg_next);
 	refcnt = page_count(virt_to_page(addr));
 
-	if (refcnt == 1 && cli)
+	if (cli)
 		tfw_client_adjust_mem(cli, -(PAGE_SIZE << order));
 
 	if (likely(*pgn < TFW_POOL_PGCACHE_SZ && !order && refcnt == 1)) {

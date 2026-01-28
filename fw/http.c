@@ -2895,8 +2895,15 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	if (type & Conn_Clnt) {
 		TFW_INC_STAT_BH(clnt.rx_messages);
 	} else {
+		TfwClient *cli;
+
 		if (unlikely(tfw_http_resp_pair(hm)))
 			goto clean;
+
+		cli = (TfwClient *)hm->req->conn->peer;
+		hm->pool->owner = cli;
+		tfw_client_get(cli);
+		tfw_client_adjust_mem(cli, PAGE_SIZE << hm->pool->order);
 
 		if (TFW_MSG_H2(hm->req)) {
 			size_t sz = TFW_HDR_MAP_SZ(TFW_HDR_MAP_INIT_CNT);
