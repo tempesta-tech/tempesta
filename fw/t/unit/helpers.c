@@ -58,7 +58,7 @@ test_req_alloc(size_t data_len)
 	 * tfw_http_msg_alloc(). It is removed because we need to test how it
 	 * initializes the message and we would not like to test the copy-paste.
 	 */
-	hmreq = __tfw_http_msg_alloc(Conn_HttpClnt, true);
+	hmreq = __tfw_http_msg_alloc(&client, Conn_HttpClnt, true);
 	BUG_ON(!hmreq);
 
 	tfw_connection_init(&conn_req);
@@ -105,7 +105,7 @@ test_resp_alloc_no_data(TfwHttpReq *req)
 {
 	TfwHttpMsg *hmresp;
 
-	hmresp = __tfw_http_msg_alloc(Conn_HttpSrv, true);
+	hmresp = __tfw_http_msg_alloc(req->conn->peer, Conn_HttpSrv, true);
 	BUG_ON(!hmresp);
 
 	tfw_connection_init(&conn_resp);
