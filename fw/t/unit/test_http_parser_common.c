@@ -424,6 +424,8 @@ test_case_alloc_h2(void)
 {
 	conn.h2 = tfw_h2_context_alloc();
 	BUG_ON(!conn.h2);
+	((TfwConn *)&conn)->peer = (TfwPeer *)&client;
+	((TfwConn *)&conn)->proto.type = Conn_H2Clnt;
 }
 
 void
@@ -431,6 +433,7 @@ test_case_cleanup_h2(void)
 {
 	BUG_ON(!conn.h2);
 
+	tfw_h2_context_clear(conn.h2);
 	tfw_h2_context_free(conn.h2);
 	conn.h2 = NULL;
 }
@@ -494,6 +497,7 @@ do_split_and_parse(int type, int chunk_mode)
 
 		req = test_req_alloc(frames_total_sz);
 	} else if (type == FUZZ_REQ_H2) {
+		TfwHttpMsg *hmreq;
 		/*
 		 * During the processing of a request, the HPACK dynamic table
 		 * is modified. The same query is used for each chunk size.
@@ -520,7 +524,8 @@ do_split_and_parse(int type, int chunk_mode)
 		req->stream = &stream;
 		tfw_http_init_parser_req(req);
 		stream.msg = (TfwMsg*)req;
-		req->pit.pool = __tfw_pool_new(0);
+		hmreq = (TfwHttpMsg *)req;
+		req->pit.pool = __tfw_pool_new(0, tfw_http_msg_client(hmreq));
 		BUG_ON(!req->pit.pool);
 		__set_bit(TFW_HTTP_B_H2, req->flags);
 	} else if (type == FUZZ_RESP) {

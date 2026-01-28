@@ -281,7 +281,7 @@ tfw_http_tbl_cfgstart(void)
 {
 	BUG_ON(tfw_table_reconfig);
 
-	tfw_table_reconfig = tfw_pool_new(TfwHttpTable, TFW_POOL_ZERO);
+	tfw_table_reconfig = tfw_pool_new(TfwHttpTable, NULL, TFW_POOL_ZERO);
 	if (!tfw_table_reconfig) {
 		T_ERR_NL("Can't create a memory pool\n");
 		return -ENOMEM;
