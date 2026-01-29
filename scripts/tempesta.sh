@@ -19,6 +19,10 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+set +e
+trap '' SIGINT
+trap 'trap - SIGINT' EXIT
+
 if [ -z "$TFW_SYSTEMD" ]; then
 	if [ "${TEMPESTA_LCK}" != "$0" ]; then
 		env TEMPESTA_LCK="$0" flock -n -E 254 "/tmp/tempesta-lock-file" "$0" "$@"
