@@ -77,8 +77,8 @@ static const TfwCfgEnum tfw_match_enum[] = {
 	{ "eq",		TFW_HTTP_MATCH_O_EQ },
 	{ "prefix",	TFW_HTTP_MATCH_O_PREFIX },
 	{ "suffix",	TFW_HTTP_MATCH_O_SUFFIX },
-        /*regex case sensitive*/
-        { "regex",	TFW_HTTP_MATCH_O_REGEX },
+	/*regex case sensitive*/
+	{ "regex",	TFW_HTTP_MATCH_O_REGEX },
 	{ 0 }
 };
 
@@ -201,7 +201,7 @@ static const __tfw_match_fn __tfw_match_fn_tbl[] = {
 	[TFW_HTTP_MATCH_O_EQ]		= __tfw_match_eq,
 	[TFW_HTTP_MATCH_O_PREFIX]	= __tfw_match_prefix,
 	[TFW_HTTP_MATCH_O_SUFFIX]	= __tfw_match_suffix,
-        [TFW_HTTP_MATCH_O_REGEX]	= __tfw_match_regex,
+	[TFW_HTTP_MATCH_O_REGEX]	= __tfw_match_regex,
 };
 
 /*
