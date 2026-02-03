@@ -819,6 +819,11 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 
 	*type_out = tfw_http_tbl_arg_type(field);
 
+	if (wc_arg && regex) {
+		T_ERR_NL("http_match: use simple wildcard argument: hdr == *. Instead regex.\n");
+		return ERR_PTR(-EINVAL);
+	}
+
 	/*
 	 * If this is simple wildcard argument and this is not raw
 	 * header case, this is wildcard type case and we do not
@@ -826,11 +831,6 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	 */
 	if (wc_arg && !raw_hdr_name)
 		return NULL;
-
-	if (wc_arg && regex) {
-		T_ERR_NL("http_match: use simple wildcard argument: hdr == *. Instead regex.\n");
-		return ERR_PTR(-EINVAL);
-	}
 
 	if (raw_hdr_name && field != TFW_HTTP_MATCH_F_COOKIE) {
 		name_len = strlen(raw_hdr_name);
