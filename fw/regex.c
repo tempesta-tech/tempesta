@@ -66,12 +66,7 @@ tfw_write_regex(const char *arg, unsigned short *out_db_num)
 	char *file_path;
 	int r, len1, len = strlen(arg);
 
-	/*
-	 * Length of regexp string must be greater or equal to sizeof(number_of_regex)
-	 * because we use memory where this string was allocated for storing id
-	 * of the regexp.
-	 */
-	if (len < sizeof(number_of_regex)) {
+	if (!len) {
 		T_ERR_NL("String of regex too short.\n");
 		return -EINVAL;
 	}
