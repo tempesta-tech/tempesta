@@ -89,7 +89,7 @@ put_fingerprint_rates(Storage *storage, Rates *rates)
 	tdb_rec_put(storage->tdb, (char *)rates - sizeof(TdbRec));
 }
 
-static void
+static int
 get_alloc_ctx_init_rec(TdbRec *rec, void *)
 {
 	Rates *rates = (Rates *)rec->data;
@@ -99,6 +99,8 @@ get_alloc_ctx_init_rec(TdbRec *rec, void *)
 	spin_lock_init(&rates->conns_lock);
 	spin_lock_init(&rates->recs_lock);
 	tdb_rec_keep(rec);
+
+	return 0;
 }
 
 /**

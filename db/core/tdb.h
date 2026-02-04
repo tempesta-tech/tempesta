@@ -160,7 +160,7 @@ typedef struct {
 typedef struct {
 	bool		(*eq_rec)(TdbRec *rec, void *ctx);
 	int		(*precreate_rec)(void *ctx);
-	void		(*init_rec)(TdbRec *rec, void *ctx);
+	int		(*init_rec)(TdbRec *rec, void *ctx);
 	void		*ctx;
 	size_t		len;
 	bool		is_new;

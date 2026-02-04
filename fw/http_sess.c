@@ -771,7 +771,7 @@ tfw_http_sess_precreate(void *data)
 	return 0;
 }
 
-static void
+static int
 tfw_sess_ent_init(TdbRec *rec, void *data)
 {
 	TfwSessEntry *ent = (TfwSessEntry *)rec->data;
@@ -802,6 +802,8 @@ tfw_sess_ent_init(TdbRec *rec, void *data)
 	rwlock_init(&sess->lock);
 
 	T_DBG("http_sess was newly created, %pK\n", sess);
+
+	return 0;
 }
 
 /**
