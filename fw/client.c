@@ -30,6 +30,7 @@
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
+#include "lib/fault_injection_alloc.h"
 #include "lib/str.h"
 #include "lib/common.h"
 
@@ -191,12 +192,17 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 	return true;
 }
 
-static void
+static int
 tfw_client_ent_init(TdbRec *rec, void *data)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
+	int cpu;
+
+	cli->mem = tfw_alloc_percpu(long);
+	if (unlikely(!cli->mem))
+		return -ENOMEM;
 
 	assert_spin_locked(&client_db->ga_lock);
 
@@ -207,8 +213,9 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	if (ctx->init)
 		ctx->init(cli);
 
+	for_each_online_cpu(cpu)
+		*(per_cpu_ptr(cli->mem, cpu)) = 0;
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
-	atomic_set(&cli->mem, 0);
 	ent->xff_addr = ctx->xff_addr;
 	tfw_str_to_cstr(&ctx->user_agent, ent->user_agent,
 			sizeof(ent->user_agent));
@@ -217,6 +224,8 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	T_DBG("new client: cli=%p\n", cli);
 	T_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
 	T_DBG2("client %p, users=%d\n", cli, 1);
+
+	return 0;
 }
 
 /**
@@ -331,6 +340,8 @@ tfw_client_stop(void)
 {
 	if (tfw_runstate_is_reconfig())
 		return;
+
+	tfw_client_free_lru();
 	if (client_db) {
 		tfw_client_free_lru();
 		tdb_close(client_db);
