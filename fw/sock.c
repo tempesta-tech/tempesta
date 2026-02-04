@@ -416,26 +416,25 @@ ss_skb_can_collapse(struct sk_buff *to, struct sk_buff *from,
 	return true;
 }
 
-static int
+static bool
 ss_skb_try_collapse(struct sock *sk, struct sk_buff *skb,
-		    unsigned int mark, unsigned char tls_type,
-		    unsigned long snd_wnd)
+		    unsigned int mark, unsigned char tls_type)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *tail = tcp_write_queue_tail(sk);
 	unsigned int max_skb_len, limit;
-	int size, mss;
+	int delta, size, mss;
 	u32 max_segs;
-	unsigned int nlen;
-
+	bool stolen;
+	
 	if (!tail)
-		return -1;
+		return false;
 
 	if (!ss_skb_can_collapse(tail, skb, mark, tls_type))
-		return -1;
+		return false;
 
 	if (!tcp_skb_can_collapse(tail, skb))
-		return -1;
+		return false;
 
 	mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	/*
@@ -447,31 +446,26 @@ ss_skb_try_collapse(struct sock *sk, struct sk_buff *skb,
 	limit = tcp_mss_split_point(sk, skb, mss, max_segs,
 				    TCP_NAGLE_OFF | TCP_NAGLE_PUSH);
 	max_skb_len = tls_type ? TLS_MAX_PAYLOAD_SIZE : SS_SKB_MAX_DATA_LEN;
-	nlen = min_t(unsigned int, snd_wnd, skb->len);
 
-	if (tail->len + nlen > min(max_skb_len, limit)
-	    || !skb_shift(tail, skb, nlen))
-		return -1;
+	if (tail->len + skb->len > min(max_skb_len, limit)
+	    || !skb_try_coalesce(tail, skb, &stolen, &delta))
+		return false;
 
-	TCP_SKB_CB(tail)->end_seq += nlen;
-	tp->write_seq += nlen;
-	sk_wmem_queued_add(sk, nlen);
-	sk_mem_charge(sk, nlen);
+	TCP_SKB_CB(tail)->end_seq += skb->len;
+	tp->write_seq += skb->len;
+	sk_wmem_queued_add(sk, delta);
+	sk_mem_charge(sk, delta);
+	ss_skb_orphan(skb);
+	kfree_skb_partial(skb, stolen);
 
-	if (!skb->len) {
-		__ss_kfree_skb(skb);
-		return 0;
-	}
-
-	return 1;
+	return true;
 }
 
-int
+void
 ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
-		  unsigned char tls_type, unsigned long snd_wnd)
+		  unsigned char tls_type)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	int r = 0;
 
 	ss_skb_on_tcp_entail(sk->sk_user_data, skb);
 	T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
@@ -479,7 +473,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 	       smp_processor_id(), __func__, sk, skb, skb->data_len,
 	       skb->len, skb->truesize, mark, tls_type);
 
-	if ((r = ss_skb_try_collapse(sk, skb, mark, tls_type, snd_wnd)) < 0) {
+	if (!ss_skb_try_collapse(sk, skb, mark, tls_type)) {
 		ss_skb_init_for_xmit(skb);
 		skb->mark = mark;
 		if (tls_type)
@@ -489,11 +483,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		tcp_skb_entail(sk, skb);
 		tp->write_seq += skb->len;
 		TCP_SKB_CB(skb)->end_seq += skb->len;
-
-		return 0;
 	}
-
-	return r;
 }
 
 int
@@ -541,10 +531,7 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 			goto restore_sk_write_queue;
 		}
 
-		if (ss_skb_tcp_entail(sk, skb, mark, tls_type, *snd_wnd) > 0) {
-			ss_skb_queue_head(skb_head, skb);
-			break;
-		}
+		ss_skb_tcp_entail(sk, skb, mark, tls_type);
 	}
 
 	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head)
