@@ -30,6 +30,7 @@
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
+#include "lib/fault_injection_alloc.h"
 #include "lib/str.h"
 #include "lib/common.h"
 
@@ -122,6 +123,16 @@ static void
 tfw_client_free_lru(void)
 {
 	int order = get_order(sizeof(TfwClientLRU) * client_cfg.lru_size);
+	TfwClientLRU *curr, *tmp;
+
+	spin_lock_bh(&client_db->ga_lock);
+
+	list_for_each_entry_safe(curr, tmp, &client_lru.head, list) {
+		list_del_init(&curr->list);
+		tdb_entry_remove(client_db, curr->key, NULL, NULL, false);
+	}
+
+	spin_unlock_bh(&client_db->ga_lock);
 
 	free_pages((unsigned long)client_lru.mem, order);
 }
@@ -188,18 +199,34 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 }
 
 static void
+tfw_client_free(TdbRec *rec)
+{
+        /* Stats should be updated(dec/inc) only for complete records. */
+        if (!tdb_entry_is_complete(rec))
+                return;
+	free_percpu(((TfwClientEntry *)rec->data)->cli.mem);
+}
+
+
+static int
 tfw_client_ent_init(TdbRec *rec, void *data)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
+	int cpu;
+
+	cli->mem = tfw_alloc_percpu(long);
+	if (unlikely(!cli->mem))
+		return -ENOMEM;
 
 	bzero_fast(&cli->class_prvt, sizeof(cli->class_prvt));
 	if (ctx->init)
 		ctx->init(cli);
 
+	for_each_online_cpu(cpu)
+		*(per_cpu_ptr(cli->mem, cpu)) = 0;
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
-	atomic_set(&cli->mem, 0);
 	ent->xff_addr = ctx->xff_addr;
 	tfw_str_to_cstr(&ctx->user_agent, ent->user_agent,
 			sizeof(ent->user_agent));
@@ -208,6 +235,8 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	T_DBG("new client: cli=%p\n", cli);
 	T_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
 	T_DBG2("client %p, users=%d\n", cli, 1);
+
+	return 0;
 }
 
 static int
@@ -322,6 +351,7 @@ tfw_client_start(void)
 	if (!client_db)
 		return -EINVAL;
 
+	client_db->hdr->before_free = tfw_client_free;
 	if (tfw_client_init_lru())
 		return -EINVAL;
 
@@ -333,12 +363,12 @@ tfw_client_stop(void)
 {
 	if (tfw_runstate_is_reconfig())
 		return;
+
+	tfw_client_free_lru();
 	if (client_db) {
 		tdb_close(client_db);
 		client_db = NULL;
 	}
-
-	tfw_client_free_lru();
 }
 
 static TfwCfgSpec tfw_client_specs[] = {

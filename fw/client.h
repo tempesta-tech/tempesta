@@ -35,7 +35,7 @@
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
-	atomic_t		mem;
+	long __percpu 		*mem;
 } TfwClient;
 
 int tfw_client_init(void);
@@ -55,7 +55,20 @@ void tfw_tls_connection_lost(TfwConn *conn);
 static inline void
 tfw_client_adjust_mem(TfwClient *cli, int delta)
 {
-	atomic_add(delta, &cli->mem);
+	this_cpu_add(*cli->mem, delta);
+
+}
+
+static inline long
+tfw_client_mem(TfwClient *cli)
+{
+	long mem = 0;
+	int cpu;
+
+	for_each_online_cpu(cpu)
+		mem += *(per_cpu_ptr(cli->mem, cpu));
+
+	return mem;
 }
 
 #endif /* __TFW_CLIENT_H__ */
