@@ -1677,7 +1677,7 @@ frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
 	TfwClient *cli = (TfwClient *)conn->peer;
 
 	if (tfw_cli_hard_mem_limit
-	    && atomic_read(&cli->mem) > tfw_cli_hard_mem_limit)
+	    && tfw_client_mem(cli) > tfw_cli_hard_mem_limit)
 	{
 		if (block_if_exceeded) {
 			TfwVhost *dflt_vh = tfw_vhost_lookup_default();
