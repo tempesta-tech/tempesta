@@ -783,9 +783,10 @@ tfw_http_escape_pre_post(char *out, const char *str, size_t str_len)
 	return new_len;
 }
 
+/* Return count of leading and trailing spaces. */
 static void
-find_spaces(const char *s, size_t len, size_t *begin_spaces_out,
-	    size_t *end_spaces_out)
+find_spaces(const char *s, size_t len, size_t *leading_spaces_cnt_out,
+	    size_t *trail_spaces_cnt_out)
 {
 	size_t i, end_s;
 
@@ -794,14 +795,14 @@ find_spaces(const char *s, size_t len, size_t *begin_spaces_out,
 			break;
 
 	end_s = len - i - 1;
-	*end_spaces_out = end_s;
+	*trail_spaces_cnt_out = end_s;
 	len -= end_s;
 
 	for (i = 0; i < len; i++)
 		if (!isspace(s[i]))
 			break;
 
-	*begin_spaces_out = i;
+	*leading_spaces_cnt_out = i;
 }
 
 const char *
