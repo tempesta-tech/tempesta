@@ -63,6 +63,9 @@ following topics:
 * [Configuration guide](https://tempesta-tech.com/knowledge-base/Configuration/)
 * [Use cases](https://tempesta-tech.com/knowledge-base/Use-cases/)
 * [Performance tips & benchmarks](https://tempesta-tech.com/knowledge-base/Performance/)
+* [High availability](https://tempesta-tech.com/knowledge-base/High-availability/)
+* [Observability](https://tempesta-tech.com/knowledge-base/Access-Log-Analytics/)
+* [Application performance monitoring](https://tempesta-tech.com/knowledge-base/Application-Performance-Monitoring/)
 
 
 ## Contribute to Tempesta FW
