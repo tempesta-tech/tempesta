@@ -5,11 +5,28 @@ CC_FLAGS_REMOVE_SIMD	:= -mno-80387 -mno-fp-ret-in-387 -mno-sse -mno-mmx -mno-sse
 CC_FLAGS_HSRUNTIME	+= -DHAVE_SSE2
 CC_FLAGS_SIMD		:= -msse4.2 -msse4.1
 CC_FLAGS_HSRUNTIME	+= -DHAVE_SSE41 -DHAVE_SSE42
-CC_FLAGS_SIMD		+= -mavx -mavx2
-CC_FLAGS_HSRUNTIME	+= -DHAVE_AVX -DHAVE_AVX2
+
+PROC = $(shell cat /proc/cpuinfo)
+
+ifneq (, $(findstring avx, $(PROC)))
+CC_FLAGS_SIMD		+= -mavx
+CC_FLAGS_HSRUNTIME	+= -DHAVE_AVX
+endif
+
+ifneq (, $(findstring avx2, $(PROC)))
+CC_FLAGS_SIMD		+= -mavx2
+CC_FLAGS_HSRUNTIME	+= -DHAVE_AVX2
+endif
+
+ifneq (, $(and \
+	$(findstring avx512f,$(PROC)), \
+	$(findstring avx512bw,$(PROC)), \
+	$(findstring avx512_vnni,$(PROC))))
 CC_FLAGS_SIMD		+= -mavx512f -mavx512cd -mavx512bw -mavx512vl -mavx512vnni
 CC_FLAGS_HSRUNTIME	+= -DHAVE_AVX512
-#CC_FLAGS_SIMD		+= -mavx512vbmi -mavx512vbmi2 -mavx512vnni
+endif
+
+#CC_FLAGS_SIMD		+= -mavx512vbmi -mavx512vbmi2
 #CC_FLAGS_HSRUNTIME	+= -DHAVE_AVX512VBMI
 
 CC_FLAGS_HSRUNTIME		+= $(CC_FLAGS_SIMD)
