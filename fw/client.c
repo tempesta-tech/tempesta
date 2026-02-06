@@ -92,7 +92,9 @@ tfw_client_remove_delayed(unsigned long budget)
 	list_for_each_entry_safe_from(curr, tmp, &client_lru.for_delay_delete,
 				      list)
 	{
-		if (tfw_client_has_last_ref(curr)) {
+		if (tfw_client_has_last_ref(curr)
+		    && !tfw_client_mem(curr))
+		{
 			TdbFRec *rec = ((TdbFRec *)curr) - 1;
 
 			list_del_init(&curr->list);
@@ -135,7 +137,9 @@ tfw_client_update_lru(TfwClient *cli)
 		 * If client will be removed here, new record will be created
 		 * during establishing new connection.
 		 */
-		if (tfw_client_has_last_ref(last)) {
+		if (tfw_client_has_last_ref(last)
+		    && !tfw_client_mem(last))
+		{
 			TdbFRec *rec = ((TdbFRec *)last) - 1;
 
 			tdb_entry_remove(client_db, rec->key, NULL,
@@ -179,6 +183,7 @@ tfw_client_free_lru(void)
 		TdbFRec *rec = ((TdbFRec *)curr) - 1;
 
 		list_del_init(&curr->list);
+		BUG_ON(tfw_client_mem(curr));
 		tdb_entry_remove(client_db, rec->key, NULL, NULL, false);
 	}
 
@@ -263,6 +268,8 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
 	int cpu;
+
+	assert_spin_locked(&client_db->ga_lock);
 
 	cli->mem = tfw_alloc_percpu(long);
 	if (unlikely(!cli->mem))
@@ -404,7 +411,6 @@ tfw_client_cleanupcfg(void)
 	if (tfw_runstate_is_reconfig())
 		return;
 
-	tfw_client_free_lru();
 	if (client_db) {
 		tfw_client_free_lru();
 		tdb_close(client_db);

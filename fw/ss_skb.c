@@ -1742,11 +1742,8 @@ ALLOW_ERROR_INJECTION(ss_skb_realloc_headroom, ERRNO);
 void
 ss_skb_dflt_destructor(struct sk_buff *skb)
 {
-	TfwClient *cli = (TfwClient *)TFW_SKB_CB(skb)->opaque_data;
-
 	BUG_ON(skb_tfw_is_in_socket_write_queue(skb));
 	ss_skb_adjust_client_mem(skb, -TFW_SKB_CB(skb)->mem);
-	tfw_client_put(cli);
 }
 
 void
@@ -1773,7 +1770,6 @@ ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
 		BUG_ON(TFW_SKB_CB(skb)->opaque_data);
 		WARN_ON(TFW_SKB_CB(skb)->mem != 0);
 
-		tfw_client_get((TfwClient *)owner);
 		TFW_SKB_CB(skb)->opaque_data = owner;
 		TFW_SKB_CB(skb)->destructor = destructor;
 		ss_skb_adjust_client_mem(skb, mem);

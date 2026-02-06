@@ -2903,7 +2903,6 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 			TfwClient *cli = (TfwClient *)hm->req->conn->peer;
 
 			hm->pool->owner = cli;
-			tfw_client_get(cli);
 			tfw_client_adjust_mem(cli,
 					      PAGE_SIZE << hm->pool->order);
 		}

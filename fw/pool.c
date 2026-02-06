@@ -269,9 +269,6 @@ __tfw_pool_new(size_t n, void *owner)
 	if (unlikely(!c))
 		return NULL;
 
-	if (cli)
-		tfw_client_get(cli);
-
 	p = (TfwPool *)((char *)c + TFW_POOL_ALIGN_SZ(sizeof(*c)));
 
 	c->next = NULL;
@@ -298,8 +295,6 @@ tfw_pool_destroy(TfwPool *p)
 		tfw_pool_free_pages(p->owner, TFW_POOL_CHUNK_BASE(c),
 				    c->order);
 	}
-	if (cli)
-		tfw_client_put(cli);
 }
 
 int

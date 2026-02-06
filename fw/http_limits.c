@@ -296,7 +296,6 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 		tfw_vhost_put(dflt_vh);
 		return T_BLOCK;
 	}
-
 	ra = FRANG_CLI2ACC(cli);
 
 	/*
