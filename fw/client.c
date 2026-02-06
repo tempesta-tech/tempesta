@@ -38,7 +38,7 @@
 
 static struct {
 	const char	*db_path;
-	unsigned int	db_size;
+	unsigned long	db_size;
 	unsigned int	lru_size;
 } client_cfg __read_mostly;
 
