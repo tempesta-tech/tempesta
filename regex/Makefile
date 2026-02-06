@@ -24,10 +24,14 @@ ifneq (, $(and \
 	$(findstring avx512_vnni,$(PROC))))
 CC_FLAGS_SIMD		+= -mavx512f -mavx512cd -mavx512bw -mavx512vl -mavx512vnni
 CC_FLAGS_HSRUNTIME	+= -DHAVE_AVX512
-endif
 
-#CC_FLAGS_SIMD		+= -mavx512vbmi -mavx512vbmi2
-#CC_FLAGS_HSRUNTIME	+= -DHAVE_AVX512VBMI
+ifneq (, $(and \
+	$(findstring avx512vbmi,$(PROC)), \
+	$(findstring avx512_vbmi2,$(PROC))))
+CC_FLAGS_SIMD		+= -mavx512vbmi -mavx512vbmi2
+CC_FLAGS_HSRUNTIME	+= -DHAVE_AVX512VBMI
+endif
+endif
 
 CC_FLAGS_HSRUNTIME		+= $(CC_FLAGS_SIMD)
 CC_FLAGS_REMOVE_HSRUNTIME	:= $(CC_FLAGS_REMOVE_SIMD)

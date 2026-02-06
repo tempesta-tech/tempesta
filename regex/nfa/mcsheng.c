@@ -1622,16 +1622,22 @@ u32 doSheng64(const struct mcsheng64 *m, const u8 **c_inout, const u8 *soft_c_en
         switch (soft_c_end - c) {
         case 7:
             SHENG64_SINGLE_ITER; // fallthrough
+	    fallthrough;
         case 6:
             SHENG64_SINGLE_ITER; // fallthrough
+	    fallthrough;
         case 5:
             SHENG64_SINGLE_ITER; // fallthrough
+	    fallthrough;
         case 4:
             SHENG64_SINGLE_ITER; // fallthrough
+	    fallthrough;
         case 3:
             SHENG64_SINGLE_ITER; // fallthrough
+	    fallthrough;
         case 2:
             SHENG64_SINGLE_ITER; // fallthrough
+	    fallthrough;
         case 1:
             SHENG64_SINGLE_ITER; // fallthrough
         }
