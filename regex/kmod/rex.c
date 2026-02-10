@@ -467,6 +467,7 @@ static void rexcfg_item_release(struct config_item *item)
 	BUG_ON(idr_remove(&rex_idr, rex->id) != rex);
 	rex_assign_database(rex, NULL);
 	mutex_unlock(&rex_config_mutex);
+	kfree(rex);
 }
 
 static const struct config_item_type rex_type = {
