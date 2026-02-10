@@ -825,6 +825,12 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 		return ERR_PTR(-EINVAL);
 	}
 
+	if (regex && field == TFW_HTTP_MATCH_F_COOKIE) {
+		T_ERR_NL("http_match: cookie match doesn't support regex. "
+			 "Use: hdr cookie ~ \"pattern\"\n");
+		return ERR_PTR(-EINVAL);
+	}
+
 	/*
 	 * If this is simple wildcard argument and this is not raw
 	 * header case, this is wildcard type case and we do not
