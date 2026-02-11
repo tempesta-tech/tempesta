@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -167,8 +167,8 @@ typedef struct {
  * Group of policies by specific location.
  *
  * @op		- Match operator: eq, prefix, suffix, etc.
- * @arg		- String for the match operator.
- * @len		- Length of the string in @arg.
+ * @arg		- Null-terminated string for the match operator.
+ * @len		- Length of the string in @arg. Not include null character.
  * @capo_sz	- Size of @capo array.
  * @nipdef_sz	- Size of @nipdef array.
  * @capo	- Array of pointers to Cache Policy definitions.

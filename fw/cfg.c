@@ -64,7 +64,7 @@
  *  - Improve efficiency: too many memory allocations and data copying.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -398,6 +398,7 @@ typedef enum {
 	TOKEN_SEMICOLON,
 	TOKEN_LITERAL,
 	TOKEN_ARROW,
+	TOKEN_REGEX,
 	_TOKEN_COUNT,
 } token_t;
 
@@ -592,6 +593,7 @@ read_next_token(TfwCfgParserState *ps)
 
 		/* Special case to differ single equal sign from double one. */
 		TFSM_COND_MOVE(ps->c == '=', TS_EQSIGN);
+		TFSM_COND_MOVE(ps->c == '~', TS_TILDA);
 
 		/* Everything else is not a special character and therefore
 		 * it starts a literal. */
@@ -618,6 +620,12 @@ read_next_token(TfwCfgParserState *ps)
 		/* If this is double equal sign, eat second sign and exit. */
 		TFSM_COND_MOVE_EXIT(ps->c == '=', TOKEN_DEQSIGN);
 		TFSM_JMP_EXIT(TOKEN_EQSIGN);
+	}
+
+	FSM_STATE(TS_TILDA) {
+		TFSM_COND_JMP_EXIT(!ps->c, TOKEN_REGEX);
+
+		TFSM_JMP_EXIT(TOKEN_REGEX);
 	}
 
 	FSM_STATE(TS_COMMENT) {
@@ -733,7 +741,17 @@ entry_set_cond(TfwCfgEntry *e, token_t cond_type, const char *src, int len)
 	if (!(e->name = alloc_and_copy_literal(name, name_len)))
 		return -ENOMEM;
 
-	rule->inv = cond_type == TOKEN_DEQSIGN ? false : true;
+	switch (cond_type) {
+	case TOKEN_REGEX:
+		rule->regex = true;
+		rule->inv = false;
+		break;
+	default:
+		rule->regex = false;
+		rule->inv = cond_type == TOKEN_DEQSIGN ? false : true;
+		break;
+	}
+
 	return 0;
 }
 
@@ -807,8 +825,9 @@ parse_cfg_entry(TfwCfgParserState *ps)
 
 	FSM_STATE(PS_PLAIN_OR_RULE) {
 		PFSM_COND_MOVE(ps->t == TOKEN_DEQSIGN ||
-			       ps->t == TOKEN_NEQSIGN,
-			       PS_RULE_COND);
+		               ps->t == TOKEN_NEQSIGN ||
+			       ps->t == TOKEN_REGEX,
+		               PS_RULE_COND);
 		PFSM_COND_MOVE(ps->t == TOKEN_LITERAL, PS_PLAIN_OR_LONG_RULE);
 
 		/* Jump to plain val/attr scheme to make remained checks
@@ -820,8 +839,9 @@ parse_cfg_entry(TfwCfgParserState *ps)
 
 	FSM_STATE(PS_PLAIN_OR_LONG_RULE) {
 		FSM_COND_JMP(ps->t == TOKEN_DEQSIGN ||
-			     ps->t == TOKEN_NEQSIGN,
-			     PS_LONG_RULE_COND);
+		             ps->t == TOKEN_NEQSIGN ||
+			     ps->t == TOKEN_REGEX,
+		             PS_LONG_RULE_COND);
 
 		/* This is not rule (simple or extended), so jump to
 		 * plain val/attr scheme. */
@@ -829,9 +849,9 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		FSM_COND_JMP(ps->err, PS_EXIT);
 		FSM_COND_JMP(ps->t == TOKEN_EQSIGN, PS_STORE_ATTR_PREV);
 		FSM_COND_JMP(ps->t == TOKEN_LITERAL ||
-			     ps->t == TOKEN_SEMICOLON ||
-			     ps->t == TOKEN_LBRACE,
-			     PS_STORE_VAL_PREV);
+		             ps->t == TOKEN_SEMICOLON ||
+		             ps->t == TOKEN_LBRACE,
+		             PS_STORE_VAL_PREV);
 
 		ps->err = -EINVAL;
 		FSM_JMP(PS_EXIT);
@@ -839,16 +859,19 @@ parse_cfg_entry(TfwCfgParserState *ps)
 
 	FSM_STATE(PS_LONG_RULE_COND) {
 		ps->err = entry_add_rule_param(&ps->e.rule.fst_ext,
-					       ps->prev_lit,
-					       ps->prev_lit_len);
+		                               ps->prev_lit,
+		                               ps->prev_lit_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
 		PFSM_MOVE(PS_RULE_COND);
 	}
 
 	FSM_STATE(PS_RULE_COND) {
+		FSM_COND_JMP(ps->prev_t == TOKEN_REGEX,
+		             PS_STORE_VAL_PREV_REGEX);
+
 		PFSM_COND_JMP_EXIT_ERROR(ps->t != TOKEN_LITERAL);
 		ps->err = entry_set_cond(&ps->e, ps->prev_t, ps->lit,
-					 ps->lit_len);
+		                         ps->lit_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
 		PFSM_MOVE(PS_RULE_COND_END);
 	}
@@ -867,7 +890,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 	FSM_STATE(PS_RULE_ACTION) {
 		PFSM_COND_JMP_EXIT_ERROR(ps->t != TOKEN_LITERAL);
 		ps->err = entry_add_rule_param(&ps->e.rule.act, ps->lit,
-					       ps->lit_len);
+		                               ps->lit_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
 		PFSM_MOVE(PS_RULE_ACTION_VAL);
 	}
@@ -879,7 +902,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		PFSM_COND_JMP_EXIT_ERROR(ps->t != TOKEN_LITERAL);
 
 		ps->err = entry_add_rule_param(&ps->e.rule.val, ps->lit,
-					       ps->lit_len);
+		                               ps->lit_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
 
 		read_next_token(ps);
@@ -913,6 +936,33 @@ parse_cfg_entry(TfwCfgParserState *ps)
 	FSM_STATE(PS_MAYBE_EQSIGN) {
 		FSM_COND_JMP(ps->t == TOKEN_EQSIGN, PS_STORE_ATTR_PREV);
 		FSM_JMP(PS_STORE_VAL_PREV);
+	}
+
+	FSM_STATE(PS_STORE_VAL_PREV_REGEX) {
+		/* name val1 val2;
+		 *           ^
+		 *           We are here (but still need to store val1)
+		 *           and name or condition.
+		*/
+		T_DBG3("add value: %.*s\n", ps->prev_lit_len, ps->prev_lit);
+
+		if (ps->e.ftoken && !strcmp(ps->e.ftoken, "location")) {
+			ps->err = entry_set_name(&ps->e);
+
+			if (!ps->err) {
+				if (ps->prev_t == TOKEN_REGEX)
+					ps->err = entry_add_val(&ps->e, "regex",
+					                        sizeof("regex"));
+			}
+			FSM_COND_JMP(ps->err, PS_EXIT);
+			FSM_JMP(PS_VAL_OR_ATTR);
+		}
+
+		/*If it is not location*/
+		ps->err = entry_set_cond(&ps->e, ps->prev_t,
+		                                         ps->lit, ps->lit_len);
+		FSM_COND_JMP(ps->err, PS_EXIT);
+		PFSM_MOVE(PS_RULE_COND_END);
 	}
 
 	FSM_STATE(PS_STORE_VAL_PREV) {

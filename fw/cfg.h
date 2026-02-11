@@ -148,7 +148,8 @@ typedef struct {
 	const char *snd;
 	const char *act;
 	const char *val;
-	bool inv;
+	bool inv : 1;
+	bool regex : 1;
 } TfwCfgRule;
 
 typedef struct {
