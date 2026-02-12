@@ -35,7 +35,9 @@
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
+	struct list_head	list;
 	long __percpu 		*mem;
+	unsigned long		key;
 } TfwClient;
 
 int tfw_client_init(void);
