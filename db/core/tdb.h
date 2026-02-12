@@ -249,6 +249,11 @@ void tdb_rec_put(TDB *db, void *rec);
  */
 void tdb_rec_keep(void *rec);
 
+/*
+ * Check that it is a last reference to the rec.
+ */
+bool tdb_rec_has_last_ref(void *rec);
+
 int tdb_info(char *buf, size_t len);
 TdbRec * tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx);
 int tdb_entry_walk(TDB *db, int (*fn)(void *));

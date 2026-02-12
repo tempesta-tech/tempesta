@@ -34,6 +34,8 @@
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
+	struct list_head	list;
+	unsigned long		key;
 } TfwClient;
 
 int tfw_client_init(void);
