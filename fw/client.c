@@ -59,16 +59,46 @@ typedef struct {
 
 typedef struct {
 	struct list_head	list;
-	unsigned long		key;
+	TfwClient		*client;
 } TfwClientLRU;
 
 static struct {
 	struct list_head	head;
 	struct list_head	freelist;
+	struct list_head	for_delay_delete;
 	TfwClientLRU		*mem;
 } client_lru;
 
 static TDB *client_db;
+
+static bool
+tfw_client_has_last_ref(TfwClient *cli)
+{
+	TdbFRec *rec = ((TdbFRec *)cli) - 1;
+
+	return tdb_rec_has_last_ref(rec);
+}
+
+static void
+tfw_client_remove_delayed(unsigned long budget)
+{
+	TfwClient *curr, *tmp;
+	unsigned long i = 0;
+
+	assert_spin_locked(&client_db->ga_lock);
+
+	list_for_each_entry_safe(curr, tmp, &client_lru.for_delay_delete,
+				 list)
+	{
+		if (tfw_client_has_last_ref(curr)) {
+			list_del_init(&curr->list);
+			tdb_entry_remove(client_db, curr->key, NULL,
+					 NULL, false);
+		}
+		if (++i > budget)
+			break;
+	}
+}
 
 /*
  * Called only under db->ga_lock.
@@ -76,25 +106,42 @@ static TDB *client_db;
  * TODO #515 Rewrite when remove ga_lock.
  */
 static void
-tfw_client_update_lru(unsigned long key)
+tfw_client_update_lru(TfwClient *cli)
 {
+	assert_spin_locked(&client_db->ga_lock);
+
 	if (list_empty(&client_lru.freelist)) {
 		/* Free list is empty, get the last from LRU list. */
 		TfwClientLRU *last = list_last_entry(&client_lru.head,
 						     TfwClientLRU, list);
 
 		list_del_init(&last->list);
-		tdb_entry_remove(client_db, last->key, NULL, NULL, false);
-		last->key = key;
+		/*
+		 * Since we check it under `db->ga_lock` and getting new client
+		 * in `tdb_rec_get_alloc` is also made under `db->ga_lock`, we
+		 * can safely remove client entry in db.
+		 * If client will be removed here, new record will be created
+		 * during establishing new connection.
+		 */
+		if (tfw_client_has_last_ref(last->client)) {
+			tdb_entry_remove(client_db, last->client->key, NULL,
+					 NULL, false);
+		} else {
+			list_add(&last->client->list,
+				 &client_lru.for_delay_delete);
+		}
+		last->client = cli;
 		list_add(&last->list, &client_lru.head);
 	} else {
 		TfwClientLRU *new = list_first_entry(&client_lru.freelist,
 						     TfwClientLRU, list);
 
 		list_del_init(&new->list);
-		new->key = key;
+		new->client = cli;
 		list_add(&new->list, &client_lru.head);
 	}
+
+	tfw_client_remove_delayed(10);
 }
 
 static int
@@ -105,6 +152,7 @@ tfw_client_init_lru(void)
 
 	INIT_LIST_HEAD(&client_lru.freelist);
 	INIT_LIST_HEAD(&client_lru.head);
+	INIT_LIST_HEAD(&client_lru.for_delay_delete);
 
 	client_lru.mem = (TfwClientLRU *)__get_free_pages(GFP_ATOMIC, order);
 	if (!client_lru.mem) {
@@ -122,6 +170,19 @@ static void
 tfw_client_free_lru(void)
 {
 	int order = get_order(sizeof(TfwClientLRU) * client_cfg.lru_size);
+	TfwClientLRU *curr, *tmp;
+
+	spin_lock_bh(&client_db->ga_lock);
+
+	tfw_client_remove_delayed(ULONG_MAX);
+	BUG_ON(!list_empty(&client_lru.for_delay_delete));
+
+	list_for_each_entry_safe(curr, tmp, &client_lru.head, list) {
+		tdb_entry_remove(client_db, curr->client->key,
+				 NULL, NULL, false);
+	}
+
+	spin_unlock_bh(&client_db->ga_lock);
 
 	free_pages((unsigned long)client_lru.mem, order);
 }
@@ -188,6 +249,11 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
 
+	assert_spin_locked(&client_db->ga_lock);
+
+	cli->key = ctx->key;
+	tfw_client_update_lru(cli);
+
 	bzero_fast(&cli->class_prvt, sizeof(cli->class_prvt));
 	if (ctx->init)
 		ctx->init(cli);
@@ -201,16 +267,6 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	T_DBG("new client: cli=%p\n", cli);
 	T_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
 	T_DBG2("client %p, users=%d\n", cli, 1);
-}
-
-static int
-tfw_client_precreate(void *data)
-{
-	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
-
-	tfw_client_update_lru(ctx->key);
-
-	return 0;
 }
 
 /**
@@ -263,7 +319,6 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 
 	tdb_ctx.eq_rec =  tfw_client_addr_eq;
 	tdb_ctx.init_rec = tfw_client_ent_init;
-	tdb_ctx.precreate_rec = tfw_client_precreate;
 	tdb_ctx.len = sizeof(TfwClientEntry);
 	tdb_ctx.ctx = &ctx;
 	rec = tdb_rec_get_alloc(client_db, key, &tdb_ctx);
@@ -322,16 +377,15 @@ tfw_client_start(void)
 }
 
 static void
-tfw_client_stop(void)
+tfw_client_cleanupcfg(void)
 {
 	if (tfw_runstate_is_reconfig())
 		return;
 	if (client_db) {
+		tfw_client_free_lru();
 		tdb_close(client_db);
 		client_db = NULL;
 	}
-
-	tfw_client_free_lru();
 }
 
 static TfwCfgSpec tfw_client_specs[] = {
@@ -367,10 +421,10 @@ static TfwCfgSpec tfw_client_specs[] = {
 };
 
 TfwMod tfw_client_mod = {
-	.name 	= "client",
-	.start	= tfw_client_start,
-	.stop	= tfw_client_stop,
-	.specs	= tfw_client_specs,
+	.name 		= "client",
+	.start		= tfw_client_start,
+	.cfgclean	= tfw_client_cleanupcfg,
+	.specs		= tfw_client_specs,
 };
 
 int __init
