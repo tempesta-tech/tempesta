@@ -351,6 +351,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int mss_now,
 		/* A new frag is added to the end of the current skb. */
 		WARN_ON_ONCE(t_sz > skb_tail->truesize);
 		t_sz = skb_tail->truesize - t_sz;
+
+		tcp_set_skb_tso_segs(skb_tail, mss_now);
 	}
 	else {
 		struct sk_buff *tail_next = skb_tail->next;
