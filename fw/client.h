@@ -30,6 +30,7 @@
  * @class_prvt		- private client accounting data for classifier module.
  *			  Typically it's large and wastes memory in vain if
  *			  no any classification logic is used;
+ * @list		- entry in lru list of allocated clients;
  * @mem			- memory used by current client;
  */
 typedef struct {
@@ -37,7 +38,6 @@ typedef struct {
 	TfwClassifierPrvt	class_prvt;
 	struct list_head	list;
 	long __percpu 		*mem;
-	unsigned long		key;
 } TfwClient;
 
 int tfw_client_init(void);

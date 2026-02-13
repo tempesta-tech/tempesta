@@ -93,8 +93,10 @@ tfw_client_remove_delayed(unsigned long budget)
 				      list)
 	{
 		if (tfw_client_has_last_ref(curr)) {
+			TdbFRec *rec = ((TdbFRec *)curr) - 1;
+
 			list_del_init(&curr->list);
-			tdb_entry_remove(client_db, curr->key, NULL,
+			tdb_entry_remove(client_db, rec->key, NULL,
 					 NULL, false);
 		}
 		if (!(budget--))
@@ -112,10 +114,16 @@ tfw_client_remove_delayed(unsigned long budget)
 static void
 tfw_client_update_lru(TfwClient *cli)
 {
+#define COUNT_OF_CLIENTS_TO_DELETE 10
+
 	assert_spin_locked(&client_db->ga_lock);
 
 	if (client_lru.lru_size >= client_cfg.lru_size) {
-		/* Free list is empty, get the last from LRU list. */
+		/*
+		 * Count of clients exceeded configured lru size, remove
+		 * previos added client from lru list and try to remove it
+		 * from TDB.
+		 */
 		TfwClient *last = list_last_entry(&client_lru.head,
 						  TfwClient, list);
 
@@ -128,7 +136,9 @@ tfw_client_update_lru(TfwClient *cli)
 		 * during establishing new connection.
 		 */
 		if (tfw_client_has_last_ref(last)) {
-			tdb_entry_remove(client_db, last->key, NULL,
+			TdbFRec *rec = ((TdbFRec *)last) - 1;
+
+			tdb_entry_remove(client_db, rec->key, NULL,
 					 NULL, false);
 		} else {
 			list_add_tail(&last->list,
@@ -140,7 +150,9 @@ tfw_client_update_lru(TfwClient *cli)
 		client_lru.lru_size++;
 	}
 
-	tfw_client_remove_delayed(10);
+	tfw_client_remove_delayed(COUNT_OF_CLIENTS_TO_DELETE);
+
+#undef COUNT_OF_CLIENTS_TO_DELETE
 }
 
 static void
@@ -164,9 +176,10 @@ tfw_client_free_lru(void)
 	BUG_ON(!list_empty(&client_lru.for_delay_delete));
 
 	list_for_each_entry_safe(curr, tmp, &client_lru.head, list) {
+		TdbFRec *rec = ((TdbFRec *)curr) - 1;
+
 		list_del_init(&curr->list);
-		tdb_entry_remove(client_db, curr->key,
-				 NULL, NULL, false);
+		tdb_entry_remove(client_db, rec->key, NULL, NULL, false);
 	}
 
 	spin_unlock_bh(&client_db->ga_lock);
@@ -257,7 +270,6 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 
 	assert_spin_locked(&client_db->ga_lock);
 
-	cli->key = ctx->key;
 	tfw_client_update_lru(cli);
 
 	bzero_fast(&cli->class_prvt, sizeof(cli->class_prvt));
