@@ -159,7 +159,7 @@ typedef struct {
 typedef struct {
 	bool		(*eq_rec)(TdbRec *rec, void *ctx);
 	int		(*precreate_rec)(void *ctx);
-	void		(*init_rec)(TdbRec *rec, void *ctx);
+	int		(*init_rec)(TdbRec *rec, void *ctx);
 	void		*ctx;
 	size_t		len;
 	bool		is_new;
@@ -248,6 +248,11 @@ void tdb_rec_put(TDB *db, void *rec);
  *
  */
 void tdb_rec_keep(void *rec);
+
+/*
+ * Check that it is a last reference to the rec.
+ */
+bool tdb_rec_has_last_ref(void *rec);
 
 int tdb_info(char *buf, size_t len);
 TdbRec * tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx);

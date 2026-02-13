@@ -236,6 +236,13 @@ tdb_rec_keep(void *rec)
 }
 EXPORT_SYMBOL(tdb_rec_keep);
 
+bool
+tdb_rec_has_last_ref(void *rec)
+{
+	return tdb_htrie_rec_has_last_ref((TdbRec *)rec);
+}
+EXPORT_SYMBOL(tdb_rec_has_last_ref);
+
 int
 tdb_info(char *buf, size_t len)
 {
@@ -348,11 +355,17 @@ tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx)
 	}
 	ctx->is_new = true;
 	r = tdb_entry_alloc(db, key, &ctx->len);
-	if (!r) {
+	if (unlikely(!r)) {
 		spin_unlock(&db->ga_lock);
-		return r;
+		return NULL;
 	}
-	ctx->init_rec(r, ctx->ctx);
+	if (unlikely(ctx->init_rec(r, ctx->ctx))) {
+		tdb_rec_put(db, r);
+		tdb_entry_remove(db, key, NULL, NULL, true);
+		spin_unlock(&db->ga_lock);
+		return NULL;
+	}
+	
 	tdb_entry_mark_complete(r);
 
 	spin_unlock(&db->ga_lock);

@@ -917,7 +917,7 @@ index 8896705cc..29e0d0428 100644
  
  /*
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index 39f1d16f3..5457e0826 100644
+index 39f1d16f3..db9523d1f 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
 @@ -267,6 +267,12 @@
@@ -933,20 +933,21 @@ index 39f1d16f3..5457e0826 100644
  
  /* return minimum truesize of one skb containing X bytes of data */
  #define SKB_TRUESIZE(X) ((X) +						\
-@@ -877,6 +883,12 @@ struct sk_buff {
+@@ -877,6 +883,13 @@ struct sk_buff {
  				 * UDP receive path is one user.
  				 */
  				unsigned long		dev_scratch;
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+                                struct {
-+                                        __u8    present : 1;
-+                                        __u8    tls_type : 7;
-+                                } tfw_cb;
++				struct {
++					__u16	present : 1;
++					__u16	in_socket_write_queue : 1;
++					__u16	tls_type : 7;
++				} tfw_cb;
 +#endif
  			};
  		};
  		struct rb_node		rbnode; /* used in netem, ip4 defrag, and tcp stack */
-@@ -938,11 +950,17 @@ struct sk_buff {
+@@ -938,11 +951,17 @@ struct sk_buff {
  				fclone:2,
  				peeked:1,
  				head_frag:1,
@@ -964,11 +965,12 @@ index 39f1d16f3..5457e0826 100644
  
  	/* Fields enclosed in headers group are copied
  	 * using a single memcpy() in __copy_skb_header()
-@@ -1113,6 +1131,42 @@ struct sk_buff {
+@@ -1113,6 +1132,56 @@ struct sk_buff {
  #define SKB_ALLOC_RX		0x02
  #define SKB_ALLOC_NAPI		0x04
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
++
 +static inline unsigned long
 +skb_tfw_is_present(struct sk_buff *skb)
 +{
@@ -990,6 +992,19 @@ index 39f1d16f3..5457e0826 100644
 +}
 +
 +static inline void
++skb_tfw_set_in_socket_write_queue(struct sk_buff *skb)
++{
++	skb->tfw_cb.present = 1;
++	skb->tfw_cb.in_socket_write_queue = 1;
++}
++
++static inline bool
++skb_tfw_is_in_socket_write_queue(struct sk_buff *skb)
++{
++	return skb->tfw_cb.present ? skb->tfw_cb.in_socket_write_queue : false;
++}
++
++static inline void
 +skb_copy_tfw_cb(struct sk_buff *dst, struct sk_buff *src)
 +{
 +	dst->dev = src->dev;
@@ -1007,7 +1022,7 @@ index 39f1d16f3..5457e0826 100644
  /**
   * skb_pfmemalloc - Test if the skb was allocated from PFMEMALLOC reserves
   * @skb: buffer
-@@ -1298,6 +1352,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
+@@ -1298,6 +1367,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
  bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
  		      bool *fragstolen, int *delta_truesize);
  
@@ -1015,7 +1030,7 @@ index 39f1d16f3..5457e0826 100644
  struct sk_buff *__alloc_skb(unsigned int size, gfp_t priority, int flags,
  			    int node);
  struct sk_buff *__build_skb(void *data, unsigned int frag_size);
-@@ -2465,7 +2520,11 @@ struct sk_buff *skb_dequeue_tail(struct sk_buff_head *list);
+@@ -2465,7 +2535,11 @@ struct sk_buff *skb_dequeue_tail(struct sk_buff_head *list);
  
  static inline bool skb_is_nonlinear(const struct sk_buff *skb)
  {
@@ -1027,7 +1042,7 @@ index 39f1d16f3..5457e0826 100644
  }
  
  static inline unsigned int skb_headlen(const struct sk_buff *skb)
-@@ -2821,6 +2880,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
+@@ -2821,6 +2895,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
  	return skb->data - skb->head;
  }
  
@@ -1048,6 +1063,15 @@ index 39f1d16f3..5457e0826 100644
  /**
   *	skb_tailroom - bytes at buffer end
   *	@skb: buffer to check
+@@ -3806,7 +3894,7 @@ static inline int skb_add_data(struct sk_buff *skb,
+ 	if (skb->ip_summed == CHECKSUM_NONE) {
+ 		__wsum csum = 0;
+ 		if (csum_and_copy_from_iter_full(skb_put(skb, copy), copy,
+-					         &csum, from)) {
++						 &csum, from)) {
+ 			skb->csum = csum_block_add(skb->csum, csum, off);
+ 			return 0;
+ 		}
 diff --git a/include/linux/skbuff_ref.h b/include/linux/skbuff_ref.h
 index 0f3c58007..e2576c604 100644
 --- a/include/linux/skbuff_ref.h

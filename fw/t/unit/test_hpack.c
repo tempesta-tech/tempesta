@@ -84,9 +84,10 @@ static inline TfwHttpReq *
 test_hpack_req_alloc(void)
 {
 	TfwHttpReq *req = test_req_alloc(0);
+	TfwHttpMsg *hmreq = (TfwHttpMsg *)req;
 
 	BUG_ON(!req);
-	req->pit.pool = __tfw_pool_new(0);
+	req->pit.pool = __tfw_pool_new(0, tfw_http_msg_client(hmreq));
 	BUG_ON(!req->pit.pool);
 	req->pit.parsed_hdr = &req->stream->parser.hdr;
 	__set_bit(TFW_HTTP_B_H2, req->flags);
