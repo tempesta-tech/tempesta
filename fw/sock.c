@@ -1270,6 +1270,14 @@ ss_tcp_state_change(struct sock *sk)
 		sock_set_flag(sk, SOCK_TEMPESTA);
 		ss_active_guard_exit(SS_V_ACT_NEWCONN);
 	}
+	else if (sk->sk_state == TCP_FIN_WAIT2) {
+		/*
+		 * Set keepalive timeout to 10 seconds for forcely connection
+		 * closing if TCP FIN will not received.
+		 */
+		SS_CALL(connection_reset_keepalive_timeout, sk->sk_user_data,
+			10000);
+	}
 	else if (sk->sk_state == TCP_CLOSE_WAIT) {
 		/*
 		 * Received FIN, connection is being closed.
