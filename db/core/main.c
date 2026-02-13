@@ -236,6 +236,13 @@ tdb_rec_keep(void *rec)
 }
 EXPORT_SYMBOL(tdb_rec_keep);
 
+bool
+tdb_rec_has_last_ref(void *rec)
+{
+	return tdb_htrie_rec_has_last_ref((TdbRec *)rec);
+}
+EXPORT_SYMBOL(tdb_rec_has_last_ref);
+
 int
 tdb_info(char *buf, size_t len)
 {
