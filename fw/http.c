@@ -6058,7 +6058,7 @@ next_msg:
 	req->msg.len += parsed;
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
 
-	T_DBG2("Request parsed: len=%u next=%pK parsed=%d msg_len=%lu"
+	printk(KERN_ALERT "Request parsed: len=%u next=%pK parsed=%d msg_len=%lu"
 	       " ver=%d res=%d\n",
 		 skb->len, skb->next, parsed, req->msg.len, req->version, r);
 

@@ -108,8 +108,6 @@
  */
 
 
-
-
 #define srv_warn(check, addr, fmt, ...)					\
 	T_WARN_MOD_ADDR(sock_srv, check, addr, TFW_WITH_PORT, fmt,	\
 			##__VA_ARGS__)
@@ -403,25 +401,14 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 static int
 tfw_sock_srv_abort(TfwConn *conn)
 {
+	int rc = atomic_read(&conn->refcnt);
+	printk(KERN_ALERT "tfw_sock_srv_abort %px %px %d", conn, conn->sk,
+		rc);
 	if (conn->sk)
 		tfw_connection_abort(conn);
 	return 0;
 }
 
-static inline bool
-__tfw_connection_get_if_not_death(TfwConn *conn)
-{
-	int old, rc = atomic_read(&conn->refcnt);
-
-	while (likely(rc != TFW_CONN_DEATHCNT && rc != 0)) {
-		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
-		if (likely(old == rc))
-			return true;
-		rc = old;
-	}
-
-	return false;
-}
 
 /**
  * Close a server connection, or stop attempts to connect if a connection
@@ -661,6 +648,7 @@ tfw_srv_conn_alloc(void)
 	 * of taken server's reference counter on connection removing.
 	 */
 	atomic_set(&srv_conn->refcnt, TFW_CONN_DEATHCNT);
+	tfw_conn_fill((TfwConn *)srv_conn, TFW_CONN_DEATHCNT);
 
 	__setup_retry_timer(srv_conn);
 	ss_proto_init(&srv_conn->proto, &tfw_sock_srv_ss_hooks, Conn_HttpSrv);

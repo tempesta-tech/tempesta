@@ -698,7 +698,9 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 			if (tfw_h2_stream_sched_is_active(&ctx->sched.root)) {
 				sock_set_flag(((TfwConn *)conn)->sk,
 					       SOCK_TEMPESTA_HAS_DATA);
+				sock_set_flag(((TfwConn *)conn)->sk, SOCK_1_BAD);
 				tcp_push_pending_frames(((TfwConn *)conn)->sk);
+				//sock_reset_flag(((TfwConn *)conn)->sk, SOCK_1_BAD);
 			}
 		}
 

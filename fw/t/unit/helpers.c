@@ -339,6 +339,24 @@ tfw_connection_init(TfwConn *conn)
 	INIT_LIST_HEAD(&conn->list);
 }
 
+void
+tfw_connection_get(TfwConn *conn)
+{
+
+}
+
+void
+tfw_connection_put(TfwConn *conn)
+{
+
+}
+
+bool
+__tfw_connection_get_if_live(TfwConn *conn)
+{
+	return true;
+}
+
 int
 tfw_connection_shutdown(TfwConn *conn, bool sync)
 {

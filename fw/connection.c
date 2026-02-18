@@ -27,6 +27,108 @@
 #include "http.h"
 #include "websocket.h"
 
+struct srv_conn_dbg {
+	void *arr[5];
+	int refcnt;
+	int set;
+	void *srv_conn;
+};
+
+static struct srv_conn_dbg srv_conn_dbg_impl[10000];
+static atomic_t srv_conn_dbg_cnt;
+
+void
+tfw_srv_conn_print_dbg(char *extra)
+{
+	unsigned int i;
+
+	for (i = 0; i < 10000; i++) {
+		if (srv_conn_dbg_impl[i].set == 111) {
+			printk(KERN_ALERT "%s srv_conn %px %d | %ps %ps %ps %ps %ps\n", extra,
+				srv_conn_dbg_impl[i].srv_conn, srv_conn_dbg_impl[i].refcnt, srv_conn_dbg_impl[i].arr[0],
+				srv_conn_dbg_impl[i].arr[1], srv_conn_dbg_impl[i].arr[2], srv_conn_dbg_impl[i].arr[3],
+				srv_conn_dbg_impl[i].arr[4]);
+		}
+	}
+}
+
+void
+tfw_conn_fill(TfwConn *conn, int rc)
+{
+	bool is_srv_conn = TFW_CONN_TYPE(conn) & Conn_Srv;
+
+	if (is_srv_conn) {
+		int dbg_rc = atomic_fetch_add(1, &srv_conn_dbg_cnt);
+
+		if (dbg_rc < 10000) {
+			srv_conn_dbg_impl[dbg_rc].refcnt = rc;
+			srv_conn_dbg_impl[dbg_rc].arr[0] = __builtin_return_address(0);
+			srv_conn_dbg_impl[dbg_rc].arr[1] = __builtin_return_address(1);
+			srv_conn_dbg_impl[dbg_rc].arr[2] = __builtin_return_address(2);
+			srv_conn_dbg_impl[dbg_rc].arr[3] = __builtin_return_address(3);
+			srv_conn_dbg_impl[dbg_rc].arr[4] = __builtin_return_address(4);
+			srv_conn_dbg_impl[dbg_rc].set = 111;
+			srv_conn_dbg_impl[dbg_rc].srv_conn = conn;
+		}
+	}
+}
+
+void
+tfw_connection_put(TfwConn *conn)
+{
+	int rc;
+	bool is_srv_conn;
+
+	if (unlikely(!conn))
+		return;
+
+	is_srv_conn = TFW_CONN_TYPE(conn) & Conn_Srv;
+	rc = atomic_dec_return(&conn->refcnt);
+	tfw_conn_fill(conn, rc);
+
+	BUG_ON(rc < TFW_CONN_DEATHCNT);
+
+	if (likely(rc && rc != TFW_CONN_DEATHCNT))
+		return;
+	if (conn->destructor)
+		conn->destructor(conn);
+}
+
+bool
+__tfw_connection_get_if_live(TfwConn *conn)
+{
+	int old, rc = atomic_read(&conn->refcnt);
+
+	while (likely(rc > 0)) {
+		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
+		if (likely(old == rc)) {
+			tfw_conn_fill(conn, rc + 1);
+			return true;
+		}
+		rc = old;
+	}
+
+	return false;
+}
+
+void
+tfw_connection_put_to_death(TfwConn *conn)
+{
+	int rc = atomic_add_return(TFW_CONN_DEATHCNT, &conn->refcnt);
+	tfw_conn_fill(conn, rc);
+}
+
+void
+tfw_connection_get(TfwConn *conn)
+{
+	int rc;
+
+	rc = atomic_inc_return(&conn->refcnt);
+	if (rc == 0 || rc == TFW_CONN_DEATHCNT)
+		printk(KERN_ALERT "AAAAAAAAAAAAAAAAAAAAAAAAAAA %px", conn);
+	tfw_conn_fill(conn, rc);
+}
+
 TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 
 /*
@@ -85,19 +187,31 @@ tfw_connection_close(TfwConn *conn, bool sync)
 	return r;
 }
 
+
 void
 tfw_connection_abort(TfwConn *conn)
 {
 	int r;
+	static atomic_t qqq;
 
 	/*
 	 * Same as for tfw_connection_close() we should increment connection
 	 * reference counter here.
 	 */
-	tfw_connection_get(conn);
-	r = TFW_CONN_HOOK_CALL(conn, conn_abort);
-	WARN_ON(r);
-	tfw_connection_put(conn);
+	if (in_task() &&  atomic_read(&conn->refcnt) == 1) {
+		if (atomic_inc_return(&qqq) == 1) {
+			printk(KERN_ALERT "SLEEP!!!!!\n");
+			while (atomic_read(&conn->refcnt));
+		}
+	}
+	printk(KERN_ALERT "tfw_connection_abort %px %px %d AAA", conn, conn->sk,
+		atomic_read(&conn->refcnt));
+	printk(KERN_ALERT "AFTER!!!!!!!!!!!!!!!!!!!!!!");
+	if (__tfw_connection_get_if_not_death(conn)) {
+		r = TFW_CONN_HOOK_CALL(conn, conn_abort);
+		WARN_ON(r);
+		tfw_connection_put(conn);
+	}
 }
 
 /**

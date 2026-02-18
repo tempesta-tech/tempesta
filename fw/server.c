@@ -33,6 +33,7 @@
 #include "client.h"
 #include "log.h"
 #include "server.h"
+#include "connection.h"
 
 /* Use SLAB for frequent server allocations in forward proxy mode. */
 static struct kmem_cache *srv_cache;
@@ -84,6 +85,7 @@ struct server_dbg {
 	int set;
 	void *srv;
 	void *srv_conn;
+	int srv_conn_refcnt;
 };
 
 static struct server_dbg server_dbg_impl[10000];
@@ -96,10 +98,10 @@ tfw_server_print_dbg(char *extra)
 
 	for (i = 0; i < 10000; i++) {
 		if (server_dbg_impl[i].set == 111) {
-			printk(KERN_ALERT "%s srv %px srv_conn %px %lld | %ps %ps %ps %ps %ps", extra, server_dbg_impl[i].srv,
+			printk(KERN_ALERT "%s srv %px srv_conn %px %lld | %ps %ps %ps %ps %ps %d", extra, server_dbg_impl[i].srv,
 				server_dbg_impl[i].srv_conn, server_dbg_impl[i].refcnt, server_dbg_impl[i].arr[0],
 				server_dbg_impl[i].arr[1], server_dbg_impl[i].arr[2], server_dbg_impl[i].arr[3],
-				server_dbg_impl[i].arr[4]);
+				server_dbg_impl[i].arr[4], server_dbg_impl[i].srv_conn_refcnt);
 		}
 	}
 }
@@ -120,6 +122,10 @@ tfw_server_get(TfwServer *srv, void *srv_conn)
 		server_dbg_impl[dbg_rc].set = 111;
 		server_dbg_impl[dbg_rc].srv = srv;
 		server_dbg_impl[dbg_rc].srv_conn = srv_conn;
+		if (srv_conn) {
+			server_dbg_impl[dbg_rc].srv_conn_refcnt =
+				atomic_read(&((TfwConn *)srv_conn)->refcnt);
+		}
 	}
 }
 
@@ -145,10 +151,16 @@ tfw_server_put(TfwServer *srv, void *srv_conn)
 		server_dbg_impl[dbg_rc].set = 111;
 		server_dbg_impl[dbg_rc].srv = srv;
 		server_dbg_impl[dbg_rc].srv_conn = srv_conn;
+		if (srv_conn) {
+			server_dbg_impl[dbg_rc].srv_conn_refcnt =
+				atomic_read(&((TfwConn *)srv_conn)->refcnt);
+		}
 	}
 
-	if (rc < 0)
+	if (rc < 0) {
 		tfw_server_print_dbg("BUG tfw_server_put");
+		tfw_srv_conn_print_dbg("BUG tfw_srv_conn_info");
+	}
 
 	BUG_ON(rc < 0);
 	if (likely(rc))
@@ -160,6 +172,7 @@ void
 tfw_server_reset(void)
 {
 	tfw_server_print_dbg("tfw_server_reset");
+	//tfw_srv_conn_print_dbg("tfw_srv_conn_reset");
 
 	memset(server_dbg_impl, 0, sizeof(server_dbg_impl));
 	atomic_set(&server_dbg_cnt, 0);

@@ -421,63 +421,28 @@ tfw_connection_live(TfwConn *conn)
 
 #define tfw_srv_conn_live(c)	tfw_connection_live((TfwConn *)(c))
 
-static inline void
-tfw_connection_get(TfwConn *conn)
-{
-	atomic_inc(&conn->refcnt);
-}
-
 /**
  * Increment reference counter and return true if @conn is not in
  * failovering process, i.e. @refcnt wasn't less or equal to zero.
  */
-static inline bool
-__tfw_connection_get_if_live(TfwConn *conn)
-{
-	int old, rc = atomic_read(&conn->refcnt);
-
-	while (likely(rc > 0)) {
-		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
-		if (likely(old == rc))
-			return true;
-		rc = old;
-	}
-
-	return false;
-}
+bool __tfw_connection_get_if_live(TfwConn *conn);
 
 #define tfw_srv_conn_get_if_live(c)	\
 	__tfw_connection_get_if_live((TfwConn *)(c))
 
-static inline void
-tfw_connection_put(TfwConn *conn)
-{
-	int rc;
-
-	if (unlikely(!conn))
-		return;
-
-	rc = atomic_dec_return(&conn->refcnt);
-	BUG_ON(rc < TFW_CONN_DEATHCNT);
-
-	if (likely(rc && rc != TFW_CONN_DEATHCNT))
-		return;
-	if (conn->destructor)
-		conn->destructor(conn);
-}
+void tfw_connection_put(TfwConn *conn);
+void tfw_connection_get(TfwConn *conn);
 
 #define tfw_srv_conn_put(c)	tfw_connection_put((TfwConn *)(c))
 
-static inline void
-tfw_connection_put_to_death(TfwConn *conn)
-{
-	atomic_add(TFW_CONN_DEATHCNT, &conn->refcnt);
-}
+void tfw_connection_put_to_death(TfwConn *conn);
+void tfw_conn_fill(TfwConn *conn, int rc);
 
 static inline void
 tfw_connection_revive(TfwConn *conn)
 {
 	atomic_set(&conn->refcnt, 1);
+	tfw_conn_fill(conn, 1);
 }
 
 /*
@@ -490,6 +455,7 @@ static inline void
 tfw_srv_conn_init_as_dead(TfwSrvConn *srv_conn)
 {
 	atomic_set(&srv_conn->refcnt, TFW_CONN_DEATHCNT + 1);
+	tfw_conn_fill((TfwConn *)srv_conn, TFW_CONN_DEATHCNT + 1);
 }
 
 /*
@@ -552,6 +518,22 @@ tfw_stream_unlink_msg(TfwStream *stream)
 	stream->msg = NULL;
 }
 
+static inline bool
+__tfw_connection_get_if_not_death(TfwConn *conn)
+{
+	int old, rc = atomic_read(&conn->refcnt);
+
+	while (likely(rc != TFW_CONN_DEATHCNT && rc != 0)) {
+		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);
+		if (likely(old == rc)) {
+			return true;
+		}
+		rc = old;
+	}
+
+	return false;
+}
+
 /**
  * Check that TfwConn{} resources are cleaned up properly.
  */
@@ -594,6 +576,8 @@ tfw_peer_for_each_conn(TfwPeer *p, int (*cb)(TfwConn *))
 
 	return r;
 }
+
+void tfw_srv_conn_print_dbg(char *extra);
 
 extern unsigned int tfw_cli_max_concurrent_streams;
 

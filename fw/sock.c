@@ -200,6 +200,10 @@ ss_conn_drop_guard_exit(struct sock *sk)
 	 * In this case `tcp_done` is also called and connection is
 	 * dropped.
 	 */
+	printk(KERN_ALERT "ss_conn_drop_guard_exit %px %px %ps %ps %ps %ps %ps\n",
+		sk, sk->sk_user_data, __builtin_return_address(0), __builtin_return_address(1),
+		__builtin_return_address(2), __builtin_return_address(3),
+		__builtin_return_address(4));
 	if (!sk->sk_user_data)
 		return;
 
@@ -467,7 +471,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 */
 	ss_skb_tcp_entail_list(sk, skb_head);
 
-	T_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
+	printk(KERN_ALERT "[%d]: %s: sk=%px send_head=%px sk_state=%dx flags=%x\n",
 	       smp_processor_id(), __func__,
 	       sk, tcp_send_head(sk), sk->sk_state, flags);
 
@@ -500,6 +504,8 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		tcp_push(sk, MSG_DONTWAIT, mss, TCP_NAGLE_OFF | TCP_NAGLE_PUSH,
 			 size);
 	}
+
+	printk(KERN_ALERT "AFTER SEND %px %px %d\n", sk, sk->sk_user_data,  tcp_write_queue_empty(sk));
 
 	return;
 
@@ -670,6 +676,8 @@ ss_do_close(struct sock *sk, int flags)
 		tcp_send_active_reset(sk, sk->sk_allocation);
 	} else if (tcp_close_state(sk)) {
 		tcp_send_fin(sk);
+
+		printk(KERN_ALERT "SEND FIN %px %px %d\n", sk, sk->sk_user_data, tcp_write_queue_empty(sk));
 	}
 
 adjudge_to_death:
@@ -1483,6 +1491,9 @@ static void
 __sk_close_locked(struct sock *sk, int flags)
 {
 	ss_do_close(sk, flags);
+
+	printk(KERN_ALERT "__sk_close_locked %px %px %d\n",
+		sk, sk->sk_user_data, sk_stream_closing(sk));
 	if (!sk_stream_closing(sk)) {
 		ss_conn_drop_guard_exit(sk);
 	} else {
