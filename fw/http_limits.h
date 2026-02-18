@@ -204,6 +204,7 @@ int frang_tls_handler(TlsCtx *tls, int state);
 int frang_sticky_cookie_handler(TfwHttpReq *req);
 bool frang_req_is_whitelisted(TfwHttpReq *req);
 int frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len);
+unsigned int frang_client_conn_curr(void *cli);
 
 static inline int
 frang_time_in_frame(const unsigned long tcur, const unsigned long tprev)

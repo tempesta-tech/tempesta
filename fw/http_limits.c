@@ -1733,6 +1733,12 @@ frang_sticky_cookie_handler(TfwHttpReq *req)
 					 sticky->max_misses);
 }
 
+unsigned int
+frang_client_conn_curr(void *cli)
+{
+	return FRANG_CLI2ACC((TfwClient *)cli)->conn_curr;
+}
+
 /*
  * ------------------------------------------------------------------------
  *	Generic classifier functionality.

@@ -49,4 +49,10 @@ void tfw_cli_abort_all(void);
 
 void tfw_tls_connection_lost(TfwConn *conn);
 
+static inline long
+tfw_client_mem(TfwClient *cli)
+{
+	return 0;
+}
+
 #endif /* __TFW_CLIENT_H__ */

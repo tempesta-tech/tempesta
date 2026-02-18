@@ -32,6 +32,7 @@
 #include "server.h"
 #include "str.h"
 #include "sync_socket.h"
+#include "training.h"
 #include "lib/fsm.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
@@ -55,6 +56,7 @@ DEFINE_MUTEX(tfw_sysctl_mtx);
 static TfwState tfw_state = TFW_STATE_STOPPED;
 static bool tfw_reconfig = false;
 static int tfw_ss_users = 0;
+unsigned int tfw_sysctl_training_mode = 0;
 
 /*
  * The global list of all registered modules
@@ -390,6 +392,34 @@ out:
 	return r;
 }
 
+/*
+ * Syctl handler for tempesta.training read/write operations.
+ */
+static int
+tfw_ctlfn_training_mode_io(const struct ctl_table *ctl, int is_write,
+			   void *user_buf, size_t *lenp, loff_t *ppos)
+{
+	int r;
+	unsigned int old_mode = tfw_sysctl_training_mode;
+
+	mutex_lock(&tfw_sysctl_mtx);
+
+	r = proc_dointvec_minmax(ctl, is_write, user_buf, lenp, ppos);
+	if (unlikely(r))
+		goto out;
+
+	if (old_mode != tfw_sysctl_training_mode) {
+		if (tfw_sysctl_training_mode)
+			tfw_training_start();
+		else
+			tfw_training_stop(TFW_TRAINING_DEFENCE_MODE_ENABLED);
+	}
+
+out:
+	mutex_unlock(&tfw_sysctl_mtx);
+	return r;
+}
+
 /**
  * Wait until all objects of some specific type @obj_name are
  * destructed. The count of objects is specified in atomic @counter.
@@ -437,6 +467,15 @@ static struct ctl_table tfw_sysctl_tbl[] = {
 		.maxlen		= T_SYSCTL_STBUF_LEN - 1,
 		.mode		= 0644,
 		.proc_handler	= tfw_ctlfn_state_io,
+	},
+	{
+		.procname	= "training",
+		.maxlen		= sizeof(unsigned int),
+		.data		= &tfw_sysctl_training_mode,
+		.mode           = 0644,
+		.proc_handler   = tfw_ctlfn_training_mode_io,
+		.extra1         = SYSCTL_ZERO,
+		.extra2         = SYSCTL_ONE,
 	}
 };
 
@@ -528,6 +567,7 @@ tfw_init(void)
 	DO_INIT(http_tbl);
 	DO_INIT(sched_hash);
 	DO_INIT(sched_ratio);
+	DO_INIT(training_mode);
 
 	return 0;
 err:
