@@ -49,35 +49,39 @@ get_buffer_size(const int fd)
 }
 
 template <TfwBinLogFields FieldType>
-requires std::is_arithmetic_v<typename TfwBinLogTypeTraits<FieldType>::ValType> ||
-	 std::is_same_v<typename TfwBinLogTypeTraits<FieldType>::ValType, struct in6_addr>
+requires std::is_arithmetic_v<typename TfwBinLogTypeTraits<FieldType>::ColType::ValueType> ||
+	 std::is_same_v<typename TfwBinLogTypeTraits<FieldType>::ColType::ValueType, struct in6_addr>
 void
 read_field(AccessLogClickhouseDecorator &db, const auto *event, std::span<const char> &data)
 {
 	using Traits  = TfwBinLogTypeTraits<FieldType>;
-	using ValType = typename Traits::ValType;
+	using ColType = Traits::ColType;
+	using ValType = ColType::ValueType;
 
 	if (TFW_MMAP_LOG_FIELD_IS_SET(event, FieldType)) {
 		const size_t len = tfw_mmap_log_field_len(FieldType);
 
 		if (data.size() < len) [[unlikely]]
-			throw tus::Except("Incorrect integer eventent length");
+			throw tus::Except("Incorrect integer event length");
 
 		const ValType *val =
 			reinterpret_cast<const ValType *>(data.data());
-		db.append<FieldType>(*val);
+		db.append<ColType, Traits::index>(*val);
 
 		data = data.subspan(len);
 	} else {
-		db.append<FieldType>(ValType{});
+		db.append<ColType, Traits::index>(ValType{});
 	}
 }
 
 template <TfwBinLogFields FieldType>
-requires std::same_as<typename TfwBinLogTypeTraits<FieldType>::ValType, std::string_view>
+requires std::same_as<typename TfwBinLogTypeTraits<FieldType>::ColType::ValueType, std::string_view>
 void
 read_field(AccessLogClickhouseDecorator &db, const auto *event, std::span<const char> &data)
 {
+	using Traits  = TfwBinLogTypeTraits<FieldType>;
+	using ColType = Traits::ColType;
+
 	if (TFW_MMAP_LOG_FIELD_IS_SET(event, FieldType)) {
 		constexpr int len_size = sizeof(uint16_t);
 
@@ -91,11 +95,11 @@ read_field(AccessLogClickhouseDecorator &db, const auto *event, std::span<const 
 
 		data = data.subspan(len_size);
 		std::string_view str(data.data(), len);
-		db.append<FieldType>(str);
+		db.append<ColType, Traits::index>(str);
 
 		data = data.subspan(len);
 	} else {
-		db.append<FieldType>(std::string_view{});
+		db.append<ColType, Traits::index>(std::string_view{});
 	}
 }
 

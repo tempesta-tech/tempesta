@@ -48,7 +48,7 @@ static const ClickHouseDecorator::TfwField TfwFields[] = {
 	[TfwBinLogTypeTraits<TFW_MMAP_LOG_METHOD>::index]	= {"method", ch::Type::UInt8},
 	[TfwBinLogTypeTraits<TFW_MMAP_LOG_VERSION>::index]	= {"version", ch::Type::UInt8},
 	[TfwBinLogTypeTraits<TFW_MMAP_LOG_STATUS>::index]	= {"status", ch::Type::UInt16},
-	[TfwBinLogTypeTraits<TFW_MMAP_LOG_RESP_CONT_LEN>::index]= {"response_content_length", ch::Type::UInt32},
+	[TfwBinLogTypeTraits<TFW_MMAP_LOG_RESP_CONT_LEN>::index]= {"response_content_length", ch::Type::UInt64},
 	[TfwBinLogTypeTraits<TFW_MMAP_LOG_RESP_TIME>::index]	= {"response_time", ch::Type::UInt32},
 	[TfwBinLogTypeTraits<TFW_MMAP_LOG_VHOST>::index]	= {"vhost", ch::Type::String},
 	[TfwBinLogTypeTraits<TFW_MMAP_LOG_URI>::index]		= {"uri", ch::Type::String},
@@ -74,5 +74,5 @@ AccessLogClickhouseDecorator::AccessLogClickhouseDecorator(
 void
 AccessLogClickhouseDecorator::append_timestamp(uint64_t timestamp)
 {
-	block_[0]->As<ch::ColumnDateTime64>()->Append(timestamp);
+	append<ch::ColumnDateTime64, 0>(timestamp);
 }
