@@ -75,8 +75,11 @@ tfw_connection_close(TfwConn *conn, bool sync)
 	 * When connection is closed from process context (when tempesta
 	 * is shutdowning) there is a race between `ss_close` and socket
 	 * and connection destruction in softirq. We should increment
-	 * connection reference counter here to prevent conenction
+	 * connection reference counter here to prevent connection
 	 * destruction in running in parallel softirq.
+	 * Don't require `__tfw_connection_get_if_not_death`, because
+	 * for server connections we already call it before calling
+	 * this function.
 	 */
 	tfw_connection_get(conn);
 	r = TFW_CONN_HOOK_CALL(conn, conn_close, sync);
@@ -88,16 +91,26 @@ tfw_connection_close(TfwConn *conn, bool sync)
 void
 tfw_connection_abort(TfwConn *conn)
 {
-	int r;
-
 	/*
-	 * Same as for tfw_connection_close() we should increment connection
-	 * reference counter here.
+	 * When connection is closed from process context (when Tempesta FW
+	 * is shutdowning) there is a lot of races:
+	 * - race between `ss_close` and socket and connection destruction
+	 * in softirq.
+	 * - race between server connection aborting (if connection is hung)
+	 * and handling TCP RST from server side, where connection is
+	 * dropped and released.
+	 *
+	 * We should increment connection reference counter here if connection
+	 * was not already released to prevent connection destruction in running
+	 * in parallel softirq.
 	 */
-	tfw_connection_get(conn);
-	r = TFW_CONN_HOOK_CALL(conn, conn_abort);
-	WARN_ON(r);
-	tfw_connection_put(conn);
+	if (__tfw_connection_get_if_not_death(conn)) {
+		int r;
+
+		r = TFW_CONN_HOOK_CALL(conn, conn_abort);
+		WARN_ON(r);
+		tfw_connection_put(conn);
+	}
 }
 
 /**
