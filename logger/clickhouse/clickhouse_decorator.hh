@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -82,6 +82,17 @@ public:
 	bool
 	flush(bool force = false) noexcept;
 
+	/**
+	 * Appends a value to the ClickHouse column at the specified block index.
+	 *
+	 * ColumnType selects the concrete ClickHouse column type and determines
+	 * the accepted value type. Index selects the destination column. Both are
+	 * resolved at compile time and must match the block schema.
+	 */
+	template <typename ColumnType, std::size_t Index>
+	void
+	append(const typename ColumnType::ValueType& value);
+
 private:
 	static ch::Block
 	make_block(std::span<const TfwField> fields, size_t max_events);
@@ -99,3 +110,10 @@ private:
 protected:
 	ch::Block				block_;
 };
+
+template <typename ColumnType, std::size_t Index>
+void
+ClickHouseDecorator::append(const typename ColumnType::ValueType& value)
+{
+	block_[Index]->template As<ColumnType>()->Append(value);
+}
