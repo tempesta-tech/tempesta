@@ -496,7 +496,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 		 * called from `ss_conn_drop_guard_exit` when we process FIN from
 		 * remote peer.
 		 */
-		if (__tfw_connection_get_if_not_death(conn)) {
+		if (__tfw_connection_get_if_not_death(conn, false)) {
 			TfwServer *srv = (TfwServer *)conn->peer;
 			int r = 0;
 

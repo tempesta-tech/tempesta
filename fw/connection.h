@@ -438,7 +438,7 @@ tfw_connection_get(TfwConn *conn)
 
 #define TFW_CONNETION_GET_IF(name, cond)				\
 static inline bool							\
-__tfw_connection_get_if_##name(TfwConn *conn)				\
+__tfw_connection_get_if_##name(TfwConn *conn, bool print)		\
 {									\
 	int old, rc = atomic_read(&conn->refcnt);			\
 									\
@@ -446,6 +446,8 @@ __tfw_connection_get_if_##name(TfwConn *conn)				\
 		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);	\
 		if (likely(old == rc))					\
 			return true;					\
+		if (print)						\
+			printk(KERN_ALERT "AAA %d %d", rc, smp_processor_id()); \
 		rc = old;						\
 	}								\
 									\
@@ -457,7 +459,7 @@ TFW_CONNETION_GET_IF(live, (rc > 0));
 TFW_CONNETION_GET_IF(not_death, (rc != TFW_CONN_DEATHCNT && rc != 0));
 
 #define tfw_srv_conn_get_if_live(c)	\
-	__tfw_connection_get_if_live((TfwConn *)(c))
+	__tfw_connection_get_if_live((TfwConn *)(c), false)
 
 static inline void
 tfw_connection_put(TfwConn *conn)

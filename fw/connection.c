@@ -104,7 +104,7 @@ tfw_connection_abort(TfwConn *conn)
 	 * was not already released to prevent connection destruction in running
 	 * in parallel softirq.
 	 */
-	if (__tfw_connection_get_if_not_death(conn)) {
+	if (__tfw_connection_get_if_not_death(conn, true)) {
 		int r;
 
 		r = TFW_CONN_HOOK_CALL(conn, conn_abort);

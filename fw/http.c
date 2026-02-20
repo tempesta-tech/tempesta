@@ -3020,7 +3020,7 @@ tfw_http_free_req_carefully(TfwHttpReq *req, struct list_head *resp_del_queue)
 	 * connection, which can be the same as current `cli_conn`.
 	 */
 	if (!resp->conn
-	    || !__tfw_connection_get_if_last_ref(resp->conn))
+	    || !__tfw_connection_get_if_last_ref(resp->conn, false))
 	{
 		tfw_http_resp_pair_free(req);
 	} else {
