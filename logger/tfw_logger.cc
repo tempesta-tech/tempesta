@@ -488,8 +488,14 @@ try {
 	auto logger = spdlog::basic_logger_mt("event_logger",
 					      config.log_path.string());
 	spdlog::set_default_logger(logger);
+	
+#ifdef NDEBUG
 	spdlog::set_level(spdlog::level::info);
 	logger->flush_on(spdlog::level::info);
+#else
+	spdlog::set_level(spdlog::level::debug);
+	logger->flush_on(spdlog::level::debug);
+#endif
 
 	// Set custom log pattern to include thread ID
 	// %Y-%m-%d %H:%M:%S.%e - Date and time with milliseconds
