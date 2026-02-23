@@ -31,6 +31,16 @@ declare -r IRQB_CONF_PATH="/etc/default/irqbalance"
 declare -r SYSD_IRQB_PATH="/lib/systemd/system/irqbalance.service"
 declare -r BAN_CONF_VAR="TFW_BAN_IRQS"
 declare -a IRQS_GLOB_LIST
+declare OUTPUT_TIME=false
+
+log() {
+  local message="$1"
+  if "$OUTPUT_TIME"; then
+    echo "$(date '+%H:%M:%S') $message"
+  else
+    echo "$message"
+  fi
+}
 
 ensure_command()
 {
@@ -167,7 +177,7 @@ distribute_queues()
 	res=$(ethtool -L $dev $type $RXQ_MAX 2>&1)
 	if [ $? -ne 0 -a -z "$(echo $res | grep -P '^rx unmodified, ignoring')" ]
 	then
-		echo "Error: cannot set new queues count for $dev: $res"
+		log "Error: cannot set new queues count for $dev: $res"
 		return
 	fi
 
@@ -181,7 +191,7 @@ distribute_queues()
 	fi
 
 	if [ -z "$irqs" ]; then
-		echo "Error: cannot find interrupts for $dev"
+		log "Error: cannot find interrupts for $dev"
 		return
 	fi
 
@@ -263,19 +273,19 @@ tfw_set_net_queues()
 	# Iterate over all existing devices and to setup RSS or
 	# if it is not supported RPS for each device.
 	for dev in $devs; do
-		echo "...distribute $dev rx queues"
+		log "...distribute $dev rx queues"
 		# First try to setup RX queues.
 		error=`distribute_rx_queues $dev $min_queues`
 		if [[ "$error" != "0" ]]; then
-			echo "$error"
-			echo "...distribute $dev combined queues"
+			log "$error"
+			log "...distribute $dev combined queues"
 			# If RX queues setup fails try to setup
 			# combined queues.
 			error=`distribute_combined_queues $dev $min_queues`
 		fi
 		if [[ "$error" != "0" ]]; then
-			echo "$error"
-			echo "...enable RPS on $dev"
+			log "$error"
+			log "...enable RPS on $dev"
 			for rx_queue in $TFW_NETDEV_PATH/$dev/queues/rx-*
 			do
 				echo $cpu_mask > $rx_queue/rps_cpus
@@ -287,7 +297,7 @@ tfw_set_net_queues()
 tfw_irqbalance_revert()
 {
 	if systemctl -q is-active irqbalance.service 2>/dev/null && [ -f $IRQB_CONF_PATH ]; then
-		echo "...revert irqbalance config"
+		log "...revert irqbalance config"
 		perl -i.orig -ple '
 			s/^('"$BAN_CONF_VAR"'=).*$/$1/;
 		' $IRQB_CONF_PATH
