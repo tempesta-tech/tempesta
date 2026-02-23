@@ -24,7 +24,7 @@ if [ -z "$TFW_SYSTEMD" ]; then
 		env TEMPESTA_LCK="$0" flock -n -E 254 "/tmp/tempesta-lock-file" "$0" "$@"
 		ret=$?
 		if [ $ret -eq 254 ]; then
-			echo "Cannot operate with Tempesta FW: locked by another process"
+			log "Cannot operate with Tempesta FW: locked by another process"
 			exit 3
 		fi
 		exit $ret
@@ -58,7 +58,7 @@ lib_mod=tempesta_lib
 tls_mod=tempesta_tls
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
-declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload"
+declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload,output-time"
 # We should setup network queues for all existing network interfaces
 # to prevent socket CPU migration, which leads to response reordering
 # and broken HTTP1. Some network interfaces have some strange suffix
@@ -71,6 +71,7 @@ usage()
 	echo -e "\nUsage: ${TFW_NAME} {action}\n"
 	echo -e "Actions:"
 	echo -e "  --help               Show this message and exit."
+	echo -e "  --output-time        Show time for log messages."
 	echo -e "  --load               Load Tempesta modules."
 	echo -e "  --unload             Unload Tempesta modules."
 	echo -e "  --start [options]    Load modules and start."
@@ -152,7 +153,7 @@ remove_tmp_conf()
 
 error()
 {
-	echo "ERROR: $1" >&1
+	log "ERROR: $1" >&1
 	exit 1
 }
 
@@ -162,7 +163,7 @@ error()
 load_one_module()
 {
 	if [ -z "$1" ]; then
-		echo "$0: Empty argument";
+		log "$0: Empty argument";
 		exit 255;
 	fi
 
@@ -170,7 +171,7 @@ load_one_module()
 	MOD_NAME="$(basename ${MOD_PATH_NAME%%.ko})";
 
 	lsmod | grep -w "${MOD_NAME}" 2>&1 > /dev/null || {
-		echo "Loading module ${MOD_NAME} $@";
+		log "Loading module ${MOD_NAME} $@";
 		insmod "${MOD_PATH_NAME}" "$@";
 	}
 }
@@ -178,7 +179,7 @@ load_one_module()
 # The separate load_modules/unload_modules routines are used for unit testing.
 load_modules()
 {
-	echo "Loading Tempesta kernel modules..."
+	log "Loading Tempesta kernel modules..."
 
 	# Set verbose kernel logging,
 	# so debug messages are shown on serial console as well.
@@ -199,7 +200,7 @@ load_modules()
 
 unload_modules()
 {
-	echo "Un-loading Tempesta kernel modules..."
+	log "Un-loading Tempesta kernel modules..."
 
 	rmmod $tfw_mod
 	rmmod $tdb_mod
@@ -292,7 +293,7 @@ update_js_challenge_templates()
 {
 	templater
 
-	echo "...compile html templates for JS challenge"
+	log "...compile html templates for JS challenge"
 	# Just a simple parser: don't care about commented brackets and sections.
 	# More sophisticated parser should work inside configuration processing.
 	# Since the whole configuration subsystem is to be redesigned, this
@@ -341,10 +342,10 @@ start_tfw_logger()
 	local config_path
 	if [ -n "$tfw_logger_config_path" ]; then
 		config_path="$tfw_logger_config_path"
-		echo "...starting tfw_logger with custom config: $config_path"
+		log "...starting tfw_logger with custom config: $config_path"
 	else
 		config_path="$tfw_logger_config"
-		echo "...starting tfw_logger with default config: $config_path"
+		log "...starting tfw_logger with default config: $config_path"
 	fi
 
 	# Check if config file exists - CRITICAL ERROR if missing when logger is required
@@ -381,19 +382,19 @@ start_tfw_logger()
 		sleep 0.1
 	done
 
-	echo "...tfw_logger started successfully"
+	log "...tfw_logger started successfully"
 }
 
 stop_tfw_logger()
 {
 	if [ -e $tfw_logger_pid_path ]; then
-		echo "...stopping tfw_logger"
+		log "...stopping tfw_logger"
 		"$logger_path/tfw_logger" --stop || \
-			echo "Warning: Failed to stop tfw_logger daemon gracefully"
+			log "Warning: Failed to stop tfw_logger daemon gracefully"
 
 		# Remove stale PID file if it still exists
 		if [ -e "$tfw_logger_pid_path" ]; then
-			echo "Warning: PID file still exists, removing it"
+			log "Warning: PID file still exists, removing it"
 			rm -f "$tfw_logger_pid_path" 2>/dev/null || true
 		fi
 	fi
@@ -408,7 +409,7 @@ check_configuration_file_presense()
 
 start()
 {
-	echo "Starting Tempesta..."
+	log "Starting Tempesta..."
 
 	TFW_STATE=$(sysctl net.tempesta.state 2> /dev/null)
 	TFW_STATE=${TFW_STATE##* }
@@ -419,7 +420,7 @@ start()
 	if [[ -z ${TFW_STATE} ]]; then
 		setup
 
-		echo "...load Tempesta modules"
+		log "...load Tempesta modules"
 		load_modules;
 
 		prepare_db_directory;
@@ -432,7 +433,7 @@ start()
 		unload_modules
 		error "cannot start Tempesta FW: error at configuration pre-processing"
 	fi
-	echo "...start Tempesta FW"
+	log "...start Tempesta FW"
 
 	start_tempesta_and_check_state
 
@@ -440,33 +441,33 @@ start()
 		start_tfw_logger
 	fi
 
-	echo "done"
+	log "done"
 }
 
 stop()
 {
-	echo "Stopping Tempesta..."
+	log "Stopping Tempesta..."
 
 	stop_tfw_logger
 
-	sysctl -e -w net.tempesta.state=stop
+	sysctl -e -w net.tempesta.state=stop>/dev/null
 
-	echo "...unload Tempesta modules"
+	log "...unload Tempesta modules"
 	unload_modules
 
 	tfw_irqbalance_revert
 
-	echo "done"
+	log "done"
 }
 
 reload()
 {
 	check_configuration_file_presense
 	update_js_challenge_templates
-	echo "Running live reconfiguration of Tempesta..."
+	log "Running live reconfiguration of Tempesta..."
 
 	start_tempesta_and_check_state
-	echo "done"
+	log "done"
 }
 
 # function to validate networking devices (-d option) that may be provided from command line arguments and via env var
@@ -476,13 +477,13 @@ validate_net_devices()
 {
 	if [ -n "$1" ] && [ "$1" == "-d" ] && [ -n "$2" ]; then
 		if [ -n "$TFW_DEV" ]; then
-			echo You are trying to set networking devices with TFW_DEV and command argument, using command argument value \'"$2"\'
+			log You are trying to set networking devices with TFW_DEV and command argument, using command argument value \'"$2"\'
 		else
-			echo Using only networking devices from command line argument: \'"$2"\'
+			log Using only networking devices from command line argument: \'"$2"\'
 		fi
 		devs=$2
 	elif [ -n "$TFW_DEV" ]; then
-		echo Using only networking devices from TFW_DEV: \'"$TFW_DEV"\'
+		log Using only networking devices from TFW_DEV: \'"$TFW_DEV"\'
 		devs=$TFW_DEV
 	fi
 }
@@ -494,7 +495,7 @@ validate_num_of_opt()
 	action="$1"
 	shift
 	if [ "$fact_n" -gt 2 ]; then
-		echo Command: \'"$action"\' has no options, all excessive arguments \'"$*"\' will be ignored.
+		log Command: \'"$action"\' has no options, all excessive arguments \'"$*"\' will be ignored.
 	fi
 }
 
@@ -519,6 +520,10 @@ eval set -- "${args}"
 while :; do
 	case "$1" in
 		# Selectors for internal usage.
+		--output-time)
+      OUTPUT_TIME=true
+      shift
+      ;;
 		--load)
 			validate_num_of_opt "$@"
 			load_modules
