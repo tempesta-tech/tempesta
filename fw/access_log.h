@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2022-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2022-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -105,7 +105,6 @@ int tfw_access_log_init(void);
 void tfw_access_log_exit(void);
 void do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length);
 void do_access_log(TfwHttpResp *resp);
-
 #endif
 
 #endif /* __TFW_ACCESS_LOG_H__ */
