@@ -48,7 +48,7 @@ get_buffer_size(const int fd)
 	return size;
 }
 
-template <TfwBinLogFields FieldType>
+template <TfwAccessLogFields FieldType>
 requires std::is_arithmetic_v<typename TfwBinLogTypeTraits<FieldType>::ColType::ValueType> ||
 	 std::is_same_v<typename TfwBinLogTypeTraits<FieldType>::ColType::ValueType, struct in6_addr>
 void
@@ -74,7 +74,7 @@ read_field(AccessLogClickhouseDecorator &db, const auto *event, std::span<const 
 	}
 }
 
-template <TfwBinLogFields FieldType>
+template <TfwAccessLogFields FieldType>
 requires std::same_as<typename TfwBinLogTypeTraits<FieldType>::ColType::ValueType, std::string_view>
 void
 read_field(AccessLogClickhouseDecorator &db, const auto *event, std::span<const char> &data)

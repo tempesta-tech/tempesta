@@ -23,6 +23,7 @@
 #include "http.h"
 #include "mmap_buffer.h"
 #include "lib/common.h"
+
 #include <linux/jiffies.h>
 
 /* This thing describes access log format.
@@ -64,14 +65,9 @@
 	UNTRUNCATABLE(tf_http)					\
 	FIXED("\"")
 
-
-#define ACCESS_LOG_OFF   0
-#define ACCESS_LOG_DMESG 1
-#define ACCESS_LOG_MMAP  2
-
 #define MMAP_LOG_PATH "tempesta_mmap_log"
 
-static int access_log_type = ACCESS_LOG_OFF;
+int access_log_type = ACCESS_LOG_OFF;
 static TfwMmapBufferHolder *mmap_buffer;
 
 /* Use small buffer because printk won't display strings longer that ~1000 bytes */
@@ -316,7 +312,7 @@ static inline __must_check int
 tfw_log_write_bin(char **buff, const void *data, size_t size,
 		  unsigned int *room_size)
 {
-	unsigned short data_len = min_t(size_t, size,
+	TfwLogFieldLen data_len = min_t(size_t, size,
 					TFW_EVENT_LOG_MAX_BIN_LEN);
 	unsigned int total_len = data_len + sizeof(data_len);
 
@@ -324,7 +320,7 @@ tfw_log_write_bin(char **buff, const void *data, size_t size,
 		return -ENOSPC;
 
 	/* Write size of the data. */
-	*(unsigned short *)(*buff) = data_len;
+	*(TfwLogFieldLen *)(*buff) = data_len;
 	*buff += sizeof(data_len);
 
 	memcpy_fast(*buff, data, data_len);
@@ -339,18 +335,18 @@ tfw_log_write_tfwstr_as_bin(char **buff, const TfwStr *str,
 			    unsigned int *room_size)
 {
 	const TfwStr *c, *end;
-	unsigned short len = min_t(size_t, str->len, TFW_EVENT_LOG_MAX_BIN_LEN);
+	TfwLogFieldLen len = min_t(size_t, str->len, TFW_EVENT_LOG_MAX_BIN_LEN);
 
 	if (unlikely(*room_size < len + sizeof(len)))
 		return -ENOSPC;
 
 	/* Write size of the data. */
-	*(unsigned short *)(*buff) = len;
+	*(TfwLogFieldLen *)(*buff) = len;
 	*buff += sizeof(len);
 	*room_size -= sizeof(len);
 
 	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
-		unsigned short cur_len = min_t(size_t, len, c->len);
+		TfwLogFieldLen cur_len = min_t(size_t, len, c->len);
 
 		memcpy_fast(*buff, c->data, cur_len);
 		*buff += cur_len;
@@ -378,6 +374,103 @@ DEFINE_TYPED_LOG_WRITE_ALIAS(tfh_as_ulong, unsigned long, HttpTfh)
 #define tfw_log_write_32bit tfw_log_write_uint
 #define tfw_log_write_64bit tfw_log_write_ulong
 
+static inline __must_check int
+tfw_log_vwrite_bin(char **buff, unsigned int *room_size, const char *fmt,
+		   va_list args)
+{
+	unsigned long long num;
+	unsigned char type = FORMAT_TYPE_NONE;
+	int precision;
+	TfwLogFieldLen *size = (TfwLogFieldLen *)(*buff);
+
+	if (unlikely(*room_size < sizeof(TfwLogFieldLen)))
+		return -ENOSPC;
+
+	*size = 0;
+	*buff += sizeof(TfwLogFieldLen);
+	*room_size -= sizeof(TfwLogFieldLen);
+
+	while (*fmt) {
+		int read = format_decode(fmt, &type, &precision);
+
+		fmt += read;
+
+		switch (type) {
+		case FORMAT_TYPE_INVALID:
+			goto drop;
+		case FORMAT_TYPE_UBYTE:
+		case FORMAT_TYPE_BYTE:
+		case FORMAT_TYPE_CHAR:
+			unsigned char c = (unsigned char)va_arg(args, int);
+
+			if (tfw_log_write_8bit(buff, c, room_size))
+				goto drop;
+			*size += sizeof(char);
+			break;
+		case FORMAT_TYPE_STR:
+			char *str = va_arg(args, char *);
+			TfwLogFieldLen max_len = TFW_EVENT_LOG_MAX_BIN_LEN -
+				sizeof(TfwLogFieldLen);
+			size_t len;
+
+			/*
+			 * Handle %.*s format and regular null-terminated
+			 * string.
+			 */
+			len = precision > -1 ? precision : strlen(str);
+
+			if (len > max_len)
+				return -EINVAL;
+
+			if (unlikely(*room_size < len + sizeof(TfwLogFieldLen)))
+				return -ENOSPC;
+
+			/* Write size of the data. */
+			*(TfwLogFieldLen *)(*buff) = len;
+			*buff += sizeof(TfwLogFieldLen);
+
+			memcpy_fast(*buff, str, len);
+			*buff += len;
+			*room_size -= len + sizeof(TfwLogFieldLen);
+			*size += len + sizeof(TfwLogFieldLen);
+			break;
+		case FORMAT_TYPE_ULONG:
+		case FORMAT_TYPE_LONG:
+			num = va_arg(args, long);
+			if (tfw_log_write_64bit(buff, num, room_size))
+				goto drop;
+			*size += sizeof(unsigned long);
+			break;
+		case FORMAT_TYPE_USHORT:
+		case FORMAT_TYPE_SHORT:
+			num = (short) va_arg(args, int);
+
+			if (tfw_log_write_16bit(buff, num, room_size))
+				goto drop;
+			*size += sizeof(short);
+			break;
+		case FORMAT_TYPE_UINT:
+		case FORMAT_TYPE_INT:
+			num = (int) va_arg(args, int);
+			if (tfw_log_write_32bit(buff, num, room_size))
+				goto drop;
+			*size += sizeof(unsigned int);
+			break;
+		case FORMAT_TYPE_PRECISION:
+			precision = (int) va_arg(args, int);
+			break;
+		default:
+			WARN_ONCE(1, "Unsupported pattern for binary field\n");
+			goto drop;
+		}
+	}
+
+	return 0;
+
+drop:
+	return -1;
+}
+
 static void
 do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 		       u64 resp_content_length)
@@ -403,7 +496,8 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 	tfw_current_timestamp_ts64(&ts);
 	event->timestamp = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 	event->type = TFW_MMAP_LOG_TYPE_ACCESS;
-	event->fields = TFW_MMAP_LOG_ALL_FIELDS_MASK; /* Enable all the fields */
+	/* Enable all the fields */
+	event->fields = TFW_MMAP_LOG_ENABLE_ALL_FIELDS(TFW_MMAP_LOG_MAX);
 
 	if (tfw_log_write_ipv6(&p, req->conn->peer->addr.sin6_addr, &room_size))
 		goto drop;
@@ -459,6 +553,95 @@ do_access_log_req_mmap(TfwHttpReq *req, u16 resp_status,
 		*dropped = 0;
 	} else {
 		TFW_MMAP_LOG_FIELD_RESET(event, TFW_MMAP_LOG_DROPPED);
+	}
+
+	if (tfw_mmap_buffer_commit(mmap_buffer, p - data) != 0) {
+		T_DBG("Incorrect data size at commit: %ld", p - data);
+		*dropped = dropped_tmp;
+		goto drop;
+	}
+
+	return;
+
+drop:
+	++*dropped;
+}
+
+void
+_log_security_event(TfwLogEventType event_type, TfwEventParams params,
+		    const TfwAddr *addr, unsigned short local_port,
+		    bool ip_block, const char *fmt,
+		    ...)
+{
+	u64 *dropped = this_cpu_ptr(&mmap_log_dropped), dropped_tmp = 0;
+	TfwBinLogEvent *event;
+	unsigned int room_size;
+	char *data, *p;
+	struct timespec64 ts;
+	va_list args;
+	int r;
+
+	room_size = tfw_mmap_buffer_get_room(mmap_buffer, &data);
+	if (room_size < sizeof(TfwBinLogEvent))
+		goto drop;
+
+	room_size -= sizeof(TfwBinLogEvent);
+
+	event = (TfwBinLogEvent *)data;
+	p = data + sizeof(TfwBinLogEvent);
+
+	tfw_current_timestamp_ts64(&ts);
+	event->timestamp = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+	event->type = params.type;
+	/* Enable all the fields */
+	event->fields = params.fields_max;
+
+	/* Client address */
+	r = tfw_log_write_ipv6(&p, addr->sin6_addr, &room_size);
+	if (unlikely(r))
+		goto drop;
+
+	/* Client port */
+	r = tfw_log_write_ushort(&p, ntohs(addr->sin6_port), &room_size);
+	if (unlikely(r))
+		goto drop;
+
+	/* Local port */
+	r = tfw_log_write_ushort(&p, ntohs(local_port), &room_size);
+	if (unlikely(r))
+		goto drop;
+
+	/* Event type */
+	r = tfw_log_write_ushort(&p, event_type, &room_size);
+	if (unlikely(r))
+		goto drop;
+
+	if (!fmt) {
+		TFW_MMAP_LOG_FIELD_RESET(event, params.body_field);
+	} else {
+		/* Event body */
+		va_start(args, fmt);
+		r = tfw_log_vwrite_bin(&p, &room_size, fmt, args);
+		va_end(args);
+		if (r)
+			goto drop;
+	}
+
+	/* IP block */
+	r = tfw_log_write_uchar(&p, ip_block, &room_size);
+	if (unlikely(r))
+		goto drop;
+
+	/* Dropped events */
+	if (*dropped) {
+		r = tfw_log_write_ulong(&p, *dropped, &room_size);
+		if (unlikely(r))
+			goto drop;
+		/* Save dropped to restore if commit failed. */
+		dropped_tmp = *dropped;
+		*dropped = 0;
+	} else {
+		TFW_MMAP_LOG_FIELD_RESET(event, params.dropped_field);
 	}
 
 	if (tfw_mmap_buffer_commit(mmap_buffer, p - data) != 0) {
@@ -675,6 +858,7 @@ tfw_access_log_start(void)
 {
 	int cpu;
 
+	BUILD_BUG_ON(TFW_EVENT_LOG_MAX_BIN_LEN > 65535);
 	if (!(access_log_type & ACCESS_LOG_MMAP) || mmap_buffer)
 		return 0;
 
