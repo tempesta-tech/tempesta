@@ -426,16 +426,6 @@ tfw_server_destroy(TfwServer *srv)
 {
 }
 
-void
-do_access_log(TfwHttpResp *resp)
-{
-}
-
-void
-do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length)
-{
-}
-
 bool
 frang_req_is_whitelisted(TfwHttpReq *req)
 {
@@ -524,6 +514,11 @@ u32
 tfh_get_records_rate(HttpTfh fingerprint)
 {
 	return 0;
+}
+
+void
+ss_getpeername(struct sock *sk, TfwAddr *addr)
+{
 }
 
 TfwCfgSpec tf_hash_specs[0];

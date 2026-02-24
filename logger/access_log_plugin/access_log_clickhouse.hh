@@ -26,13 +26,13 @@
 #include "../../fw/event_log.h"
 #include "../clickhouse/clickhouse_decorator.hh"
 
-template<TfwBinLogFields FieldType>
+template<TfwAccessLogFields FieldType>
 struct TfwBinLogTypeCommonTraits
 {
 	static constexpr size_t index = static_cast<size_t>(FieldType) + 1;
 };
 
-template<TfwBinLogFields FieldType>
+template<TfwAccessLogFields FieldType>
 struct TfwBinLogTypeTraits;
 
 template<>
@@ -130,7 +130,7 @@ struct TfwBinLogTypeTraits<TFW_MMAP_LOG_DROPPED>
  * ClickHouse decorator specialized for access-log events.
  *
  * Provides type-safe append operations for various binlog fields defined
- * in TfwBinLogFields. Each field maps to the corresponding ClickHouse column
+ * in TfwAccessLogFields. Each field maps to the corresponding ClickHouse column
  * type using TfwBinLogTypeTraits.
  *
  * This decorator delegates table creation and block management to the
