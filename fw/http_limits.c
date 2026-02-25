@@ -45,6 +45,7 @@
 #include "http_match.h"
 #include "http.h"
 #include "http_sess.h"
+#include "training.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -83,11 +84,15 @@ typedef struct {
  * balancing so, such settings are not desirable.
  *
  * @conn_curr		- current connections number;
+ * @conn_max		- maximum connections number for current training_num;
+ * @training_num	- number of trainging;
  * @history		- bursts history organized as a ring-buffer;
  * @resp_code_stat	- response code record
  */
 typedef struct {
 	unsigned int		conn_curr;
+	unsigned int		conn_max;
+	unsigned int		training_num;
 	spinlock_t		lock;
 	FrangRates		history[FRANG_FREQ];
 	FrangRespCodeStat	resp_code_stat[FRANG_FREQ];
@@ -178,6 +183,35 @@ frang_req_is_whitelisted(TfwHttpReq *req)
 }
 
 static void
+frang_acc_update_conn_max(FrangAcc *ra)
+{
+	u64 delta1, delta2;
+	unsigned old_max;
+	int cpu;
+	bool new_client = false;
+
+	if (!tfw_mode_is_training())
+		return;
+
+	if (ra->training_num < g_training_num) {
+		ra->training_num = g_training_num;
+		ra->conn_max = 0;
+		new_client = true;
+	}
+
+	old_max = ra->conn_max;
+	if (ra->conn_curr < ra->conn_max)
+		return;
+
+	ra->conn_max = ra->conn_curr;
+	cpu = hash_calc((char *)ra, sizeof(FrangAcc *)) % num_online_cpus();
+	delta1 = ra->conn_curr - old_max;
+	delta2 = (u64)ra->conn_curr * ra->conn_curr -
+		(u64)old_max * old_max;
+	tfw_training_mode_adjust_new_conn(cpu, delta1, delta2, new_client);
+}
+
+static void
 frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 {
 	int i = ts % FRANG_FREQ;
@@ -198,6 +232,7 @@ frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 	ra->conn_curr++;
 	if (ra->conn_curr == 1)
 		TFW_INC_STAT_BH(clnt.online);
+	frang_acc_update_conn_max(ra);
 }
 
 /**
@@ -221,6 +256,11 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	spin_lock(&ra->lock);
 
 	frang_acc_history_init(ra, ts);
+
+	if (!tfw_training_mode_defence_conn_num(ra->conn_curr)) {
+		spin_unlock(&ra->lock);
+		return T_BLOCK;
+	}
 
 	if (conf->conn_max && unlikely(ra->conn_curr > conf->conn_max)) {
 		frang_limmsg("connections max num.", ra->conn_curr,
