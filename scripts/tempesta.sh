@@ -3,7 +3,7 @@
 # Tempesta FW service script.
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2026 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -35,12 +35,15 @@ fi
 
 script_path="$(dirname $0)"
 tdb_path=${TDB_PATH:="$TFW_ROOT/db/core"}
+rgx_path=${REGEX_PATH:="$TFW_ROOT/regex"}
 tfw_path=${TFW_PATH:="$TFW_ROOT/fw"}
 tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
 lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
 logger_path=${LOGGER_PATH:="$TFW_ROOT/logger"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 tfw_cfg_temp=${TFW_CFG_TMPL:="$TFW_ROOT/etc/tempesta_tmp.conf"}
+regex_setup_script=${REGEX_SETUP_SCRIPT_PATH:="$TFW_ROOT/scripts/regex_setup.sh"}
+regex_dir_path=${REGEX_DIR_PATH:="/opt/tempesta/regex"}
 tfw_logger_config="$TFW_ROOT/etc/tfw_logger.json"
 tfw_netconsole_host="$TFW_NETCONSOLE_HOST"
 tfw_netconsole_port="$TFW_NETCONSOLE_PORT"
@@ -58,6 +61,7 @@ lib_mod=tempesta_lib
 tls_mod=tempesta_tls
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
+rgx_mod=xdp_rex
 declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload"
 # We should setup network queues for all existing network interfaces
 # to prevent socket CPU migration, which leads to response reordering
@@ -114,7 +118,7 @@ templater()
 		line=$(echo "$raw_line" | sed -e '/request /s/\\r\\n/\x0d\x0a/g')
 		if [[ ${line:0:1} = \# ]]; then
 			:
-		elif [[ $line =~ '!include' ]]; then
+		elif [[ $line =~ ^[[:space:]]*!include[[:space:]]+.+$ ]]; then
 			IFS=' '
 			read -ra path <<< "$line"
 
@@ -159,6 +163,26 @@ error()
 # Tempesta requires kernel module loading, so we need root credentials.
 [ `id -u` -ne 0 ] && error "Please, run the script as root"
 
+prepare_db_directory()
+{
+	# Create database directory if it doesn't exist.
+	mkdir -p /opt/tempesta/db/;
+	# At this time we don't have stable TDB data format, so
+	# it would be nice to clean all the tables before the start.
+	# TODO #515: Remove the hack when TDB is fixed.
+	rm -f /opt/tempesta/db/*.tdb;
+}
+
+prepare_regex_directory()
+{
+	mkdir -p $regex_dir_path
+}
+
+regex_cleanup()
+{
+	rmdir /sys/kernel/config/rex/* 2> /dev/null
+}
+
 load_one_module()
 {
 	if [ -z "$1" ]; then
@@ -193,7 +217,12 @@ load_modules()
 	load_one_module "$tdb_path/$tdb_mod.ko" ||
 		error "cannot load tempesta database module"
 
-	load_one_module "$tfw_path/$tfw_mod.ko" "tfw_cfg_path=$tfw_cfg_temp" ||
+	load_one_module "$rgx_path/$rgx_mod.ko" ||
+		error "cannot load regex module"
+
+	load_one_module "$tfw_path/$tfw_mod.ko" "tfw_cfg_path=$tfw_cfg_temp \
+			regex_setup_script_path=$regex_setup_script \
+			regex_dir_path=$regex_dir_path"||
 		error "cannot load tempesta module"
 }
 
@@ -202,6 +231,8 @@ unload_modules()
 	echo "Un-loading Tempesta kernel modules..."
 
 	rmmod $tfw_mod
+	regex_cleanup
+	rmmod $rgx_mod
 	rmmod $tdb_mod
 	rmmod $tls_mod
 	rmmod $lib_mod
@@ -300,16 +331,6 @@ update_js_challenge_templates()
 	cat $tfw_cfg_path | tr -d '\n' | grep -oP 'sticky\s+{\K[^}]+' | while read -r line ; do
 		update_single_js_template "$line"
 	done
-}
-
-prepare_db_directory()
-{
-	# Create database directory if it doesn't exist.
-	mkdir -p /opt/tempesta/db/;
-	# At this time we don't have stable TDB data format, so
-	# it would be nice to clean all the tables before the start.
-	# TODO #515: Remove the hack when TDB is fixed.
-	rm -f /opt/tempesta/db/*.tdb;
 }
 
 start_tempesta_and_check_state()
@@ -422,6 +443,7 @@ start()
 		echo "...load Tempesta modules"
 		load_modules;
 
+		prepare_regex_directory
 		prepare_db_directory;
 	elif [[ ${TFW_STATE} == "stop" ]]; then
 		prepare_db_directory;

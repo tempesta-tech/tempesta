@@ -1,0 +1,42 @@
+Colm (Colm Programming Language)
+git clone https://github.com/adrian-thurston/colm.git
+
+$ ./autogen.sh
+$ ./configure
+$ make
+$ make install
+
+add LD_LIBRARY_PATH="/usr/local/lib" to /etc/environment
+
+
+Regal
+git clone https://github.com/adrian-thurston/ragel.git
+
+$ ./autogen.sh
+$ ./configure --with-colm=/usr/local
+$ make
+$ make install
+
+
+PCRE
+download PCRE from sourceforge
+wget https://sourceforge.net/projects/pcre/files/pcre/8.45/pcre-8.45.tar.gz
+tar -xf archive.tar.gz
+
+$ ./configure  --enable-pcre16 --enable-pcre32
+$ make
+$ make install
+
+
+
+git clone https://github.com/tempesta-tech/linux-regex-module.git
+
+cmake ./
+make
+
+after compilation
+copy hscollider from /linux-regex-module/bin/ to /tempesta/scripts/ or default app directory???
+
+git clone https://github.com/tempesta-tech/tempesta.git
+cd tempesta
+git checkout ag_Multi-pattern-regular-expressions

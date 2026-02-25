@@ -461,6 +461,7 @@ typedef enum {
 	TFW_STR_EQ_PREFIX  = 0x1,
 	TFW_STR_EQ_CASEI   = 0x2,
 	TFW_STR_EQ_PREFIX_CASEI = (TFW_STR_EQ_PREFIX | TFW_STR_EQ_CASEI),
+	TFW_STR_EQ_REGEX = 0x4
 } tfw_str_eq_flags_t;
 
 int tfw_strcpy(TfwStr *dst, const TfwStr *src);
