@@ -84,15 +84,11 @@ typedef struct {
  * balancing so, such settings are not desirable.
  *
  * @conn_curr		- current connections number;
- * @conn_max		- maximum connections number for current training_num;
- * @training_num	- number of trainging;
  * @history		- bursts history organized as a ring-buffer;
  * @resp_code_stat	- response code record
  */
 typedef struct {
 	unsigned int		conn_curr;
-	unsigned int		conn_max;
-	unsigned int		training_num;
 	spinlock_t		lock;
 	FrangRates		history[FRANG_FREQ];
 	FrangRespCodeStat	resp_code_stat[FRANG_FREQ];
@@ -185,6 +181,7 @@ frang_req_is_whitelisted(TfwHttpReq *req)
 static void
 frang_acc_update_conn_max(FrangAcc *ra)
 {
+	TfwClient *cli = FRANG_ACC2CLI(ra);
 	u64 delta1, delta2;
 	unsigned old_max;
 	int cpu;
@@ -193,17 +190,17 @@ frang_acc_update_conn_max(FrangAcc *ra)
 	if (!tfw_mode_is_training())
 		return;
 
-	if (ra->training_num < g_training_num) {
-		ra->training_num = g_training_num;
-		ra->conn_max = 0;
+	if (cli->conn_training_num < g_training_num) {
+		cli->conn_training_num = g_training_num;
+		cli->conn_max = 0;
 		new_client = true;
 	}
 
-	old_max = ra->conn_max;
-	if (ra->conn_curr < ra->conn_max)
+	old_max = cli->conn_max;
+	if (ra->conn_curr < cli->conn_max)
 		return;
 
-	ra->conn_max = ra->conn_curr;
+	cli->conn_max = ra->conn_curr;
 	cpu = hash_calc((char *)ra, sizeof(FrangAcc *)) % num_online_cpus();
 	delta1 = ra->conn_curr - old_max;
 	delta2 = (u64)ra->conn_curr * ra->conn_curr -

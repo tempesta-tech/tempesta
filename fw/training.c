@@ -41,40 +41,62 @@ struct stats {
 };
 
 static struct stats __percpu __rcu *g_conn_num = NULL;
+static struct stats __percpu __rcu *g_req_num = NULL;
 
-#define __FREE_G_PER_CPU(name, new)				\
-do {								\
-	struct stats __percpu *old;				\
-								\
-	old = rcu_replace_pointer(g##_##name, new, true);	\
-	synchronize_rcu();					\
-	free_percpu(old);					\
-} while(0)
+static inline void
+__upgrade_g_per_cpu(struct stats __percpu *new_conn_num,
+		    struct stats __percpu *new_req_num)
+{
+	struct stats __percpu *old_conn_num, *old_req_num;
 
-#define UPDATE_G_PER_CPU(name)					\
-static inline int						\
-__update_g_per_cpu##_##name(void)				\
-{								\
-	struct stats __percpu *new;				\
-	int cpu;						\
-								\
-	new = tfw_alloc_percpu(struct stats);			\
-	if (unlikely(!new))					\
-		return -ENOMEM;					\
-								\
-	for_each_online_cpu(cpu) {				\
-		bzero_fast(per_cpu_ptr(new, cpu),		\
-			   sizeof(struct stats));		\
-								\
-	}							\
-	__FREE_G_PER_CPU(name, new);				\
-								\
-	return 0;						\
+	old_conn_num = rcu_replace_pointer(g_conn_num, new_conn_num, true);
+	old_req_num = rcu_replace_pointer(g_req_num, new_req_num, true);
+	synchronize_rcu();
+	free_percpu(old_conn_num);
+	free_percpu(old_req_num);
 }
 
-UPDATE_G_PER_CPU(conn_num);
+static inline int
+__alloc_g_per_cpu(struct stats __percpu **new_conn_num,
+		  struct stats __percpu **new_req_num)
+{
+	struct stats __percpu *conn_num = NULL;
+	struct stats __percpu *req_num = NULL;
 
-#undef UPDATE_G_PER_CPU
+	conn_num = tfw_zalloc_per_cpu(struct stats);
+	if (unlikely(!conn_num))
+		goto fail_alloc;
+
+	req_num = tfw_zalloc_per_cpu(struct stats);
+	if (unlikely(!req_num))
+		goto fail_alloc;
+
+	*new_conn_num = conn_num;
+	*new_req_num = req_num;
+
+	return 0;
+
+fail_alloc:
+	free_percpu(conn_num);
+	free_percpu(req_num);
+	return -ENOMEM;
+}
+
+static inline int
+__alloc_upgrade_g_per_cpu(void)
+{
+	struct stats __percpu *new_conn_num = NULL;
+	struct stats __percpu *new_req_num = NULL;
+	int r;
+
+	r = __alloc_g_per_cpu(&new_conn_num, &new_req_num);
+	if (unlikely(r))
+		return r;
+
+	__upgrade_g_per_cpu(new_conn_num, new_req_num);
+
+	return 0;
+}
 
 static inline int
 __init_z_score(void)
@@ -87,7 +109,7 @@ __init_z_score(void)
 	 * and trainging functions.
 	 */
 	WRITE_ONCE(tfw_training_mod_state, TFW_MODE_DISABLED);
-	r = __update_g_per_cpu_conn_num();
+	r = __alloc_upgrade_g_per_cpu();
 	if (unlikely(r)) {
 		WRITE_ONCE(tfw_training_mod_state, old_state);
 		return r;
@@ -237,17 +259,15 @@ tfw_ctlfn_training_mode_state_change(unsigned int training_mode)
 static int
 tfw_training_mode_start(void)
 {
-	int cpu;
+	int r;
 
 	if (tfw_runstate_is_reconfig())
 		return 0;
 
-	g_conn_num = tfw_alloc_percpu(struct stats);
-	if (unlikely(!g_conn_num))
-		return -ENOMEM;
+	r = __alloc_g_per_cpu(&g_conn_num, &g_req_num);
+	if (unlikely(r))
+		return r;
 
-	for_each_online_cpu(cpu)
-		bzero_fast(per_cpu_ptr(g_conn_num, cpu), sizeof(struct stats));
 	timer_setup(&training_timer, tfw_training_timer_cb, 0);
 	return 0;
 }
@@ -260,7 +280,8 @@ tfw_training_mode_stop(void)
 
 	timer_shutdown_sync(&training_timer);
 	WRITE_ONCE(tfw_training_mod_state, TFW_MODE_DISABLED);
-	__FREE_G_PER_CPU(conn_num, NULL);
+
+	__upgrade_g_per_cpu(NULL, NULL);
 }
 
 static TfwCfgSpec tfw_training_mode_specs[] = {

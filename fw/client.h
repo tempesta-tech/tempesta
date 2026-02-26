@@ -34,6 +34,10 @@
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
+	unsigned long		req_max;
+	unsigned int		req_training_num;
+	unsigned int		conn_max;
+	unsigned int		conn_training_num;
 } TfwClient;
 
 int tfw_client_init(void);

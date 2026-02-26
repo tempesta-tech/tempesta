@@ -38,6 +38,7 @@ void tfw_training_mode_exit(void);
 
 void tfw_training_mode_adjust_new_conn(int cpu, u64 delta1, u64 delta2,
 				       bool new_client);
+
 bool tfw_training_mode_defence_conn_num(u64 val);
 int tfw_ctlfn_training_mode_state_change(unsigned int training_mode);
 

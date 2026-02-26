@@ -45,4 +45,17 @@ void *tfw__alloc_percpu(size_t size, size_t align);
 
 #endif
 
+#define tfw_zalloc_per_cpu(t)						\
+({									\
+	typeof(t) __percpu *n;						\
+	int cpu;							\
+									\
+	n = tfw_alloc_percpu(t);					\
+	if (n) {							\
+		for_each_online_cpu(cpu)				\
+			bzero_fast(per_cpu_ptr(n, cpu), sizeof(t));	\
+	}								\
+	n;								\
+})
+
 #endif /* __TFW_ALLOC_H__ */
