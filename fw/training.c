@@ -30,6 +30,7 @@ unsigned int g_training_num = 0;
 static int tfw_training_mod_z_score_mem = 0;
 static int tfw_training_mod_z_score_cpu = 0;
 static int tfw_training_mod_z_score_conn_num = 0;
+static int tfw_training_mod_z_score_req_num = 0;
 static struct timer_list training_timer;
 
 static bool defence_ignore_conn_num;
@@ -168,19 +169,42 @@ __calculate_z_score(u64 val, struct stats __percpu *arr, s64 *z_score)
 #undef SCALE_SHIFT
 }
 
-void
-tfw_training_mode_adjust_new_conn(int cpu, u64 delta1, u64 delta2, bool new_client)
+static inline void
+tfw_training_mode_adjust_new_el(struct stats __percpu *p, int cpu, u64 delta1,
+				u64 delta2, bool new_client)
 {
-	struct stats __percpu *p;
 	struct stats *s;
 
-	rcu_read_lock();
-
-	p = rcu_dereference(g_conn_num);
 	s = per_cpu_ptr(p, cpu);
 	s->num += new_client;
 	s->sum += delta1;
 	s->sumsq += delta2;
+}
+
+void
+tfw_training_mode_adjust_new_conn(int cpu, u64 delta1, u64 delta2,
+				  bool new_client)
+{
+	struct stats __percpu *p;
+
+	rcu_read_lock();
+
+	p = rcu_dereference(g_conn_num);
+	tfw_training_mode_adjust_new_el(p, cpu, delta1, delta2, new_client);
+
+	rcu_read_unlock();
+}
+
+void
+tfw_training_mode_adjust_new_req(int cpu, u64 delta1, u64 delta2,
+				 bool new_client)
+{
+	struct stats __percpu *p;
+
+	rcu_read_lock();
+
+	p = rcu_dereference(g_req_num);
+	tfw_training_mode_adjust_new_el(p, cpu, delta1, delta2, new_client);
 
 	rcu_read_unlock();
 }
@@ -213,6 +237,7 @@ tfw_training_mode_defence##_##name(u64 val)			\
 }
 
 TFW_TRAINING_MODE_DEFENCE(conn_num)
+TFW_TRAINING_MODE_DEFENCE(req_num)
 
 #undef TFW_TRAINING_MODE_DEFENCE
 
@@ -317,6 +342,15 @@ static TfwCfgSpec tfw_training_mode_specs[] = {
 		.deflt = "0",
 		.handler = tfw_cfg_set_int,
 		.dest = &tfw_training_mod_z_score_conn_num,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, UINT_MAX },
+		}
+	},
+	{
+		.name = "training_z_score_request_num",
+		.deflt = "0",
+		.handler = tfw_cfg_set_int,
+		.dest = &tfw_training_mod_z_score_req_num,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, UINT_MAX },
 		}
