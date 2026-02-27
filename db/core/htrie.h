@@ -142,5 +142,6 @@ void tdb_htrie_exit(TdbHdr *dbh);
 int tdb_htrie_walk(TdbHdr *dbh, int (*fn)(void *));
 void tdb_htrie_get_rec(TdbRec *rec);
 void tdb_htrie_put_rec(TdbHdr *dbh, TdbRec *rec);
+bool tdb_htrie_rec_has_last_ref(TdbRec *rec);
 
 #endif /* __HTRIE_H__ */

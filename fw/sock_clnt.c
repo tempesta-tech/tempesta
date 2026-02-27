@@ -77,9 +77,17 @@ tfw_cli_cache(int type)
 }
 
 static void
+tfw_cli_conn_reset_keepalive_timeout(TfwConn *conn, unsigned int msecs)
+{
+	mod_timer(&((TfwCliConn *)conn)->timer,
+		  jiffies + msecs_to_jiffies(msecs));
+}
+
+static void
 tfw_sock_cli_keepalive_timer_cb(struct timer_list *t)
 {
 	TfwCliConn *cli_conn = from_timer(cli_conn, t, timer);
+	TfwConn *conn = (TfwConn *)cli_conn;
 
 	T_DBG("Client timeout end\n");
 
@@ -88,8 +96,12 @@ tfw_sock_cli_keepalive_timer_cb(struct timer_list *t)
 	 * a deadlock on del_timer_sync(). In case of error try to close
 	 * it one second later.
 	 */
-	if (tfw_connection_close((TfwConn *)cli_conn, false))
-		mod_timer(&cli_conn->timer, jiffies + msecs_to_jiffies(1000));
+	if (TFW_CONN_TYPE(conn) & Conn_Closing) {
+		tfw_connection_abort(conn);
+	} else {
+		if (tfw_connection_close(conn, false))
+			tfw_cli_conn_reset_keepalive_timeout(conn, 1000);
+	}
 }
 
 static TfwCliConn *
@@ -342,16 +354,18 @@ tfw_sock_clnt_drop(struct sock *sk)
 }
 
 static const SsHooks tfw_sock_http_clnt_ss_hooks = {
-	.connection_new		= tfw_sock_clnt_new,
-	.connection_drop	= tfw_sock_clnt_drop,
-	.connection_recv	= tfw_connection_recv,
+	.connection_new				= tfw_sock_clnt_new,
+	.connection_drop			= tfw_sock_clnt_drop,
+	.connection_recv			= tfw_connection_recv,
+	.connection_reset_keepalive_timeout	= tfw_cli_conn_reset_keepalive_timeout,
 };
 
 static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
-	.connection_new		= tfw_sock_clnt_new,
-	.connection_drop	= tfw_sock_clnt_drop,
-	.connection_recv	= tfw_tls_connection_recv,
-	.connection_recv_finish = tfw_connection_recv_finish,
+	.connection_new				= tfw_sock_clnt_new,
+	.connection_drop			= tfw_sock_clnt_drop,
+	.connection_recv			= tfw_tls_connection_recv,
+	.connection_recv_finish 		= tfw_connection_recv_finish,
+	.connection_reset_keepalive_timeout	= tfw_cli_conn_reset_keepalive_timeout,
 };
 
 /*
