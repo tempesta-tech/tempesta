@@ -24,6 +24,7 @@
 #include <spdlog/spdlog.h>
 
 #include "../../libtus/error.hh"
+#include "../clickhouse/clickhouse_error.hh"
 #include "../plugin_interface.hh"
 
 #include "access_log_processor.hh"
@@ -174,7 +175,7 @@ dbg_hexdump([[maybe_unused]] std::span<const char> data)
  * @return the amount of data read, can be less than all available data,
  * e.g. if ClickHouse throws and exception or some event record is broken.
  */
-[[nodiscard]] tus::Error<size_t>
+[[nodiscard]] std::expected<size_t, ClickhouseError>
 process_events(AccessLogClickhouseDecorator &db, std::span<const char> data) noexcept
 {
 	size_t read = 0;
@@ -218,13 +219,13 @@ process_events(AccessLogClickhouseDecorator &db, std::span<const char> data) noe
 		spdlog::error("Access log is corrupted, skip current buffer: {}",
 			      e.what());
 		if (!db.handle_block_error())
-			return tus::error(tus::Err::DB_SRV_FATAL);
+			return std::unexpected(ClickhouseError(DB_SRV_FATAL));
 		return 0;
 	}
 	catch (const std::exception &e) {
 		spdlog::error("Caught a Clickhouse exception: {}."
 			      " Many events can be lost", e.what());
-		return tus::error(tus::Err::DB_SRV_FATAL);
+		return std::unexpected(ClickhouseError(DB_SRV_FATAL));
 	}
 
 	assert(read);
@@ -293,7 +294,7 @@ AccessLogProcessor::consume(size_t *cnt) noexcept
 	const auto start = buffer_->data + (tail & buffer_->mask);
 
 	auto res = process_events(writer_, std::span<const char>(start, size));
-	if (res && *res) [[likely]]
+	if (res.has_value() && *res) [[likely]]
 		size = *res;
 	// ...else consume the whole buffer in case of error.
 
@@ -304,8 +305,8 @@ AccessLogProcessor::consume(size_t *cnt) noexcept
 	// before heavyweight database transaction.
 	__atomic_store_n(&buffer_->tail, tail + size, __ATOMIC_RELEASE);
 
-	if (!res)
-		return static_cast<int>(tus::Err::DB_SRV_FATAL);
+	if (!res.has_value())
+		return -res.error().code();
 
 	*cnt = *res;
 	return 0;
@@ -317,7 +318,7 @@ AccessLogProcessor::send(bool force) noexcept
 	if (writer_.flush(force))
 		return 0;
 
-	return static_cast<int>(tus::Err::DB_CLT_TRANSIENT);
+	return -ClickhouseError(DB_CLT_TRANSIENT).code();
 }
 
 std::string_view
