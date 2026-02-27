@@ -22,19 +22,25 @@
 #include "test.h"
 #include "helpers.h"
 #include "http_msg.h"
+#include "helpers.h"
 
 static TfwHttpResp *resp;
+static TfwHttpReq *req;
 
 static void
 http_msg_suite_setup(void)
 {
-	resp = test_resp_alloc_no_data();
+	req = test_req_alloc(0);
+	BUG_ON(!req);
+	resp = test_resp_alloc_no_data(req);
+	BUG_ON(!resp);
 }
 
 static void
 http_msg_suite_teardown(void)
 {
 	test_resp_free(resp);
+	test_req_free(req);
 }
 
 TEST(http_msg, hdr_in_array)
@@ -113,6 +119,9 @@ __test_resp_data_alloc(TfwStr *head_data, TfwStr *paged_data,
 	if (!skb)
 		return false;
 
+	ss_skb_set_owner(skb, ss_skb_dflt_destructor,
+			 tfw_http_msg_client((TfwHttpMsg*)resp),
+			 skb->truesize);
 	skb->next = skb->prev = skb;
 	it = &resp->iter;
 	resp->msg.skb_head = it->skb = it->skb_head = skb;
@@ -235,7 +244,7 @@ TEST(http_msg, expand_from_pool_for_headers)
 	resp->body_start_skb = it->skb;
 	resp->body.len = (MAX_SKB_FRAGS - 1) * SLEN("paged_body");
 
-	tfw_http_msg_setup_transform_pool(&resp->mit, it, resp->pool);
+	tfw_http_msg_setup_transform_pool(&resp->mit, msg, resp->pool);
 
 	EXPECT_EQ(tfw_http_msg_cutoff_headers(msg, &cleanup), 0);
 
@@ -297,7 +306,7 @@ TEST(http_msg, expand_from_pool_for_trailers)
 	EXPECT_NULL(cleanup.skb_head);
 
 	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
-	tfw_http_msg_setup_transform_pool(&resp->mit, it, resp->pool);
+	tfw_http_msg_setup_transform_pool(&resp->mit, msg, resp->pool);
 
 	__set_bit(TFW_HTTP_B_RESP_ENCODE_TRAILERS, resp->flags);
 

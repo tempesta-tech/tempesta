@@ -30,16 +30,21 @@
  * @class_prvt		- private client accounting data for classifier module.
  *			  Typically it's large and wastes memory in vain if
  *			  no any classification logic is used;
+ * @list		- entry in lru list of allocated clients;
+ * @mem			- memory used by current client;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
+	struct list_head	list;
+	long __percpu 		*mem;
 } TfwClient;
 
 int tfw_client_init(void);
 void tfw_client_exit(void);
 TfwClient *tfw_client_obtain(TfwAddr addr, TfwAddr *cli_addr,
 			     TfwStr *user_agent, void (*init)(void *));
+void tfw_client_get(TfwClient *cli);
 void tfw_client_put(TfwClient *cli);
 int tfw_client_for_each(int (*fn)(void *));
 void tfw_cli_conn_release(TfwCliConn *cli_conn);
@@ -48,5 +53,24 @@ int tfw_cli_conn_abort_all(void *data);
 void tfw_cli_abort_all(void);
 
 void tfw_tls_connection_lost(TfwConn *conn);
+
+static inline void
+tfw_client_adjust_mem(TfwClient *cli, int delta)
+{
+	this_cpu_add(*cli->mem, delta);
+
+}
+
+static inline long
+tfw_client_mem(TfwClient *cli)
+{
+	long mem = 0;
+	int cpu;
+
+	for_each_online_cpu(cpu)
+		mem += *(per_cpu_ptr(cli->mem, cpu));
+
+	return mem;
+}
 
 #endif /* __TFW_CLIENT_H__ */

@@ -1965,7 +1965,7 @@ tfw_vhost_create(const char *name)
 		+ sizeof(TfwStickyCookie) + sizeof(FrangGlobCfg)
 		+ tfw_tls_vhost_priv_data_sz();
 
-	if (!(pool = __tfw_pool_new(0)))
+	if (!(pool = __tfw_pool_new(0, NULL)))
 		return NULL;
 
 	if (!(vhost = tfw_kzalloc(size, GFP_KERNEL))) {

@@ -26,6 +26,7 @@
 #include "sync_socket.h"
 #include "http.h"
 #include "websocket.h"
+#include "tcp.h"
 
 TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 
@@ -173,7 +174,7 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 				next = split;
 			}
 		} else {
-			__kfree_skb(skb);
+			__ss_kfree_skb(skb);
 		}
 	}
 
@@ -230,4 +231,81 @@ tfw_connection_unlink_to_sk(TfwConn *conn)
 		tfw_classify_conn_close(sk);
 	conn->sk = NULL;
 	ss_sock_put(sk);
+}
+
+static inline int
+tfw_connection_shutdown(TfwConn *conn)
+{
+	struct sock *sk = conn->sk;
+
+	SS_IN_USE_PROTECT({
+		tcp_shutdown(sk, SEND_SHUTDOWN);
+	});
+	if (unlikely(sk->sk_state == TCP_CLOSE))
+		return -ENOMEM;
+	return 0;
+}
+
+int
+tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now)
+{
+	struct sock *sk = conn->sk;
+	TfwH2Ctx *h2;
+	unsigned long snd_wnd;
+	int r;
+
+	assert_spin_locked(&sk->sk_lock.slock);
+	WARN_ON(SS_CONN_TYPE(sk) & Conn_Closing);
+
+	/*
+	 * Update snd_cwnd if nedeed, to correct caclulation
+	 * of count of bytes to send.
+	 */
+	tcp_slow_start_after_idle_check(sk);
+
+	/*
+	 * First of all Tempesta FW entails skb from connection write queue
+	 * (all http1 data, control frames, tls alerts and so on for http2),
+	 * then if `snd_wnd` is not exceeded make frames for http2.
+	 */
+	r = ss_skb_tcp_entail_list(sk, &conn->write_queue,
+				   mss_now, &snd_wnd);
+	if (unlikely(r))
+		return r;
+
+	/*
+	 * This function can be called both for HTTP1 and HTTP2 connections.
+	 * Moreover this function can be called when HTTP2 connection is
+	 * shutdowned before TLS hadshake was finished.
+	 */
+	h2 = TFW_CONN_PROTO(conn) == TFW_FSM_H2 ?
+		tfw_h2_context_safe(conn) : NULL;
+	if (!h2) {
+		if (unlikely(!conn->write_queue)) {
+			sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+			if (unlikely(SS_CONN_TYPE(sk) & Conn_Shutdown))
+				r = tfw_connection_shutdown(conn);
+		}
+		return r;
+	}
+
+	r = tfw_h2_make_frames(sk, h2, mss_now, snd_wnd);
+	if (unlikely(r))
+		return r;
+
+	if (unlikely(!conn->write_queue)) {
+		/*
+		 * If connection is shutdowned and error responce was sent
+		 * shutdown the whole connection.
+		 */
+		if (unlikely(SS_CONN_TYPE(sk) & Conn_Shutdown)
+		    && (!h2->error
+			|| tfw_h2_conn_or_stream_wnd_is_exceeded(h2,
+								 h2->error)))
+			r = tfw_connection_shutdown(conn);
+		if (!tfw_h2_is_ready_to_send(h2))
+			sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+	}
+
+	return r;
 }

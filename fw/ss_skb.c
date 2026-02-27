@@ -91,7 +91,7 @@ ss_skb_alloc_pages(size_t len)
 	for (i = 0; i < nr_frags; ++i) {
 		struct page *page = alloc_page(GFP_ATOMIC);
 		if (!page) {
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 			return NULL;
 		}
 		skb_fill_page_desc(skb, i, page, 0, 0);
@@ -109,7 +109,7 @@ ss_skb_alloc_pages(size_t len)
  * segmentation. The allocated payload space will be filled with data.
  */
 int
-ss_skb_alloc_data(struct sk_buff **skb_head, size_t len)
+ss_skb_alloc_data(struct sk_buff **skb_head, void *owner, size_t len)
 {
 	int i_skb, nr_skbs = len ? DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN) : 1;
 	size_t n = 0;
@@ -120,6 +120,8 @@ ss_skb_alloc_data(struct sk_buff **skb_head, size_t len)
 		skb = ss_skb_alloc_pages(n);
 		if (!skb)
 			return -ENOMEM;
+		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
+				 owner, skb->truesize);
 		ss_skb_queue_tail(skb_head, skb);
 	}
 
@@ -217,6 +219,12 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			nskb = ss_skb_alloc(0);
 			if (nskb == NULL)
 				return -ENOMEM;
+
+			if (!skb_tfw_is_in_socket_write_queue(skb)) {
+				ss_skb_set_owner(nskb, ss_skb_dflt_destructor,
+						 TFW_SKB_CB(skb)->opaque_data,
+						 nskb->truesize);
+			}
 			skb_shinfo(nskb)->flags = skb_shinfo(skb)->flags;
 			ss_skb_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
@@ -392,6 +400,7 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	skb->tail -= tail_len;
 	skb->data_len += tail_len;
 	skb->truesize += tail_len;
+	ss_skb_adjust_client_mem(skb, tail_len);
 
 	/* Make the fragment with the tail part. */
 	__skb_fill_page_desc(skb, alloc, page, tail_off, tail_len);
@@ -950,7 +959,7 @@ multi_buffs:
 		skb->next->prev = skb->prev;
 		skb->prev->next = skb->next;
 		*skb_list_head = skb_hd = skb->next;
-		__kfree_skb(skb);
+		__ss_kfree_skb(skb);
 		skb = skb_hd;
 		if (unlikely(skb->next == skb))
 			goto single_buff;
@@ -969,7 +978,7 @@ multi_buffs:
 		trail -= skb->len;
 		skb_hd->prev = skb->prev;
 		skb->prev->next = skb_hd;
-		__kfree_skb(skb);
+		__ss_kfree_skb(skb);
 		skb = skb_hd->prev;
 		if (unlikely(skb == skb_hd))
 			goto single_buff;
@@ -1007,11 +1016,11 @@ __ss_skb_free_empty(struct sk_buff **skb_head, struct sk_buff *skb, TfwStr *it)
 		it->skb = it->skb->next;
 		it->data = __skb_data_address(it->skb, &fragn);
 		ss_skb_unlink(skb_head, it->skb);
-		kfree_skb(to_delete);
+		ss_kfree_skb(to_delete);
 	}
 	if (unlikely(!is_same && !skb->len)) {
 		ss_skb_unlink(skb_head, skb);
-		kfree_skb(skb);
+		ss_kfree_skb(skb);
 	}
 
 	return was_updated;
@@ -1298,6 +1307,7 @@ ss_skb_split(struct sk_buff *skb, int len)
 	if (!buff)
 		return NULL;
 
+	memset(buff->cb, 0, sizeof(buff->cb));
 	skb_reserve(buff, MAX_TCP_HEADER);
 
 	/* @buff already accounts @n in truesize. */
@@ -1305,6 +1315,8 @@ ss_skb_split(struct sk_buff *skb, int len)
 	buff->truesize += nlen;
 	skb->truesize -= nlen;
 	buff->mark = skb->mark;
+
+	ss_skb_adjust_client_mem(skb, -nlen);
 
 	/*
 	 * These are orphaned SKBs that are taken out of the TCP/IP
@@ -1330,10 +1342,16 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	struct skb_shared_info *shinfo = skb_shinfo(skb);
 	__u8 pfmemalloc = skb->pfmemalloc;
 
-	WARN_ON_ONCE(skb->sk);
+	ss_skb_orphan(skb);
 
 	skb_dst_drop(skb);
 	INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
+
+	/*
+	 * dev is used to save connection for memory accounting
+	 * clear it before pass skb to the kernel.
+	 */
+	skb->dev = NULL;
 	/*
 	 * Since we use skb->sb for our purpose we should
 	 * zeroed it before pass skb to the kernel.
@@ -1453,7 +1471,8 @@ ss_skb_unroll_slow(struct sk_buff **skb_head, struct sk_buff *skb)
 	return 0;
 
 cleanup:
-	ss_skb_queue_purge(skb_head);
+	while ((skb = ss_skb_dequeue(skb_head)) != NULL)
+		kfree_skb(skb);
 	return -ENOMEM;
 }
 
@@ -1700,10 +1719,79 @@ int
 ss_skb_realloc_headroom(struct sk_buff *skb)
 {
 	int delta = MAX_TCP_HEADER - skb_headroom(skb);
+	unsigned int old_truesize;
+	int r;
 
 	if (likely(delta <= 0))
 		return 0;
 
-	return pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
+	if (TFW_SKB_CB(skb)->opaque_data)
+		old_truesize = skb->truesize;
+
+	r = pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
+	if (unlikely(r))
+		return r;
+
+	if (TFW_SKB_CB(skb)->opaque_data)
+		ss_skb_adjust_client_mem(skb, skb->truesize - old_truesize);
+
+	return 0;
 }
 ALLOW_ERROR_INJECTION(ss_skb_realloc_headroom, ERRNO);
+
+void
+ss_skb_dflt_destructor(struct sk_buff *skb)
+{
+	BUG_ON(skb_tfw_is_in_socket_write_queue(skb));
+	ss_skb_adjust_client_mem(skb, -TFW_SKB_CB(skb)->mem);
+}
+
+void
+ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head)
+{
+	ss_skb_queue_splice(&((TfwConn *)conn)->write_queue, skb_head);
+	sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
+}
+
+void
+ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
+		 void *owner, unsigned int mem)
+{
+	/*
+	 * Can be zero when this function is called from `__extend_pgfrags`
+	 * for already orphaned SKBs.
+	 */
+	if (owner) {
+		/*
+		 * All SKBs were orphaned when Tempesta FW received them.
+		 * We can safely use `skb->sk` for our purposes until
+		 * this SKBs will be passed to the socket write queue.
+		 */
+		BUG_ON(TFW_SKB_CB(skb)->opaque_data);
+		WARN_ON(TFW_SKB_CB(skb)->mem != 0);
+
+		TFW_SKB_CB(skb)->opaque_data = owner;
+		TFW_SKB_CB(skb)->destructor = destructor;
+		ss_skb_adjust_client_mem(skb, mem);
+	}
+}
+
+void
+ss_skb_adjust_client_mem(struct sk_buff *skb, int delta)
+{
+	TfwClient *cli;
+
+	if (skb_tfw_is_in_socket_write_queue(skb))
+		return;
+
+	cli = (TfwClient *)TFW_SKB_CB(skb)->opaque_data;
+	/*
+	 * `cli` can be zero here when this function is called
+	 * from `ss_skb_split` for SKBs which are already orphaned
+	 */
+	if (cli) {
+		TFW_SKB_CB(skb)->mem += delta;
+		BUG_ON(TFW_SKB_CB(skb)->mem < 0);
+		tfw_client_adjust_mem(cli, delta);
+	}
+}

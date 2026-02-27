@@ -28,8 +28,8 @@ TEST(pool, alignment)
 	void *a, *b, *c, *d;
 	bool np;
 
-	/* this should give us a single page minus the 32 byte pool headers */
-	p = __tfw_pool_new(1001);
+	/* this should give us a single page minus the 40 byte pool headers */
+	p = __tfw_pool_new(1001, NULL);
 	EXPECT_NOT_NULL(p);
 	EXPECT_TRUE(TFW_POOL_CHUNK_SZ(p) == PAGE_SIZE);
 
@@ -42,7 +42,7 @@ TEST(pool, alignment)
 	EXPECT_TRUE(c == b + 1); /* 'c' must be tightly packed */
 
 	/* 'd' should still fit into the same page */
-	d = tfw_pool_alloc_not_align_np(p, PAGE_SIZE - (32 + 10), &np);
+	d = tfw_pool_alloc_not_align_np(p, PAGE_SIZE - (40 + 10), &np);
 	EXPECT_TRUE(d == c + 1);
 	EXPECT_FALSE(np);
 
@@ -57,7 +57,7 @@ TEST(pool, realloc)
 	TfwPool *p;
 	void *a, *b, *c, *d;
 
-	p = __tfw_pool_new(1001);
+	p = __tfw_pool_new(1001, NULL);
 	EXPECT_NOT_NULL(p);
 	EXPECT_TRUE(TFW_POOL_CHUNK_SZ(p) == PAGE_SIZE);
 
@@ -73,11 +73,11 @@ TEST(pool, realloc)
 	EXPECT_TRUE(d == c);
 
 	/* allocate enough memory to use the entire chunk */
-	d = tfw_pool_realloc(p, c, PAGE_SIZE - 300, PAGE_SIZE - 40);
+	d = tfw_pool_realloc(p, c, PAGE_SIZE - 300, PAGE_SIZE - 48);
 	EXPECT_TRUE(d == c);
 
 	/* the pool chunk must be exhausted now */
-	d = tfw_pool_realloc(p, c, PAGE_SIZE - 40, PAGE_SIZE - 39);
+	d = tfw_pool_realloc(p, c, PAGE_SIZE - 48, PAGE_SIZE - 47);
 	EXPECT_TRUE(d != c);
 }
 
@@ -87,7 +87,7 @@ TEST(pool, clean_single)
 	void *root, *curr, *first_ptr, *last_ptr;
 	struct tfw_pool_chunk_t	*head, *tail;
 
-	p = __tfw_pool_new(1001);
+	p = __tfw_pool_new(1001, NULL);
 	EXPECT_NOT_NULL(p);
 	EXPECT_TRUE(TFW_POOL_CHUNK_SZ(p) == PAGE_SIZE);
 
@@ -146,7 +146,7 @@ TEST(pool, clean)
 	TfwPool *p;
 	struct tfw_pool_chunk_t	*head, *tail;
 
-	p = __tfw_pool_new(1001);
+	p = __tfw_pool_new(1001, NULL);
 	EXPECT_NOT_NULL(p);
 	EXPECT_TRUE(TFW_POOL_CHUNK_SZ(p) == PAGE_SIZE);
 

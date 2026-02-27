@@ -231,7 +231,7 @@ tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 	 * which is wrong - please fix this if you see the warning.
 	 */
 	if (WARN_ON_ONCE(sock_flag(conn->sk, SOCK_DEAD))) {
-		kfree_skb(skb);
+		ss_kfree_skb(skb);
 		return 0;
 	}
 

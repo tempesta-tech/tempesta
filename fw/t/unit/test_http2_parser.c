@@ -2756,6 +2756,8 @@ TEST(http2_parser, perf)
 
 #define REQ_PERF(frames_buf)							\
 do {										\
+	test_req_resp_cleanup();						\
+	tfw_h2_context_clear(conn.h2);						\
 	test_case_parse_prepare_h2();						\
 	if (req)								\
 		test_req_free(req);						\
@@ -2819,7 +2821,9 @@ TEST(http2_parser, fuzzer)
 			tfw_init_frames();
 			ADD_HEADERS_FRAME(str, headers_len);
 			ADD_DATA_FRAME(str + headers_len, body_len);
-			test_case_parse_prepare_h2();	
+			test_req_resp_cleanup();
+			tfw_h2_context_clear(conn.h2);
+			test_case_parse_prepare_h2();
 			switch (ret) {
 			case FUZZ_VALID:
 				TRY_PARSE_EXPECT_PASS(FUZZ_REQ_H2, CHUNK_ON);

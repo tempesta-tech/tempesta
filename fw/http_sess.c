@@ -365,13 +365,12 @@ tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 		set_cookie.hpack_idx = 55;
 		r = tfw_hpack_encode(resp, &set_cookie, !cache, !cache);
 	} else if (cache) {
-		TfwMsgIter *it = &resp->iter;
 		struct sk_buff **skb_head = &resp->msg.skb_head;
 
-		r = tfw_http_msg_expand_data(it, skb_head, &set_cookie, NULL);
+		r = tfw_http_msg_expand_data(hm, skb_head, &set_cookie, NULL);
 		if (unlikely(r))
 			goto err;
-		r = tfw_http_msg_expand_data(it, skb_head, &crlf, NULL);
+		r = tfw_http_msg_expand_data(hm, skb_head, &crlf, NULL);
 	}
 	else {
 		r = tfw_http_msg_expand_from_pool(hm, &set_cookie);
@@ -772,7 +771,7 @@ tfw_http_sess_precreate(void *data)
 	return 0;
 }
 
-static void
+static int
 tfw_sess_ent_init(TdbRec *rec, void *data)
 {
 	TfwSessEntry *ent = (TfwSessEntry *)rec->data;
@@ -803,6 +802,8 @@ tfw_sess_ent_init(TdbRec *rec, void *data)
 	rwlock_init(&sess->lock);
 
 	T_DBG("http_sess was newly created, %pK\n", sess);
+
+	return 0;
 }
 
 /**

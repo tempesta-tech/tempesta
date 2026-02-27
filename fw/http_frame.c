@@ -312,7 +312,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	TfwMsg msg = {};
 	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwStr *hdr_str = TFW_STR_CHUNK(data, 0);
-	TfwH2Conn *conn = ctx->conn;
+	TfwConn *conn = (TfwConn *)ctx->conn;
 
 	BUG_ON(hdr_str->data);
 	hdr_str->data = buf;
@@ -326,10 +326,10 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	T_DBG2("Preparing HTTP/2 message with %lu bytes data\n", data->len);
 
 	msg.len = data->len;
-	if ((r = tfw_msg_iter_setup(&it, &msg.skb_head, msg.len)))
+	if ((r = tfw_msg_iter_setup(&it, conn->peer, &msg.skb_head, msg.len)))
 		goto err;
 
-	if ((r = tfw_msg_write(&it, data)))
+	if ((r = tfw_msg_iter_write(&it, data)))
 		goto err;
 
 	switch (type) {
@@ -357,7 +357,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 			tfw_h2_on_tcp_entail_ack;
 	}
 
-	if ((r = tfw_connection_send((TfwConn *)conn, &msg)))
+	if ((r = tfw_connection_send(conn, &msg)))
 		goto err;
 	/*
 	 * We do not close client connection automatically here in case
@@ -366,7 +366,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	 * was successful - to avoid hanged unclosed client connection.
 	 */
 	if (type == TFW_FRAME_CLOSE || type == TFW_FRAME_SHUTDOWN)
-		TFW_CONN_TYPE((TfwConn *)conn) |= Conn_Stop;
+		TFW_CONN_TYPE(conn) |= Conn_Stop;
 
 	return 0;
 
@@ -1874,6 +1874,11 @@ next_msg:
 		       parsed, skb->len);
 	}
 
+	r = frang_client_mem_limit((TfwCliConn *)c, true);
+	if (unlikely(r))
+		return T_BLOCK_WITH_RST;
+
+
 	/*
 	 * For fully received frames possibly there are other frames
 	 * in the current @skb, so create an skb sibling with next
@@ -1922,7 +1927,7 @@ next_msg:
 		while (unlikely(h2->skb_head->len <= h2->data_off)) {
 			struct sk_buff *skb = ss_skb_dequeue(&h2->skb_head);
 			h2->data_off -= skb->len;
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 			/*
 			 * Special case when the frame is postponed just
 			 * in the beginning of the app data, after all
@@ -1942,7 +1947,7 @@ next_msg:
 		pskb = h2->skb_head;
 		if ((r = ss_skb_chop_head_tail(NULL, pskb,
 					       h2->data_off, 0))) {
-			kfree_skb(nskb);
+			ss_kfree_skb(nskb);
 			goto out;
 		}
 		h2->data_off = 0;
@@ -1951,7 +1956,7 @@ next_msg:
 		/* TODO #1490: Check this place, when working on the task. */
 		if (r && r != T_DROP) {
 			WARN_ON_ONCE(r == T_POSTPONE);
-			kfree_skb(nskb);
+			ss_kfree_skb(nskb);
 			goto out;
 		}
 	}
@@ -1968,7 +1973,7 @@ next_msg:
 		while (unlikely(h2->skb_head != end)) {
 			pskb = ss_skb_dequeue(&h2->skb_head);
 			h2->data_off -= pskb->len;
-			kfree_skb(pskb);
+			ss_kfree_skb(pskb);
 		}
 
 		pskb = h2->skb_head;
@@ -1979,7 +1984,7 @@ next_msg:
 		/* TODO #1490: Check this place, when working on the task. */
 		if (r && r != T_DROP) {
 			WARN_ON_ONCE(r == T_POSTPONE);
-			kfree_skb(nskb);
+			ss_kfree_skb(nskb);
 			goto out;
 		}
 	}
@@ -2064,7 +2069,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 
 		while (skb && unlikely(!skb->len)) {
 			ss_skb_unlink(&stream->xmit.skb_head, skb);
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 			skb = stream->xmit.skb_head;
 		}
 	}
@@ -2136,6 +2141,24 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 }
 
 static int
+tfw_h2_stream_send_postponed(struct sock *sk, struct sk_buff **skb_head,
+			     unsigned int mss_now, unsigned long *snd_wnd)
+{
+	TfwConn *conn = (TfwConn *)sk->sk_user_data;
+	int r;
+
+	BUG_ON(conn->write_queue);
+	r = ss_skb_tcp_entail_list(sk, skb_head, mss_now, snd_wnd);
+	if (unlikely(r))
+		return r;
+
+	ss_skb_queue_splice(&conn->write_queue, skb_head);
+	sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+
+	return 0;
+}
+
+static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			   bool stream_is_exclusive, unsigned int mss_now,
 			   unsigned long *snd_wnd, bool *stop)
@@ -2186,7 +2209,7 @@ do {									\
 
 #define FRAME_XMIT_FSM_NEXT(frame_length, state)			\
 do {									\
-	*snd_wnd -= frame_length;					\
+	*snd_wnd -= frame_length - FRAME_HEADER_SIZE;			\
 	T_FSM_JMP(state);						\
 } while(0)
 
@@ -2246,7 +2269,7 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
-		if (unlikely(ctx->rem_wnd <= 0 || stream->rem_wnd <= 0))
+		if (tfw_h2_conn_or_stream_wnd_is_exceeded(ctx, stream))
 			ADJUST_BLOCKED_STREAMS_AND_EXIT(0, HTTP2_DATA);
 
 		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_DATA,
@@ -2304,13 +2327,15 @@ do {									\
 		if (stream->xmit.h_len) {
 			T_FSM_JMP(HTTP2_MAKE_CONTINUATION_FRAMES);
 		} else {
-			if (stream->xmit.postponed
+			if (unlikely(stream->xmit.postponed)
 			    && !stream->xmit.frame_length
-			    && !ctx->cur_send_headers) {
-				struct sk_buff **postponed =
-					&stream->xmit.postponed;
+			    && !ctx->cur_send_headers)
+			{
+				struct sk_buff **head = &stream->xmit.postponed;
 
-				r = ss_skb_tcp_entail_list(sk, postponed);
+				r = tfw_h2_stream_send_postponed(sk, head,
+								 mss_now,
+								 snd_wnd);
 				if (unlikely(r)) {
 					T_WARN("Failed to send postponed"
 					       " frames %d", r);
@@ -2339,7 +2364,10 @@ do {									\
 		 * response is sent.
 		 */
 		if (unlikely(stream->xmit.skb_head)) {
-			r = ss_skb_tcp_entail_list(sk, &stream->xmit.skb_head);
+			struct sk_buff **head = &stream->xmit.skb_head;
+			r = tfw_h2_stream_send_postponed(sk, head,
+							 mss_now,
+							 snd_wnd);
 			if (unlikely(r)) {
 				T_WARN("Failed to send postponed"
 				       " frames %d", r);
@@ -2369,11 +2397,14 @@ do {									\
 			T_WARN("Failed to send frame %d", r);
 			return r;
 		}
-		if (stream->xmit.postponed && !ctx->cur_send_headers) {
-			struct sk_buff **postponed =
-				&stream->xmit.postponed;
+		if (unlikely(stream->xmit.postponed)
+		    && !ctx->cur_send_headers)
+		{
+			struct sk_buff **head = &stream->xmit.postponed;
 
-			r = ss_skb_tcp_entail_list(sk, postponed);
+			r = tfw_h2_stream_send_postponed(sk, head,
+							 mss_now,
+							 snd_wnd);
 			if (unlikely(r)) {
 				T_WARN("Failed to send postponed"
 				       " frames %d", r);
@@ -2390,10 +2421,10 @@ do {									\
 }
 
 int
-tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now)
+tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
+		   unsigned long snd_wnd)
 {
 	TfwStreamSched *sched = &ctx->sched;
-	unsigned long snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now);
 	bool stop = false;
 	int r = 0;
 	TfwStream *stream;
@@ -2430,7 +2461,6 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now)
 		r = tfw_h2_stream_xmit_process(sk, ctx, stream,
 					       stream_is_exclusive, mss_now,
 					       &snd_wnd, &stop);
-
 		if (!tfw_h2_stream_is_active(stream)) {
 			tfw_h2_sched_deactivate_stream(sched, stream);
 			if (!stream->xmit.skb_head) {
