@@ -116,6 +116,7 @@
 #include "websocket.h"
 #include "tf_filter.h"
 #include "tf_conf.h"
+#include "training.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -1470,6 +1471,15 @@ tfw_http_fwdq_reset(TfwSrvConn *srv_conn, struct list_head *dst)
 static inline void
 tfw_http_req_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
+
+	if (cli) {
+		cli->req_curr++;
+		tfw_client_training_update(cli, &cli->req_max, cli->req_curr,
+					   &cli->req_training_num,
+					   tfw_training_mode_adjust_new_req);
+	}
+
 	list_add_tail(&req->fwd_list, &srv_conn->fwd_queue);
 	srv_conn->qsize++;
 	if (tfw_http_req_is_nip(req))
@@ -1484,6 +1494,11 @@ tfw_http_req_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 static inline void
 tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
+
+	if (cli)
+		cli->req_curr--;
+
 	tfw_http_req_nip_delist(srv_conn, req);
 	list_del_init(&req->fwd_list);
 	srv_conn->qsize--;

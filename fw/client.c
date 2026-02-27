@@ -30,6 +30,7 @@
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
+#include "training.h"
 #include "lib/str.h"
 #include "lib/common.h"
 
@@ -279,6 +280,36 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 }
 EXPORT_SYMBOL(tfw_client_obtain);
 ALLOW_ERROR_INJECTION(tfw_client_obtain, NULL);
+
+void
+tfw_client_training_update(TfwClient *cli, unsigned long *max,
+			   unsigned long curr, unsigned int *training_num,
+			   void (*adjust)(int, u64, u64, bool))
+{
+	u64 delta1, delta2;
+	unsigned int old_max;
+	int cpu;
+	bool new_client = false;
+
+	if (!tfw_mode_is_training())
+		return;
+
+	if (*training_num < g_training_num) {
+		*training_num = g_training_num;
+		*max = 0;
+		new_client = true;
+	}
+
+	old_max = *max;
+	if (curr <= *max)
+		return;
+
+	*max = curr;
+	cpu = hash_calc((char *)cli, sizeof(TfwClient *)) % num_online_cpus();
+	delta1 = curr - old_max;
+	delta2 = (u64)curr * curr - (u64)old_max * old_max;
+	adjust(cpu, delta1, delta2, new_client);
+}
 
 /**
  * Beware: @fn is called under client hash bucket spin lock.

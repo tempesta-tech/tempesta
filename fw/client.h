@@ -34,6 +34,11 @@
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
+	unsigned long		req_max;
+	unsigned long		req_curr;
+	unsigned int		req_training_num;
+	unsigned long		conn_max;
+	unsigned int		conn_training_num;
 } TfwClient;
 
 int tfw_client_init(void);
@@ -46,6 +51,9 @@ void tfw_cli_conn_release(TfwCliConn *cli_conn);
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg);
 int tfw_cli_conn_abort_all(void *data);
 void tfw_cli_abort_all(void);
+void tfw_client_training_update(TfwClient *cli, unsigned long *max,
+				unsigned long curr, unsigned int *training_num,
+				void (*adjust)(int, u64, u64, bool));
 
 void tfw_tls_connection_lost(TfwConn *conn);
 

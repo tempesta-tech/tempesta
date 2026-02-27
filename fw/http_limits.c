@@ -45,6 +45,7 @@
 #include "http_match.h"
 #include "http.h"
 #include "http_sess.h"
+#include "training.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -180,6 +181,7 @@ frang_req_is_whitelisted(TfwHttpReq *req)
 static void
 frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 {
+	TfwClient *cli = FRANG_ACC2CLI(ra);
 	int i = ts % FRANG_FREQ;
 
 	if (ra->history[i].ts != ts) {
@@ -198,6 +200,9 @@ frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 	ra->conn_curr++;
 	if (ra->conn_curr == 1)
 		TFW_INC_STAT_BH(clnt.online);
+	tfw_client_training_update(cli, &cli->conn_max, ra->conn_curr,
+				   &cli->conn_training_num,
+				   tfw_training_mode_adjust_new_conn);
 }
 
 /**
@@ -221,6 +226,11 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	spin_lock(&ra->lock);
 
 	frang_acc_history_init(ra, ts);
+
+	if (!tfw_training_mode_defence_conn_num(ra->conn_curr)) {
+		spin_unlock(&ra->lock);
+		return T_BLOCK;
+	}
 
 	if (conf->conn_max && unlikely(ra->conn_curr > conf->conn_max)) {
 		frang_limmsg("connections max num.", ra->conn_curr,
@@ -1090,12 +1100,14 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 {
 	int r = T_OK;
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
+	TfwClient *cli = NULL;
 	FrangVhostCfg *f_cfg = NULL;
 	FrangGlobCfg *fg_cfg = NULL;
 	T_FSM_INIT(Frang_Req_0, "frang");
 
 	if (WARN_ON_ONCE(!ra))
 		return T_BLOCK;
+
 	/*
 	 * If a request is detached from stream before frang callback
 	 * happen, it usually means that a response is already created and bound
@@ -1127,6 +1139,18 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	}
 	if (WARN_ON_ONCE(!fg_cfg || !f_cfg))
 		return T_BLOCK;
+
+	cli = FRANG_ACC2CLI(ra);
+	/*
+	 * Not accuracy adjusting, beause we can increment `cli->curr_req` on
+	 * other cpu at the same time. But it's better then do it during
+	 * adding request to the server request queue.
+	 */
+	if (!tfw_training_mode_defence_req_num(cli->req_curr + 1)) {
+		if (fg_cfg->ip_block)
+			tfw_filter_block_ip(cli, fg_cfg->ip_block_duration);
+		return T_BLOCK;
+	}
 
 	/*
 	 * Detect slowloris attack first, and then proceed with more precise
