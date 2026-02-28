@@ -56,6 +56,12 @@ public:
 			    std::span<const TfwField> fields,
 			    size_t max_events);
 
+	ClickHouseDecorator(std::shared_ptr<IClickhouse> client,
+			    std::string_view table_creation_query_template,
+			    std::string_view table_name,
+			    std::span<const TfwField> fields,
+			    size_t max_events);
+
 	virtual ~ClickHouseDecorator();
 
 public:
@@ -105,7 +111,7 @@ private:
 	const size_t				max_events_;
 
 	bool					needs_create_table_{true};
-	std::unique_ptr<IClickhouse>		client_;
+	std::shared_ptr<IClickhouse>		client_;
 
 protected:
 	ch::Block				block_;

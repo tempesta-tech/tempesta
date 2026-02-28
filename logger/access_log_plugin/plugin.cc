@@ -126,10 +126,10 @@ mmap_create_processor(const PluginConfigApi *config, unsigned cpu_id)
 		// decide to share a single instance per CPU across all processors.
 		// Passing the ClickHouse instance from outside would save resources:
 		// instead of Ncpu * Mplugins workers, we would have just Ncpu workers.
-		auto writer = std::make_unique<LazyInitClickhouse>(factory);
+		auto writer = std::make_shared<LazyInitClickhouse>(factory);
 
-		auto processor = std::make_unique<AccessLogProcessor>(std::move(writer),
-			cpu_id, dev_fd, config->table_name, config->max_events);
+		auto processor = std::make_unique<AccessLogProcessor>(writer,
+			cpu_id, dev_fd, config->max_events);
 
 		return processor.release();
 	} catch (const std::exception& e) {
