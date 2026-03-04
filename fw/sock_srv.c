@@ -181,6 +181,7 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 static void
 tfw_srv_conn_release(TfwSrvConn *srv_conn)
 {
+	ss_skb_queue_purge(&srv_conn->write_queue);
 	tfw_connection_release((TfwConn *)srv_conn);
 	/*
 	 * conn->sk may be zeroed if we get here after a failed
@@ -199,6 +200,12 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 		tfw_sock_srv_connect_try_later(srv_conn);
 	else
 		tfw_srv_conn_stop(srv_conn);
+}
+
+static int
+tfw_sock_srv_fill_write_queue(struct sock *sk, unsigned int mss_now)
+{
+	return tfw_connection_fill_sk_write_queue(sk->sk_user_data, mss_now);
 }
 
 /**
@@ -252,6 +259,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	tfw_srv_conn_init_as_dead(srv_conn);
 	sk->sk_uid.val = SS_SRV_USER;
 	ss_set_callbacks(sk);
+	sk->sk_fill_write_queue = tfw_sock_srv_fill_write_queue;
 	/*
 	 * Set connection destructor such that connection failover can
 	 * take place if the connection attempt fails.

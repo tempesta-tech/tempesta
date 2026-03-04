@@ -231,6 +231,12 @@ tdb_htrie_put_rec(TdbHdr *dbh, TdbRec *rec)
 		tdb_htrie_free_rec(dbh, rec);
 }
 
+bool
+tdb_htrie_rec_has_last_ref(TdbRec *rec)
+{
+	return atomic_read(&rec->refcnt) == 1;
+}
+
 /* Call only under lock. */
 static void
 tdb_rec_set_remove(TdbRec *rec)

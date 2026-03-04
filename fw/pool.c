@@ -47,6 +47,7 @@
 
 #include "lib/str.h"
 #include "lib/fault_injection_alloc.h"
+#include "fw/client.h"
 #include "pool.h"
 
 #define TFW_POOL_HEAD_OFF	(TFW_POOL_ALIGN_SZ(sizeof(TfwPool))	\
@@ -70,10 +71,10 @@ static unsigned long __percpu (*pg_cache)[TFW_POOL_PGCACHE_SZ];
  * through buddies coalescing). So we never cache multi-pages.
  */
 static unsigned long
-tfw_pool_alloc_pages(unsigned int order)
+tfw_pool_alloc_pages(TfwClient *cli, unsigned int order)
 {
+	unsigned long pg_res = 0;
 	unsigned int *pgn;
-	unsigned long pg_res;
 	gfp_t flags;
 
 	local_bh_disable();
@@ -83,20 +84,23 @@ tfw_pool_alloc_pages(unsigned int order)
 	if (likely(*pgn && !order)) {
 		--*pgn;
 		pg_res = ((unsigned long *)this_cpu_ptr(pg_cache))[*pgn];
-
-		local_bh_enable();
-
-		return pg_res;
 	}
 	local_bh_enable();
 
-	flags = order > 0 ? GFP_ATOMIC | __GFP_COMP : GFP_ATOMIC;
-	return __get_free_pages(flags, order);
+	if (!pg_res) {
+		flags = order > 0 ? GFP_ATOMIC | __GFP_COMP : GFP_ATOMIC;
+		pg_res = __get_free_pages(flags, order);
+	}
+	if (likely(pg_res) && cli)
+		tfw_client_adjust_mem(cli, PAGE_SIZE << order);
+
+	return pg_res;
+
 }
 ALLOW_ERROR_INJECTION(tfw_pool_alloc_pages, NULL);
 
 static void
-tfw_pool_free_pages(unsigned long addr, unsigned int order)
+tfw_pool_free_pages(TfwClient *cli, unsigned long addr, unsigned int order)
 {
 	unsigned int *pgn;
 	int refcnt;
@@ -105,6 +109,9 @@ tfw_pool_free_pages(unsigned long addr, unsigned int order)
 
 	pgn = this_cpu_ptr(&pg_next);
 	refcnt = page_count(virt_to_page(addr));
+
+	if (cli)
+		tfw_client_adjust_mem(cli, -(PAGE_SIZE << order));
 
 	if (likely(*pgn < TFW_POOL_PGCACHE_SZ && !order && refcnt == 1)) {
 		((unsigned long *)this_cpu_ptr(pg_cache))[*pgn] = addr;
@@ -129,7 +136,7 @@ __tfw_pool_alloc_page(TfwPool *p, size_t n, bool align)
 	unsigned int off = desc_size + n;
 	unsigned int order = get_order(off);
 
-	c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
+	c = (TfwPoolChunk *)tfw_pool_alloc_pages(p->owner, order);
 	if (!c)
 		return NULL;
 	c->next = curr;
@@ -186,7 +193,9 @@ tfw_pool_free(TfwPool *p, void *ptr, size_t n)
 	/* Free empty chunk which doesn't contain the pool header. */
 	if (unlikely(p->off == TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk)))) {
 		TfwPoolChunk *next = p->curr->next;
-		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(p->curr), p->order);
+
+		tfw_pool_free_pages(p->owner, TFW_POOL_CHUNK_BASE(p->curr),
+				    p->order);
 		p->curr = next;
 		p->order = next->order;
 		p->off = next->off;
@@ -211,7 +220,8 @@ tfw_pool_clean_single(TfwPool *pool, void *ptr)
 		if ((char *)ptr >= (char *)TFW_POOL_CHUNK_BASE(c)
 		    && (char *)ptr < (char *)TFW_POOL_CHUNK_BASE(c) + c->off)
 		{
-			tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
+			tfw_pool_free_pages(pool->owner, TFW_POOL_CHUNK_BASE(c),
+					    c->order);
 			prev->next = next;
 			return;
 		}
@@ -236,7 +246,8 @@ tfw_pool_clean(TfwPool *pool)
 		if (!(next = c->next))
 			break;
 
-		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
+		tfw_pool_free_pages(pool->owner, TFW_POOL_CHUNK_BASE(c),
+				    c->order);
 		pool->curr->next = next;
 	}
 }
@@ -245,15 +256,16 @@ tfw_pool_clean(TfwPool *pool)
  * Allocate bit more pages than we need.
  */
 TfwPool *
-__tfw_pool_new(size_t n)
+__tfw_pool_new(size_t n, void *owner)
 {
+	TfwClient *cli = (TfwClient *)owner;
 	TfwPool *p;
 	TfwPoolChunk *c;
 	unsigned int order;
 
 	order = get_order(TFW_POOL_ALIGN_SZ(n) + TFW_POOL_HEAD_OFF);
 
-	c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
+	c = (TfwPoolChunk *)tfw_pool_alloc_pages(cli, order);
 	if (unlikely(!c))
 		return NULL;
 
@@ -261,6 +273,7 @@ __tfw_pool_new(size_t n)
 
 	c->next = NULL;
 	p->order = c->order = order;
+	p->owner = owner;
 	p->off = c->off = TFW_POOL_HEAD_OFF;
 	p->curr = c;
 
@@ -271,13 +284,16 @@ void
 tfw_pool_destroy(TfwPool *p)
 {
 	TfwPoolChunk *c, *next;
+	TfwClient *cli;
 
 	if (!p)
 		return;
 
+	cli = p->owner;
 	for (c = p->curr; c; c = next) {
 		next = c->next;
-		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
+		tfw_pool_free_pages(p->owner, TFW_POOL_CHUNK_BASE(c),
+				    c->order);
 	}
 }
 

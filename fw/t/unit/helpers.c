@@ -43,9 +43,9 @@
 #include "tf_conf.h"
 #include "tf_filter.h"
 
-static TfwConn conn_req, conn_resp;
-
 unsigned int tfw_cli_max_concurrent_streams;
+TfwConn conn_req, conn_resp;
+TfwClient client;
 
 TfwHttpReq *
 test_req_alloc(size_t data_len)
@@ -58,17 +58,19 @@ test_req_alloc(size_t data_len)
 	 * tfw_http_msg_alloc(). It is removed because we need to test how it
 	 * initializes the message and we would not like to test the copy-paste.
 	 */
-	hmreq = __tfw_http_msg_alloc(Conn_HttpClnt, true);
+	hmreq = __tfw_http_msg_alloc(&client, Conn_HttpClnt, true);
 	BUG_ON(!hmreq);
 
-	ret = tfw_http_msg_setup(hmreq, &it, data_len);
-	BUG_ON(ret);
-
-	memset(&conn_req, 0, sizeof(TfwConn));
 	tfw_connection_init(&conn_req);
+	conn_req.peer = (TfwPeer *)&client;
 	conn_req.proto.type = Conn_HttpClnt;
 	hmreq->conn = &conn_req;
 	hmreq->stream = &conn_req.stream;
+
+	ret = tfw_msg_iter_setup(&it, tfw_http_msg_client(hmreq),
+				 &hmreq->msg.skb_head, data_len);
+	BUG_ON(ret);
+
 	tfw_http_init_parser_req((TfwHttpReq *)hmreq);
 
 	return (TfwHttpReq *)hmreq;
@@ -85,31 +87,32 @@ test_req_free(TfwHttpReq *req)
 }
 
 TfwHttpResp *
-test_resp_alloc(size_t data_len)
+test_resp_alloc(size_t data_len, TfwHttpReq *req)
 {
 	TfwMsgIter it;
 	int ret;
-	TfwHttpResp *hmresp = test_resp_alloc_no_data();
+	TfwHttpMsg *hmresp = (TfwHttpMsg *)test_resp_alloc_no_data(req);
 
-	ret = tfw_http_msg_setup((TfwHttpMsg *)hmresp, &it, data_len);
+	ret = tfw_msg_iter_setup(&it, tfw_http_msg_client(hmresp),
+				 &hmresp->msg.skb_head, data_len);
 	BUG_ON(ret);
 
 	return (TfwHttpResp *)hmresp;
 }
 
 TfwHttpResp *
-test_resp_alloc_no_data()
+test_resp_alloc_no_data(TfwHttpReq *req)
 {
 	TfwHttpMsg *hmresp;
 
-	hmresp = __tfw_http_msg_alloc(Conn_HttpSrv, true);
+	hmresp = __tfw_http_msg_alloc(req->conn->peer, Conn_HttpSrv, true);
 	BUG_ON(!hmresp);
 
-	memset(&conn_resp, 0, sizeof(TfwConn));
 	tfw_connection_init(&conn_resp);
 	conn_resp.proto.type = Conn_HttpSrv;
 	hmresp->conn = &conn_resp;
 	hmresp->stream = &conn_resp.stream;
+	tfw_http_msg_pair((TfwHttpResp *)hmresp, req);
 	tfw_http_init_parser_resp((TfwHttpResp *)hmresp);
 
 	return (TfwHttpResp *)hmresp;
@@ -185,13 +188,19 @@ ss_stop(void)
 }
 
 void ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
-		       unsigned char tls_type)
+		      unsigned char tls_type)
 {
 }
 
-int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb)
+int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
+			   unsigned int mss_now, unsigned long *snd_wnd)
 {
 	return 0;
+}
+
+void
+tfw_client_get(TfwClient *cli)
+{
 }
 
 void
@@ -432,6 +441,12 @@ frang_req_is_whitelisted(TfwHttpReq *req)
 
 int
 frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
+{
+	return T_OK;
+}
+
+int
+frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
 {
 	return T_OK;
 }
