@@ -223,16 +223,6 @@ tdb_htrie_get_rec(TdbRec *rec)
 	atomic_inc(&rec->refcnt);
 }
 
-void
-tdb_htrie_put_rec(TdbHdr *dbh, TdbRec *rec)
-{
-	int refcnt = atomic_dec_return(&rec->refcnt);
-
-	BUG_ON(refcnt < 0);
-	if (!refcnt)
-		tdb_htrie_free_rec(dbh, rec);
-}
-
 /* Call only under lock. */
 static void
 tdb_rec_set_remove(TdbRec *rec)
@@ -240,11 +230,86 @@ tdb_rec_set_remove(TdbRec *rec)
 	rec->bucket = NULL;
 }
 
+static inline bool
+tdb_put_req_eq_cb(TdbHdr *dbh, TdbRec *rec, void *data)
+{
+	return rec == data;
+}
+
+static inline bool
+tdb_records_are_not_fixed_size(TdbHdr *dbh)
+{
+	return (TDB_HTRIE_VARLENRECS(dbh) ||
+		TDB_HTRIE_RALIGN(dbh->rec_len) >= TDB_HTRIE_MINDREC);
+}
+
 /* Call only under lock. */
 static bool
 tdb_rec_is_removed(TdbRec *rec)
 {
 	return rec->bucket == NULL;
+}
+
+static void
+tdb_bucket_remove_fixed_size_record(TdbHdr *dbh, TdbBucket *bckt,
+				    tdb_eq_cb_t *eq_cb, void *data)
+{
+	TdbFRec *first, *rec;
+	bool has_alive = false;
+
+	TDB_HTRIE_FOREACH_REC_SMALL(dbh, bckt, first, rec, TdbFRec) {
+		if (!tdb_live_fsrec(dbh, (TdbFRec *)rec))
+			continue;
+
+		/* Record is removed, but still has users. */
+		if (tdb_rec_is_removed(rec))
+			continue;
+
+		if (!eq_cb || eq_cb(dbh, rec, data)) {
+			tdb_rec_set_remove(rec);
+			tdb_htrie_put_rec(dbh, rec);
+		} else {
+			has_alive = true;
+		}
+	}
+
+	if (!has_alive)
+		bckt->rec = 0;
+}
+
+void
+tdb_htrie_put_rec(TdbHdr *dbh, TdbRec *rec)
+{
+	int refcnt = atomic_dec_return(&rec->refcnt);
+
+	BUG_ON(refcnt < 0);
+	if (!refcnt) {
+		TdbBucket *bckt = rec->bucket;
+		tdb_eq_cb_t *eq_cb = tdb_put_req_eq_cb;
+
+		/*
+		 * There are two different strategies of record deletion:
+		 * - Record can be removed at any time (bckt is equal to zero),
+		 *   but still alive, because there are any active users. In
+		 *   this case, we just delete record here (this strategey
+		 *   ised in cache).
+		 * - Record was not removed, but all active users gone. here.
+		 *   Remove record before deletion. (this strategy used for
+		 *   clients).
+		 */
+		if (bckt) {
+			write_lock_bh(&bckt->lock);
+			if (tdb_records_are_not_fixed_size(dbh)) {
+				tdb_rec_set_remove(rec);
+				bckt->rec = 0;
+			} else {
+				tdb_bucket_remove_fixed_size_record(dbh, bckt,
+								    eq_cb, rec);
+			}
+			write_unlock_bh(&bckt->lock);
+		}
+		tdb_htrie_free_rec(dbh, rec);
+	}
 }
 
 static TdbHdr *
@@ -948,8 +1013,7 @@ tdb_bucket_remove_record(TdbHdr *dbh, TdbBucket *bckt, tdb_eq_cb_t *eq_cb,
 	 * record is removed. Variable-length records intended to store
 	 * large data, small records not expected in such case.
 	 */
-	if (TDB_HTRIE_VARLENRECS(dbh) ||
-	    TDB_HTRIE_RALIGN(dbh->rec_len) >= TDB_HTRIE_MINDREC) {
+	if (tdb_records_are_not_fixed_size(dbh)) {
 		TdbRec *rec = TDB_HTRIE_BCKT_1ST_REC(dbh, bckt);
 
 		if (!rec)
@@ -973,27 +1037,7 @@ tdb_bucket_remove_record(TdbHdr *dbh, TdbBucket *bckt, tdb_eq_cb_t *eq_cb,
 		}
 	} else {
 		/* Remove only small records. */
-		TdbFRec *first, *rec;
-		bool has_alive = false;
-
-		TDB_HTRIE_FOREACH_REC_SMALL(dbh, bckt, first, rec, TdbFRec) {
-			if (!tdb_live_fsrec(dbh, (TdbFRec *)rec))
-				continue;
-
-			/* Record is removed, but still has users. */
-			if (tdb_rec_is_removed(rec))
-				continue;
-
-			if (!eq_cb || eq_cb(dbh, rec, data)) {
-				tdb_rec_set_remove(rec);
-				tdb_htrie_put_rec(dbh, rec);
-			} else {
-				has_alive = true;
-			}
-		}
-
-		if (!has_alive)
-			bckt->rec = 0;
+		tdb_bucket_remove_fixed_size_record(dbh, bckt, eq_cb, data);
 	}
 }
 

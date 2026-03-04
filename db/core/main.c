@@ -152,6 +152,9 @@ EXPORT_SYMBOL(tdb_entry_add);
 /**
  * Remove TDB entries by @key using @eq_cb for comparing entry with @data.
  *
+ * If there is at least on active user of the entry, record will be alive
+ * until it's reference counter became equal to zero.
+ * 
  * @force - Force delete incomplete record.
  */
 void
@@ -220,7 +223,11 @@ tdb_rec_next(TDB *db, TdbIter *iter)
 }
 EXPORT_SYMBOL(tdb_rec_next);
 
-/* Decrements reference counter. */
+/**
+ * Decrements reference counter. If reference counter became
+ * equal to zero and record is still alive (was not removed)
+ * remove it, before deletion.
+ */
 void
 tdb_rec_put(TDB *db, void *rec)
 {
