@@ -276,13 +276,14 @@ tfw_ws_conn_close(TfwConn *conn, bool sync)
 }
 
 static int
-tfw_ws_conn_abort(TfwConn *conn)
+tfw_ws_conn_abort(TfwConn *conn, bool sync)
 {
 	int r;
 
 	T_DBG("%s cpu/%d: conn=%p\n", __func__, smp_processor_id(), conn);
 
-	r = tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_abort);
+	r = tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn, conn_abort,
+			       sync);
 
 	return r;
 }

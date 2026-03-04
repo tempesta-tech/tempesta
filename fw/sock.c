@@ -1166,7 +1166,7 @@ ss_tcp_data_ready(struct sock *sk)
 		flags = SS_F_SYNC;
 		break;
 	case SS_BLOCK_WITH_RST:
-		flags = SS_F_ABORT_FORCE;
+		flags = SS_F_ABORT_FORCE | SS_F_SYNC;
 		break;
 	default:
 		BUG();

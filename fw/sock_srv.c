@@ -405,7 +405,7 @@ static int
 tfw_sock_srv_abort(TfwConn *conn)
 {
 	if (conn->sk)
-		tfw_connection_abort(conn);
+		tfw_connection_abort(conn, true);
 	return 0;
 }
 
@@ -513,7 +513,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 			 * their connections.
 			 */
 			if (test_bit(TFW_CFG_B_DEL, &srv->flags)) {
-				tfw_connection_abort(conn);
+				tfw_connection_abort(conn, true);
 			} else {
 				r = tfw_connection_close(conn, true);
 			}

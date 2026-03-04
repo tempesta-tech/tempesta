@@ -2934,9 +2934,9 @@ tfw_http_conn_close(TfwConn *conn, bool sync)
 }
 
 static int
-tfw_http_conn_abort(TfwConn *c)
+tfw_http_conn_abort(TfwConn *c, bool sync)
 {
-	return ss_close(c->sk, SS_F_ABORT_FORCE);
+	return ss_close(c->sk, SS_F_ABORT_FORCE | (sync ? SS_F_SYNC : 0));
 }
 
 /*
@@ -5551,7 +5551,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	 */
 	if (!reply) {
 		if (!on_req_recv_event)
-			tfw_connection_abort(conn);
+			tfw_connection_abort(conn, true);
 		tfw_h2_req_unlink_and_close_stream(req);
 		if (type == TFW_ERROR_TYPE_ATTACK)
 			tfw_http_req_filter_block_ip(req);
@@ -5642,7 +5642,7 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
 	 */
 	if (!reply) {
 		if (!on_req_recv_event)
-			tfw_connection_abort(req->conn);
+			tfw_connection_abort(req->conn, true);
 		if (type == TFW_ERROR_TYPE_ATTACK)
 			tfw_http_req_filter_block_ip(req);
 		do_access_log_req(req, status, 0);

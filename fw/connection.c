@@ -88,9 +88,10 @@ tfw_connection_close(TfwConn *conn, bool sync)
 	return r;
 }
 
-void
-tfw_connection_abort(TfwConn *conn)
+int
+tfw_connection_abort(TfwConn *conn, bool sync)
 {
+	int r = 0;
 	/*
 	 * When connection is closed from process context (when Tempesta FW
 	 * is shutdowning) there is a lot of races:
@@ -105,12 +106,12 @@ tfw_connection_abort(TfwConn *conn)
 	 * in parallel softirq.
 	 */
 	if (__tfw_connection_get_if_not_death(conn)) {
-		int r;
-
-		r = TFW_CONN_HOOK_CALL(conn, conn_abort);
-		WARN_ON(r);
+		r = TFW_CONN_HOOK_CALL(conn, conn_abort, sync);
+		WARN_ON(r && sync);
 		tfw_connection_put(conn);
 	}
+
+	return r;
 }
 
 /**
@@ -150,11 +151,25 @@ tfw_connection_release(TfwConn *conn)
 int
 tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 {
+	int ss_flags = READ_ONCE(msg->ss_flags);
+	bool will_be_shutdowned = (ss_flags & SS_F_CONN_CLOSE) &&
+		!(ss_flags & __SS_F_FORCE);
+	int r;
+
 	/*
 	 * NOTE: after `tfw_connection_send` returns, `msg` should not be used!
 	 * See `tfw_tls_conn_send` for reference.
 	 */
-	return TFW_CONN_HOOK_CALL(conn, conn_send, msg);
+	r = TFW_CONN_HOOK_CALL(conn, conn_send, msg);
+	if (unlikely(r))
+		return r;
+
+	if (will_be_shutdowned) {
+		BUG_ON(!(TFW_CONN_TYPE(conn) & Conn_Clnt));
+		tfw_cli_conn_mod_timer((TfwCliConn *)conn, 1);
+	}
+
+	return 0;
 }
 
 int

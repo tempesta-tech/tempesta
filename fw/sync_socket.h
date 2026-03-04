@@ -156,7 +156,7 @@ ss_add_overhead(struct sock *sk, unsigned int overhead)
 #define SS_F_ENCRYPT			0x08
 /* Close with TCP RST (connection abort). */
 #define __SS_F_RST			0x10
-#define SS_F_ABORT			(__SS_F_RST | SS_F_SYNC)
+#define SS_F_ABORT			(__SS_F_RST)
 #define __SS_F_FORCE			0x20
 #define SS_F_ABORT_FORCE		(SS_F_ABORT | __SS_F_FORCE)
 #define SS_F_CLOSE_FORCE		(SS_F_CONN_CLOSE | __SS_F_FORCE)

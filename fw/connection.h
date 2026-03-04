@@ -180,6 +180,22 @@ typedef struct {
 
 #define MAX_MISSES_MAX 0xffff
 
+static inline void
+tfw_cli_conn_mod_timer(TfwCliConn *conn, unsigned int timeout)
+{
+	/*
+	 * The lock is needed because the timer deletion was moved from release() to
+	 * drop(). While release() is called when there are no other users, there is
+	 * no such luxury with drop() and the connection can still be used due to
+	 * lingering threads.
+	 */
+	spin_lock(&conn->timer_lock);
+	if (timer_pending(&conn->timer))
+		mod_timer(&conn->timer,
+			  jiffies + msecs_to_jiffies(timeout * 1000));
+	spin_unlock(&conn->timer_lock);
+}
+
 static inline unsigned int
 tfw_cli_conn_get_js_ts(TfwCliConn *conn, unsigned int freq)
 {
@@ -328,7 +344,7 @@ typedef struct {
 	 * This is rough connection closing without any notifications like TLS
 	 * alerts, probably with TCP RST or just silent connection termination.
 	 */
-	int (*conn_abort)(TfwConn *conn);
+	int (*conn_abort)(TfwConn *conn, bool sync);
 
 	/*
 	 * Called when closing a connection (client or server,
@@ -621,7 +637,7 @@ void tfw_connection_link_peer(TfwConn *conn, TfwPeer *peer);
 int tfw_connection_new(TfwConn *conn);
 void tfw_connection_repair(TfwConn *conn);
 int tfw_connection_close(TfwConn *conn, bool sync);
-void tfw_connection_abort(TfwConn *conn);
+int tfw_connection_abort(TfwConn *conn, bool sync);
 void tfw_connection_drop(TfwConn *conn);
 void tfw_connection_release(TfwConn *conn);
 

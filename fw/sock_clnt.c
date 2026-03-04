@@ -80,6 +80,7 @@ static void
 tfw_sock_cli_keepalive_timer_cb(struct timer_list *t)
 {
 	TfwCliConn *cli_conn = from_timer(cli_conn, t, timer);
+	TfwConn *conn = (TfwConn *)cli_conn;
 
 	T_DBG("Client timeout end\n");
 
@@ -88,8 +89,17 @@ tfw_sock_cli_keepalive_timer_cb(struct timer_list *t)
 	 * a deadlock on del_timer_sync(). In case of error try to close
 	 * it one second later.
 	 */
-	if (tfw_connection_close((TfwConn *)cli_conn, false))
-		mod_timer(&cli_conn->timer, jiffies + msecs_to_jiffies(1000));
+	if (TFW_CONN_TYPE(conn) & Conn_Closing) {
+		if (tfw_connection_abort(conn, false)) {
+			mod_timer(&cli_conn->timer,
+				  jiffies + msecs_to_jiffies(1000));
+		}
+	} else {
+		if (tfw_connection_close(conn, false)) {
+			mod_timer(&cli_conn->timer,
+				  jiffies + msecs_to_jiffies(1000));
+		}
+	}
 }
 
 static TfwCliConn *
@@ -148,22 +158,20 @@ tfw_cli_conn_release(TfwCliConn *cli_conn)
 int
 tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 {
+	int ss_flags = READ_ONCE(msg->ss_flags);
+	bool will_be_shutdowned = (ss_flags & SS_F_CONN_CLOSE) &&
+		!(ss_flags & __SS_F_FORCE);
 	int r;
 
 	tfw_connection_get((TfwConn *)cli_conn);
 	r = tfw_connection_send((TfwConn *)cli_conn, msg);
+
 	/*
-	 * The lock is needed because the timer deletion was moved from release() to
-	 * drop(). While release() is called when there are no other users, there is
-	 * no such luxury with drop() and the connection can still be used due to
-	 * lingering threads.
+	 * If connection will be shutdowned and send was successful
+	 * keepalive timer was set in `tfw_connection_send`.
 	 */
-	spin_lock(&cli_conn->timer_lock);
-	if (timer_pending(&cli_conn->timer))
-		mod_timer(&cli_conn->timer,
-			  jiffies +
-			  msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
-	spin_unlock(&cli_conn->timer_lock);
+	if (!r && !will_be_shutdowned)
+		tfw_cli_conn_mod_timer(cli_conn, tfw_cli_cfg_ka_timeout);
 
 	if (r)
 		/* Quite usual on system shutdown. */
@@ -397,7 +405,7 @@ __cli_conn_close_cb(TfwConn *conn)
 static int
 __cli_conn_abort_cb(TfwConn *conn)
 {
-	tfw_connection_abort(conn);
+	tfw_connection_abort(conn, true);
 	return 0;
 }
 

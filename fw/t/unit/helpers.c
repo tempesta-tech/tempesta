@@ -336,9 +336,10 @@ tfw_connection_close(TfwConn *conn, bool sync)
 	return 0;
 }
 
-void
-tfw_connection_abort(TfwConn *conn)
+int
+tfw_connection_abort(TfwConn *conn, bool sync)
 {
+	return 0;
 }
 
 void
