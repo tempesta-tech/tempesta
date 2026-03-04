@@ -104,6 +104,7 @@ tfw_client_free(TdbRec *rec)
 	 * Tempesta FW shut down from `tfw_client_free_lru`
 	 */
 	WARN_ON(!list_empty(&cli->list));
+	free_percpu(cli->mem);
 }
 
 static void
@@ -341,7 +342,6 @@ tfw_client_stop(void)
 	if (tfw_runstate_is_reconfig())
 		return;
 
-	tfw_client_free_lru();
 	if (client_db) {
 		tfw_client_free_lru();
 		tdb_close(client_db);
