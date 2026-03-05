@@ -30,6 +30,7 @@
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
+#include "training.h"
 #include "lib/str.h"
 #include "lib/common.h"
 
@@ -192,6 +193,18 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	if (ctx->init)
 		ctx->init(cli);
 
+	cli->conn_max = 0;
+	atomic64_set(&cli->cpu_max, 0);
+	atomic64_set(&cli->req_max, 0);
+	atomic64_set(&cli->cpu_curr, 0);
+	atomic64_set(&cli->req_curr, 0);
+	spin_lock_init(&cli->training_num_lock);
+	cli->jiffies = 0;
+	spin_lock_init(&cli->jiffies_lock);
+	cli->req_training_num = 0;
+	cli->conn_training_num = 0;
+	cli->cpu_training_num = 0;
+
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
 	ent->xff_addr = ctx->xff_addr;
 	tfw_str_to_cstr(&ctx->user_agent, ent->user_agent,
@@ -279,6 +292,95 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 }
 EXPORT_SYMBOL(tfw_client_obtain);
 ALLOW_ERROR_INJECTION(tfw_client_obtain, NULL);
+
+static inline void
+__tfw_client_training_update(atomic64_t *max, u64 curr, bool new_client,
+			     void (*adjust)(u64, u64, bool))
+{
+	u64 delta1, delta2, old_max;
+
+	old_max = atomic64_read(max);
+
+	/*
+	 * Can be called concurrentrly on other cpu with different
+	 * curr value, so we need syncronization here.
+	 */
+	do {
+		if (curr <= old_max)
+			return;
+	} while (!atomic64_try_cmpxchg(max, &old_max, curr));
+
+	delta1 = curr - old_max;
+	delta2 = (u64)curr * curr - (u64)old_max * old_max;
+	adjust(delta1, delta2, new_client);
+}
+
+void
+tfw_client_training_update(atomic64_t *max, u64 curr, int *training_num,
+			   spinlock_t *lock, void (*adjust)(u64, u64, bool))
+{
+	bool new_client = false;
+
+	if (!tfw_mode_is_training())
+		return;
+
+	if (tfw_trainging_mode_adjust_new_start(max, training_num, lock))
+		new_client = true;
+
+	__tfw_client_training_update(max, curr, new_client, adjust);
+}
+
+void
+tfw_client_training_adjust_conn_num(u64 *max, u64 curr, int *training_num,
+				    void (*adjust)(u64, u64, bool))
+{
+	u64 delta1, delta2, old_max;
+	bool new_client = false;
+
+	if (!tfw_mode_is_training())
+		return;
+
+	/*
+	 * This function same as all `*_conn_num` functions are called
+	 * under ra->lock (private lock inside client), so we don't need
+	 * any synchronization here.
+	 */
+	if (*training_num < g_training_num) {
+		*training_num = g_training_num;
+		*max = 0;
+		new_client = true;
+	}
+
+	old_max = *max;
+	if (curr <= old_max)
+		return;
+	*max = curr;
+	delta1 = curr - old_max;
+	delta2 = (u64)curr * curr - (u64)old_max * old_max;
+	adjust(delta1, delta2, new_client);
+}
+
+void
+tfw_client_new_cpu_num_wnd(TfwClient *cli)
+{
+	u64 timestamp;
+
+	if (!tfw_mode_is_defence())
+		return;
+
+	timestamp = get_jiffies_64();
+	/*
+	 * We calculate `mean` and `std` of cpu usage during `tfw_training_mod_period`
+	 * or some less time if training mode was stopped manually. We should calculate
+	 * z-score with the same time window.
+	 */
+	if (unlikely(timestamp - cli->jiffies > training_time_in_jiffies)) {
+		spin_lock(&cli->jiffies_lock);
+		cli->jiffies = timestamp;
+		atomic64_set(&cli->cpu_curr, 0);
+		spin_unlock(&cli->jiffies_lock);
+	}
+}
 
 /**
  * Beware: @fn is called under client hash bucket spin lock.
