@@ -38,6 +38,7 @@
 #include "tls.h"
 #include "vhost.h"
 #include "tcp.h"
+#include "training.h"
 #include "lib/fault_injection_alloc.h"
 
 /* Common tls configuration for all vhosts. */
@@ -80,6 +81,8 @@ tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	struct sk_buff *nskb = NULL;
 	TlsCtx *tls = tfw_tls_context(conn);
 	TfwFsmData data_up = {};
+	TfwClient *cli = (TfwClient *)conn->peer;
+	u64 cpu_curr;
 
 	/*
 	 * Perform TLS handshake if necessary and decrypt the TLS message
@@ -89,6 +92,17 @@ tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 next_msg:
 	spin_lock(&tls->lock);
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
+
+	tfw_client_new_cpu_num_wnd(cli);
+	cpu_curr = atomic64_inc_return(&cli->cpu_curr);
+	tfw_client_training_update(&cli->cpu_max, cpu_curr,
+				   &cli->cpu_training_num,
+				   &cli->training_num_lock,
+				   tfw_training_mode_adjust_cpu_num);
+	if (!tfw_training_mode_defence_cpu_num(cpu_curr)) {
+		spin_unlock(&tls->lock);
+		return T_BLOCK_WITH_RST;
+	}
 
 	/* Call TLS layer to place skb into a TLS record on top of skb_list. */
 	parsed = 0;

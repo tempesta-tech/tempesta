@@ -116,6 +116,7 @@
 #include "websocket.h"
 #include "tf_filter.h"
 #include "tf_conf.h"
+#include "training.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -1470,6 +1471,17 @@ tfw_http_fwdq_reset(TfwSrvConn *srv_conn, struct list_head *dst)
 static inline void
 tfw_http_req_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
+
+	if (cli) {
+		u64 curr = atomic64_inc_return(&cli->req_curr);
+
+		tfw_client_training_update(&cli->req_max, curr,
+					   &cli->req_training_num,
+					   &cli->training_num_lock,
+					   tfw_training_mode_adjust_req_num);
+	}
+
 	list_add_tail(&req->fwd_list, &srv_conn->fwd_queue);
 	srv_conn->qsize++;
 	if (tfw_http_req_is_nip(req))
@@ -1484,6 +1496,11 @@ tfw_http_req_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 static inline void
 tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
+
+	if (cli)
+		atomic64_dec(&cli->req_curr);
+
 	tfw_http_req_nip_delist(srv_conn, req);
 	list_del_init(&req->fwd_list);
 	srv_conn->qsize--;
@@ -7072,6 +7089,18 @@ out:
 	tfw_http_req_zap_error(&eq);
 }
 
+static inline int
+tfw_http_resp_filtout(TfwHttpMsg *hmresp)
+{
+	TfwHttpReq *req = hmresp->req;
+
+	tfw_http_popreq(hmresp, false);
+	TFW_INC_STAT_BH(serv.msgs_filtout);
+	/* The response is freed by tfw_http_req_block(). */
+	return tfw_http_req_block(req, 403, "response blocked: filtered out",
+				  HTTP2_ECODE_PROTO);
+}
+
 /*
  * Post-process the response. Pass it to modules registered with GFSM
  * for further processing. Finish the request/response exchange properly
@@ -7081,7 +7110,6 @@ static int
 tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 {
 	int r;
-	TfwHttpReq *req = hmresp->req;
 
 	BUG_ON(!hmresp->conn);
 
@@ -7101,11 +7129,7 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 	BUG_ON(r != T_BLOCK);
 
 error:
-	tfw_http_popreq(hmresp, false);
-	TFW_INC_STAT_BH(serv.msgs_filtout);
-	/* The response is freed by tfw_http_req_block(). */
-	return tfw_http_req_block(req, 403, "response blocked: filtered out",
-				  HTTP2_ECODE_PROTO);
+	return tfw_http_resp_filtout(hmresp);
 }
 
 /*
@@ -7370,10 +7394,24 @@ next_msg:
 	cli_conn = (TfwCliConn *)hmresp->req->conn;
 	/* `cli_conn` is equal to zero for health monitor requests. */
 	if (likely(cli_conn)) {
-		if (TFW_FSM_TYPE(cli_conn->proto.type) == TFW_FSM_H2)
+		TfwClient *cli = (TfwClient *)cli_conn->peer;
+		u64 cpu_curr;
+
+		if (TFW_FSM_TYPE(cli_conn->proto.type) == TFW_FSM_H2) {
 			conn_stop = !hmresp->req->stream;
-		else
-			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP, hmresp->req->flags);
+		} else {
+			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP,
+					     hmresp->req->flags);
+		}
+
+		tfw_client_new_cpu_num_wnd(cli);
+		cpu_curr = atomic64_inc_return(&cli->cpu_curr);
+		tfw_client_training_update(&cli->cpu_max, cpu_curr,
+					   &cli->cpu_training_num,
+					   &cli->training_num_lock,
+					   tfw_training_mode_adjust_cpu_num);
+		if (!tfw_training_mode_defence_cpu_num(cpu_curr))
+			return tfw_http_resp_filtout(hmresp);
 	} else {
 		conn_stop = false;
 	}

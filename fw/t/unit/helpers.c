@@ -42,6 +42,7 @@
 #include "access_log.h"
 #include "tf_conf.h"
 #include "tf_filter.h"
+#include "training.h"
 
 static TfwConn conn_req, conn_resp;
 
@@ -506,6 +507,39 @@ u32
 tfh_get_records_rate(HttpTfh fingerprint)
 {
 	return 0;
+}
+
+void
+tfw_client_training_update(atomic64_t *max, u64 curr, int *training_num,
+			   spinlock_t *lock, void (*adjust)(u64, u64, bool))
+{
+}
+
+void
+tfw_training_mode_adjust_req_num(u64 delta1, u64 delta2, bool new_client)
+{
+}
+
+bool
+tfw_training_mode_defence_req_num(u64 val)
+{
+	return true;
+}
+
+void
+tfw_training_mode_adjust_cpu_num(u64 delta1, u64 delta2, bool new_client)
+{
+}
+
+bool
+tfw_training_mode_defence_cpu_num(u64 val)
+{
+	return true;
+}
+
+void
+tfw_client_new_cpu_num_wnd(TfwClient *cli)
+{
 }
 
 TfwCfgSpec tf_hash_specs[0];
