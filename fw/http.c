@@ -2053,6 +2053,7 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		      struct list_head *eq)
 {
 	int r;
+	bool was_shutdowned;
 
 	req->jtxtstamp = jiffies;
 	tfw_http_req_init_ss_flags(srv_conn, req);
@@ -2079,7 +2080,8 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		return -EBADF;
 	}
 
-	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)))
+	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req,
+				      &was_shutdowned)))
 		return 0;
 
 	T_DBG2("%s: Forwarding error: conn=[%p] req=[%p] error=[%d]\n",

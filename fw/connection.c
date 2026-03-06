@@ -4,7 +4,7 @@
  * Generic connection management.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -148,13 +148,37 @@ tfw_connection_release(TfwConn *conn)
  *   -ENOMEM	- out-of-memory error occurred.
  */
 int
-tfw_connection_send(TfwConn *conn, TfwMsg *msg)
+tfw_connection_send(TfwConn *conn, TfwMsg *msg, bool *was_shutdowned)
 {
+	int ss_flags = READ_ONCE(msg->ss_flags);
+	int r;
+
 	/*
 	 * NOTE: after `tfw_connection_send` returns, `msg` should not be used!
 	 * See `tfw_tls_conn_send` for reference.
 	 */
-	return TFW_CONN_HOOK_CALL(conn, conn_send, msg);
+	r = TFW_CONN_HOOK_CALL(conn, conn_send, msg);
+	if (unlikely(r)) {
+		*was_shutdowned = false;
+		return r;
+	}
+
+	*was_shutdowned = (ss_flags & SS_F_CONN_CLOSE) &&
+		!(ss_flags & __SS_F_FORCE);
+	if (*was_shutdowned) {
+		BUG_ON(!(TFW_CONN_TYPE(conn) & Conn_Clnt));
+		/*
+		 * Socket that was closed by `tcp_shutdown` is not orphaned.
+		 * After receiving ack from remote peer, such socket moved
+		 * to TCP_FIN_WAIT2 state and can stay in this state unlimited
+		 * time (`tcp_fin_timeout` doesn't work for such sockets).
+		 * To prevent such situation set connection keepalive timer
+		 * to ten seconds and abort connection if this time is expired.
+		 */ 
+		tfw_cli_conn_mod_timer((TfwCliConn *)conn, 10);
+	}
+
+	return 0;
 }
 
 int

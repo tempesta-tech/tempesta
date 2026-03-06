@@ -3,7 +3,7 @@
  *
  * Websocket proxy protocol implementation for Tempesta FW.
  *
- * Copyright (C) 2022-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2022-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -217,8 +217,9 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
 int
 tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 {
-	int r;
 	TfwMsg msg = { 0 };
+	bool was_shutdowned;
+	int r;
 
 	assert_spin_locked(&conn->sk->sk_lock.slock);
 	/*
@@ -240,13 +241,13 @@ tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 
 	ss_skb_queue_tail(&msg.skb_head, skb);
 
-	if ((r = tfw_connection_send(conn->pair, &msg))) {
+	if ((r = tfw_connection_send(conn->pair, &msg, &was_shutdowned))) {
 		T_DBG("%s: cannot send data via websocket\n", __func__);
 		tfw_connection_close(conn, true);
 	}
 
 	/* When receiving data from client we consider client timeout */
-	if (TFW_CONN_TYPE(conn) & Conn_Clnt)
+	if ((TFW_CONN_TYPE(conn) & Conn_Clnt) && !was_shutdowned)
 		tfw_ws_cli_mod_timer((TfwCliConn *)conn);
 
 	return r;

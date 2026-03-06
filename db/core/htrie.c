@@ -11,7 +11,7 @@
  * and shutdown are performed in process context.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -196,6 +196,8 @@ tdb_free_vsrec(TdbHdr *dbh, TdbVRec *rec)
 static void
 tdb_htrie_free_rec(TdbHdr *dbh, TdbRec *rec)
 {
+	WARN_ON(rec->bucket);
+
 	if (dbh->before_free)
 		dbh->before_free(rec);
 
@@ -221,28 +223,93 @@ tdb_htrie_get_rec(TdbRec *rec)
 	atomic_inc(&rec->refcnt);
 }
 
-void
-tdb_htrie_put_rec(TdbHdr *dbh, TdbRec *rec)
-{
-	int refcnt = atomic_dec_return(&rec->refcnt);
-
-	BUG_ON(refcnt < 0);
-	if (!refcnt)
-		tdb_htrie_free_rec(dbh, rec);
-}
-
 /* Call only under lock. */
 static void
 tdb_rec_set_remove(TdbRec *rec)
 {
-	rec->flags |= TDB_HTRIE_REC_REMOVED_BIT;
+	rec->bucket = NULL;
+}
+
+static inline bool
+tdb_put_req_eq_cb(TdbHdr *dbh, TdbRec *rec, void *data)
+{
+	return rec == data;
+}
+
+static inline bool
+tdb_records_are_not_fixed_size(TdbHdr *dbh)
+{
+	return (TDB_HTRIE_VARLENRECS(dbh) ||
+		TDB_HTRIE_RALIGN(dbh->rec_len) >= TDB_HTRIE_MINDREC);
 }
 
 /* Call only under lock. */
 static bool
 tdb_rec_is_removed(TdbRec *rec)
 {
-	return rec->flags & TDB_HTRIE_REC_REMOVED_BIT;
+	return rec->bucket == NULL;
+}
+
+static void
+tdb_bucket_remove_fixed_size_record(TdbHdr *dbh, TdbBucket *bckt,
+				    tdb_eq_cb_t *eq_cb, void *data)
+{
+	TdbFRec *first, *rec;
+	bool has_alive = false;
+
+	TDB_HTRIE_FOREACH_REC_SMALL(dbh, bckt, first, rec, TdbFRec) {
+		if (!tdb_live_fsrec(dbh, (TdbFRec *)rec))
+			continue;
+
+		/* Record is removed, but still has users. */
+		if (tdb_rec_is_removed(rec))
+			continue;
+
+		if (!eq_cb || eq_cb(dbh, rec, data)) {
+			tdb_rec_set_remove(rec);
+			tdb_htrie_put_rec(dbh, rec);
+		} else {
+			has_alive = true;
+		}
+	}
+
+	if (!has_alive)
+		bckt->rec = 0;
+}
+
+void
+tdb_htrie_put_rec(TdbHdr *dbh, TdbRec *rec)
+{
+	int refcnt = atomic_dec_return(&rec->refcnt);
+
+	BUG_ON(refcnt < 0);
+	if (!refcnt) {
+		TdbBucket *bckt = rec->bucket;
+		tdb_eq_cb_t *eq_cb = tdb_put_req_eq_cb;
+
+		/*
+		 * There are two different strategies of record deletion:
+		 * - Record can be removed at any time (bckt is equal to zero),
+		 *   but still alive, because there are any active users. In
+		 *   this case, we just delete record here (this strategey
+		 *   ised in cache).
+		 * - Record was not removed, but all active users gone. here.
+		 *   Remove record before deletion. (this strategy used for
+		 *   clients).
+		 */
+		if (bckt) {
+			write_lock_bh(&bckt->lock);
+			if (tdb_records_are_not_fixed_size(dbh)) {
+				tdb_rec_set_remove(rec);
+				bckt->rec = 0;
+			} else {
+				tdb_bucket_remove_fixed_size_record(dbh, bckt,
+								    eq_cb, rec);
+			}
+			write_unlock_bh(&bckt->lock);
+		}
+		tdb_htrie_free_rec(dbh, rec);
+	}
 }
 
 static TdbHdr *
@@ -659,12 +726,13 @@ done:
 }
 
 static TdbRec *
-tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
-		     void *data, size_t len, bool complete)
+tdb_htrie_create_rec(TdbHdr *dbh, TdbBucket *bckt, unsigned long off,
+		     unsigned long key, void *data, size_t len, bool complete)
 {
 	char *ptr = TDB_PTR(dbh, off);
 	TdbRec *r = (TdbRec *)ptr;
 
+	BUG_ON(!bckt);
 	BUG_ON(complete && !data);
 	if (TDB_HTRIE_VARLENRECS(dbh)) {
 		TdbVRec *vr = (TdbVRec *)r;
@@ -680,6 +748,7 @@ tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
 	if (data)
 		memcpy_fast(ptr, data, len);
 
+	r->bucket = bckt;
 	r->flags |= (TDB_HTRIE_COMPLETE_BIT * complete);
 
 	atomic_set(&r->refcnt, 1);
@@ -774,7 +843,8 @@ do {									\
 			nbckt = TDB_PTR(dbh, o_b);			\
 			tdb_htrie_init_bucket(nbckt);			\
 			nbckt->rec = TDB_O2DI(nb[k].r);			\
-			tdb_htrie_create_rec(dbh, nb[k].r, r->key, r->data,\
+			tdb_htrie_create_rec(dbh, nbckt, nb[k].r,	\
+					     r->key, r->data,		\
 					     TDB_HTRIE_RBODYLEN(dbh, r),\
 					     true);			\
 			TDB_DBG("burst: copied rec=%p (len=%lu key=%#lx)"\
@@ -795,7 +865,8 @@ do {									\
 			 */						\
 			if (TDB_HTRIE_OFF(dbh, frec) == nb[k].r)	\
 				continue;				\
-			tdb_htrie_create_rec(dbh, off, r->key, r->data,	\
+			tdb_htrie_create_rec(dbh, bckt, off,		\
+					     r->key, r->data,		\
 					     TDB_HTRIE_RBODYLEN(dbh, r),\
 					     true);			\
 			TDB_DBG("burst: moved rec=%p (len=%lu key=%#lx)"\
@@ -909,6 +980,7 @@ tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size)
 	chunk->flags = 0;
 	chunk->chunk_next = 0;
 	chunk->len = size;
+	chunk->bucket = rec->bucket;
 
 	tdb_get_blk(dbh, o);
 
@@ -941,8 +1013,7 @@ tdb_bucket_remove_record(TdbHdr *dbh, TdbBucket *bckt, tdb_eq_cb_t *eq_cb,
 	 * record is removed. Variable-length records intended to store
 	 * large data, small records not expected in such case.
 	 */
-	if (TDB_HTRIE_VARLENRECS(dbh) ||
-	    TDB_HTRIE_RALIGN(dbh->rec_len) >= TDB_HTRIE_MINDREC) {
+	if (tdb_records_are_not_fixed_size(dbh)) {
 		TdbRec *rec = TDB_HTRIE_BCKT_1ST_REC(dbh, bckt);
 
 		if (!rec)
@@ -966,27 +1037,7 @@ tdb_bucket_remove_record(TdbHdr *dbh, TdbBucket *bckt, tdb_eq_cb_t *eq_cb,
 		}
 	} else {
 		/* Remove only small records. */
-		TdbFRec *first, *rec;
-		bool has_alive = false;
-
-		TDB_HTRIE_FOREACH_REC_SMALL(dbh, bckt, first, rec, TdbFRec) {
-			if (!tdb_live_fsrec(dbh, (TdbFRec *)rec))
-				continue;
-
-			/* Record is removed, but still has users. */
-			if (tdb_rec_is_removed(rec))
-				continue;
-
-			if (!eq_cb || eq_cb(dbh, rec, data)) {
-				tdb_rec_set_remove(rec);
-				tdb_htrie_put_rec(dbh, rec);
-			} else {
-				has_alive = true;
-			}
-		}
-
-		if (!has_alive)
-			bckt->rec = 0;
+		tdb_bucket_remove_fixed_size_record(dbh, bckt, eq_cb, data);
 	}
 }
 
@@ -1048,7 +1099,7 @@ tdb_htrie_assign_record(TdbHdr *dbh, TdbBucket *bckt, unsigned long key,
 		return NULL;
 	}
 	bckt->rec = TDB_O2DI(o);
-	rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
+	rec = tdb_htrie_create_rec(dbh, bckt, o, key, data, *len, complete);
 	tdb_htrie_get_rec(rec);
 	write_unlock_bh(&bckt->lock);
 
@@ -1094,10 +1145,11 @@ retry:
 		if (!o_bckt)
 			return NULL;
 
-		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
-
 		new_bckt = TDB_PTR(dbh, o_bckt);
 		new_bckt->rec = TDB_O2DI(o);
+		rec = tdb_htrie_create_rec(dbh, new_bckt, o, key, data, *len,
+					   complete);
+
 		tdb_htrie_get_rec(rec);
 
 		i = TDB_HTRIE_IDX(key, bits);
@@ -1114,6 +1166,7 @@ retry:
 		 *
 		 * TODO: Free bucket.
 		 */
+		rec->bucket = NULL;
 		tdb_htrie_free_rec(dbh, rec);
 		new_bckt->rec = 0;
 
@@ -1177,8 +1230,8 @@ retry:
 
 		o = tdb_htrie_smallrec_link(dbh, n, bckt);
 		if (o) {
-			TdbRec *rec = tdb_htrie_create_rec(dbh, o, key, data,
-							   *len, true);
+			TdbRec *rec = tdb_htrie_create_rec(dbh, bckt, o, key,
+							   data, *len, true);
 			tdb_htrie_get_rec(rec);
 			write_unlock_bh(&bckt->lock);
 			return rec;
@@ -1226,10 +1279,10 @@ retry:
 			return NULL;
 		}
 
-		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
-
 		new_bckt = TDB_PTR(dbh, o_bckt);
 		new_bckt->rec = TDB_O2DI(o);
+		rec = tdb_htrie_create_rec(dbh, new_bckt, o, key, data, *len,
+					   complete);
 
 		tdb_htrie_get_rec(rec);
 		write_unlock_bh(&bckt->lock);

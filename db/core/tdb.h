@@ -4,7 +4,7 @@
  * Generic storage layer.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, INC.
+ * Copyright (C) 2015-2026 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -53,6 +53,7 @@ typedef struct {
 #define TDB_REC_COMMON			\
 	unsigned long	key;		\
 	unsigned int	flags;		\
+	void		*bucket;	\
 	atomic_t	refcnt
 
 /**

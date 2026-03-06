@@ -4,7 +4,7 @@
  * Definitions for generic connection management at OSI level 6 (presentation).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -179,6 +179,22 @@ typedef struct {
 } TfwCliConn;
 
 #define MAX_MISSES_MAX 0xffff
+
+static inline void
+tfw_cli_conn_mod_timer(TfwCliConn *conn, unsigned int timeout)
+{
+	/*
+	 * The lock is needed because the timer deletion was moved from release() to
+	 * drop(). While release() is called when there are no other users, there is
+	 * no such luxury with drop() and the connection can still be used due to
+	 * lingering threads.
+	 */
+	spin_lock(&conn->timer_lock);
+	if (timer_pending(&conn->timer))
+		mod_timer(&conn->timer,
+			  jiffies + msecs_to_jiffies(timeout * 1000));
+	spin_unlock(&conn->timer_lock);
+}
 
 static inline unsigned int
 tfw_cli_conn_get_js_ts(TfwCliConn *conn, unsigned int freq)
@@ -610,7 +626,7 @@ extern unsigned int tfw_cli_max_concurrent_streams;
 void tfw_connection_unlink_to_sk(TfwConn *conn);
 void tfw_connection_hooks_register(TfwConnHooks *hooks, int type);
 void tfw_connection_hooks_unregister(int type);
-int tfw_connection_send(TfwConn *conn, TfwMsg *msg);
+int tfw_connection_send(TfwConn *conn, TfwMsg *msg, bool *was_shutdowned);
 int tfw_connection_recv(TfwConn *conn, struct sk_buff *skb);
 void tfw_connection_recv_finish(TfwConn *conn);
 

@@ -4,7 +4,7 @@
  * Clients handling.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -57,15 +57,9 @@ typedef struct {
 	char		user_agent[UA_CMP_LEN];
 } TfwClientEntry;
 
-typedef struct {
-	struct list_head	list;
-	unsigned long		key;
-} TfwClientLRU;
-
 static struct {
 	struct list_head	head;
-	struct list_head	freelist;
-	TfwClientLRU		*mem;
+	unsigned int		lru_size;
 } client_lru;
 
 static TDB *client_db;
@@ -76,54 +70,64 @@ static TDB *client_db;
  * TODO #515 Rewrite when remove ga_lock.
  */
 static void
-tfw_client_update_lru(unsigned long key)
+tfw_client_update_lru(TfwClient *cli)
 {
-	if (list_empty(&client_lru.freelist)) {
-		/* Free list is empty, get the last from LRU list. */
-		TfwClientLRU *last = list_last_entry(&client_lru.head,
-						     TfwClientLRU, list);
+	if (client_lru.lru_size >= client_cfg.lru_size) {
+		/*
+		 * Count of clients exceeded configured lru size, remove
+		 * previos added client from lru list and try to remove it
+		 * from TDB.
+		 */
+		TfwClient *last = list_last_entry(&client_lru.head,
+						  TfwClient, list);
 
 		list_del_init(&last->list);
-		tdb_entry_remove(client_db, last->key, NULL, NULL, false);
-		last->key = key;
-		list_add(&last->list, &client_lru.head);
+		tfw_client_put(last);
+		list_add(&cli->list, &client_lru.head);
 	} else {
-		TfwClientLRU *new = list_first_entry(&client_lru.freelist,
-						     TfwClientLRU, list);
-
-		list_del_init(&new->list);
-		new->key = key;
-		list_add(&new->list, &client_lru.head);
+		list_add(&cli->list, &client_lru.head);
+		client_lru.lru_size++;
 	}
 }
 
-static int
+static void
+tfw_client_free(TdbRec *rec)
+{
+	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
+	TfwClient *cli = &ent->cli;
+
+	/*
+	 * Client always has extra reference counter, so
+	 * it can be deleted only when client_lru.lru_size is
+	 * exceeded from `tfw_client_update_lru` or when
+	 * Tempesta FW shutdowned from `tfw_client_free_lru`
+	 */
+	WARN_ON(!list_empty(&cli->list));
+}
+
+static void
 tfw_client_init_lru(void)
 {
-	TfwClientLRU *block;
-	int i, order = get_order(sizeof(TfwClientLRU) * client_cfg.lru_size);
-
-	INIT_LIST_HEAD(&client_lru.freelist);
 	INIT_LIST_HEAD(&client_lru.head);
-
-	client_lru.mem = (TfwClientLRU *)__get_free_pages(GFP_ATOMIC, order);
-	if (!client_lru.mem) {
-		T_ERR("Can't allocate client LRU list.");
-		return -ENOMEM;
-	}
-
-	for (i = 0, block = client_lru.mem; i < client_cfg.lru_size; i++)
-		list_add(&block[i].list, &client_lru.freelist);
-
-	return 0;
+	client_lru.lru_size = 0;
 }
 
 static void
 tfw_client_free_lru(void)
 {
-	int order = get_order(sizeof(TfwClientLRU) * client_cfg.lru_size);
+	TfwClient *curr, *tmp;
 
-	free_pages((unsigned long)client_lru.mem, order);
+	spin_lock_bh(&client_db->ga_lock);
+
+	list_for_each_entry_safe(curr, tmp, &client_lru.head, list) {
+		list_del_init(&curr->list);
+		client_lru.lru_size--;
+		tfw_client_put(curr);
+	}
+
+	spin_unlock_bh(&client_db->ga_lock);
+
+	WARN_ON(client_lru.lru_size);
 }
 
 /**
@@ -188,6 +192,11 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
 
+	assert_spin_locked(&client_db->ga_lock);
+
+	INIT_LIST_HEAD(&cli->list);
+	tfw_client_update_lru(cli);
+
 	bzero_fast(&cli->class_prvt, sizeof(cli->class_prvt));
 	if (ctx->init)
 		ctx->init(cli);
@@ -201,16 +210,6 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	T_DBG("new client: cli=%p\n", cli);
 	T_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
 	T_DBG2("client %p, users=%d\n", cli, 1);
-}
-
-static int
-tfw_client_precreate(void *data)
-{
-	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
-
-	tfw_client_update_lru(ctx->key);
-
-	return 0;
 }
 
 /**
@@ -263,7 +262,6 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 
 	tdb_ctx.eq_rec =  tfw_client_addr_eq;
 	tdb_ctx.init_rec = tfw_client_ent_init;
-	tdb_ctx.precreate_rec = tfw_client_precreate;
 	tdb_ctx.len = sizeof(TfwClientEntry);
 	tdb_ctx.ctx = &ctx;
 	rec = tdb_rec_get_alloc(client_db, key, &tdb_ctx);
@@ -315,8 +313,8 @@ tfw_client_start(void)
 	if (!client_db)
 		return -EINVAL;
 
-	if (tfw_client_init_lru())
-		return -EINVAL;
+	client_db->hdr->before_free = tfw_client_free;
+	tfw_client_init_lru();
 
 	return 0;
 }
@@ -327,11 +325,10 @@ tfw_client_stop(void)
 	if (tfw_runstate_is_reconfig())
 		return;
 	if (client_db) {
+		tfw_client_free_lru();
 		tdb_close(client_db);
 		client_db = NULL;
 	}
-
-	tfw_client_free_lru();
 }
 
 static TfwCfgSpec tfw_client_specs[] = {
