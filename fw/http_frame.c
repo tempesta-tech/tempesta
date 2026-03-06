@@ -308,6 +308,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 		    TfwCloseType type)
 {
 	int r;
+	bool was_shutdowned;
 	TfwMsgIter it;
 	TfwMsg msg = {};
 	unsigned char buf[FRAME_HEADER_SIZE];
@@ -357,7 +358,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 			tfw_h2_on_tcp_entail_ack;
 	}
 
-	if ((r = tfw_connection_send((TfwConn *)conn, &msg)))
+	if ((r = tfw_connection_send((TfwConn *)conn, &msg, &was_shutdowned)))
 		goto err;
 	/*
 	 * We do not close client connection automatically here in case
