@@ -196,6 +196,8 @@ tdb_free_vsrec(TdbHdr *dbh, TdbVRec *rec)
 static void
 tdb_htrie_free_rec(TdbHdr *dbh, TdbRec *rec)
 {
+	WARN_ON(rec->bucket);
+
 	if (dbh->before_free)
 		dbh->before_free(rec);
 
@@ -235,14 +237,14 @@ tdb_htrie_put_rec(TdbHdr *dbh, TdbRec *rec)
 static void
 tdb_rec_set_remove(TdbRec *rec)
 {
-	rec->flags |= TDB_HTRIE_REC_REMOVED_BIT;
+	rec->bucket = NULL;
 }
 
 /* Call only under lock. */
 static bool
 tdb_rec_is_removed(TdbRec *rec)
 {
-	return rec->flags & TDB_HTRIE_REC_REMOVED_BIT;
+	return rec->bucket == NULL;
 }
 
 static TdbHdr *
@@ -659,12 +661,13 @@ done:
 }
 
 static TdbRec *
-tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
-		     void *data, size_t len, bool complete)
+tdb_htrie_create_rec(TdbHdr *dbh, TdbBucket *bckt, unsigned long off,
+		     unsigned long key, void *data, size_t len, bool complete)
 {
 	char *ptr = TDB_PTR(dbh, off);
 	TdbRec *r = (TdbRec *)ptr;
 
+	BUG_ON(!bckt);
 	BUG_ON(complete && !data);
 	if (TDB_HTRIE_VARLENRECS(dbh)) {
 		TdbVRec *vr = (TdbVRec *)r;
@@ -680,6 +683,7 @@ tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
 	if (data)
 		memcpy_fast(ptr, data, len);
 
+	r->bucket = bckt;
 	r->flags |= (TDB_HTRIE_COMPLETE_BIT * complete);
 
 	atomic_set(&r->refcnt, 1);
@@ -774,7 +778,8 @@ do {									\
 			nbckt = TDB_PTR(dbh, o_b);			\
 			tdb_htrie_init_bucket(nbckt);			\
 			nbckt->rec = TDB_O2DI(nb[k].r);			\
-			tdb_htrie_create_rec(dbh, nb[k].r, r->key, r->data,\
+			tdb_htrie_create_rec(dbh, nbckt, nb[k].r,	\
+					     r->key, r->data,		\
 					     TDB_HTRIE_RBODYLEN(dbh, r),\
 					     true);			\
 			TDB_DBG("burst: copied rec=%p (len=%lu key=%#lx)"\
@@ -795,7 +800,8 @@ do {									\
 			 */						\
 			if (TDB_HTRIE_OFF(dbh, frec) == nb[k].r)	\
 				continue;				\
-			tdb_htrie_create_rec(dbh, off, r->key, r->data,	\
+			tdb_htrie_create_rec(dbh, bckt, off,		\
+					     r->key, r->data,		\
 					     TDB_HTRIE_RBODYLEN(dbh, r),\
 					     true);			\
 			TDB_DBG("burst: moved rec=%p (len=%lu key=%#lx)"\
@@ -909,6 +915,7 @@ tdb_htrie_extend_rec(TdbHdr *dbh, TdbVRec *rec, size_t size)
 	chunk->flags = 0;
 	chunk->chunk_next = 0;
 	chunk->len = size;
+	chunk->bucket = rec->bucket;
 
 	tdb_get_blk(dbh, o);
 
@@ -1048,7 +1055,7 @@ tdb_htrie_assign_record(TdbHdr *dbh, TdbBucket *bckt, unsigned long key,
 		return NULL;
 	}
 	bckt->rec = TDB_O2DI(o);
-	rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
+	rec = tdb_htrie_create_rec(dbh, bckt, o, key, data, *len, complete);
 	tdb_htrie_get_rec(rec);
 	write_unlock_bh(&bckt->lock);
 
@@ -1094,10 +1101,11 @@ retry:
 		if (!o_bckt)
 			return NULL;
 
-		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
-
 		new_bckt = TDB_PTR(dbh, o_bckt);
 		new_bckt->rec = TDB_O2DI(o);
+		rec = tdb_htrie_create_rec(dbh, new_bckt, o, key, data, *len,
+					   complete);
+
 		tdb_htrie_get_rec(rec);
 
 		i = TDB_HTRIE_IDX(key, bits);
@@ -1114,6 +1122,7 @@ retry:
 		 *
 		 * TODO: Free bucket.
 		 */
+		rec->bucket = NULL;
 		tdb_htrie_free_rec(dbh, rec);
 		new_bckt->rec = 0;
 
@@ -1177,8 +1186,8 @@ retry:
 
 		o = tdb_htrie_smallrec_link(dbh, n, bckt);
 		if (o) {
-			TdbRec *rec = tdb_htrie_create_rec(dbh, o, key, data,
-							   *len, true);
+			TdbRec *rec = tdb_htrie_create_rec(dbh, bckt, o, key,
+							   data, *len, true);
 			tdb_htrie_get_rec(rec);
 			write_unlock_bh(&bckt->lock);
 			return rec;
@@ -1226,10 +1235,10 @@ retry:
 			return NULL;
 		}
 
-		rec = tdb_htrie_create_rec(dbh, o, key, data, *len, complete);
-
 		new_bckt = TDB_PTR(dbh, o_bckt);
 		new_bckt->rec = TDB_O2DI(o);
+		rec = tdb_htrie_create_rec(dbh, new_bckt, o, key, data, *len,
+					   complete);
 
 		tdb_htrie_get_rec(rec);
 		write_unlock_bh(&bckt->lock);

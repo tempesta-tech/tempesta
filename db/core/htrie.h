@@ -69,7 +69,6 @@
 
 #define TDB_HTRIE_BUCKET_REMOVE_BIT	0x1
 #define TDB_HTRIE_COMPLETE_BIT		0x1
-#define TDB_HTRIE_REC_REMOVED_BIT	0x2
 
 /**
  * Header for bucket of small records.

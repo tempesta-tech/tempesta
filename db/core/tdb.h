@@ -53,6 +53,7 @@ typedef struct {
 #define TDB_REC_COMMON			\
 	unsigned long	key;		\
 	unsigned int	flags;		\
+	void		*bucket;	\
 	atomic_t	refcnt
 
 /**
