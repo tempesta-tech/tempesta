@@ -80,16 +80,25 @@ static void
 tfw_sock_cli_keepalive_timer_cb(struct timer_list *t)
 {
 	TfwCliConn *cli_conn = from_timer(cli_conn, t, timer);
+	TfwConn *conn = (TfwConn *)cli_conn;
 
 	T_DBG("Client timeout end\n");
 
-	/*
-	 * Close the socket (and the connection) asynchronously to avoid
-	 * a deadlock on del_timer_sync(). In case of error try to close
-	 * it one second later.
-	 */
-	if (tfw_connection_close((TfwConn *)cli_conn, false))
-		mod_timer(&cli_conn->timer, jiffies + msecs_to_jiffies(1000));
+	if (TFW_CONN_TYPE(conn) & Conn_Closing) {
+		/*
+		 * If socket was shutdowned it is in TCP_FIN_WAIT1 or
+		 * TCP_FIN_WAIT2 state depends on receiving ack from
+		 * remote peer. We don't skip default closing procedure
+		 * for socket in such states, so we should call
+		 * `tfw_connection_abort` instead of `tfw_connection_close`.
+		 */
+		tfw_connection_abort(conn);
+	} else {
+		if (tfw_connection_close(conn, true)) {
+			mod_timer(&cli_conn->timer,
+				  jiffies + msecs_to_jiffies(1000));
+		}
+	}
 }
 
 static TfwCliConn *
@@ -151,22 +160,18 @@ tfw_cli_conn_release(TfwCliConn *cli_conn)
 int
 tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 {
+	bool was_shutdowned;
 	int r;
 
 	tfw_connection_get((TfwConn *)cli_conn);
-	r = tfw_connection_send((TfwConn *)cli_conn, msg);
+	r = tfw_connection_send((TfwConn *)cli_conn, msg, &was_shutdowned);
+
 	/*
-	 * The lock is needed because the timer deletion was moved from release() to
-	 * drop(). While release() is called when there are no other users, there is
-	 * no such luxury with drop() and the connection can still be used due to
-	 * lingering threads.
+	 * If connection was shutdowned keepalive timer was set
+	 * in `tfw_connection_send`.
 	 */
-	spin_lock(&cli_conn->timer_lock);
-	if (timer_pending(&cli_conn->timer))
-		mod_timer(&cli_conn->timer,
-			  jiffies +
-			  msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
-	spin_unlock(&cli_conn->timer_lock);
+	if (!was_shutdowned)
+		tfw_cli_conn_mod_timer(cli_conn, tfw_cli_cfg_ka_timeout);
 
 	if (r)
 		/* Quite usual on system shutdown. */
