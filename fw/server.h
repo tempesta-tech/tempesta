@@ -43,6 +43,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  *
  * @list	- member pointer in the list of servers of a server group;
  * @gs_timer	- grace shutdown timer;
+ * @rc_timer	- reconnect timer;
  * @sg		- back-reference to the server group;
  * @sched_data	- private scheduler data for the server;
  * @apmref	- opaque handle for APM stats;
@@ -51,12 +52,16 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @refcnt	- number of users of the server structure instance;
  * @weight	- static server weight for load balancers;
  * @flags	- server related flags: TFW_CFG_M_ACTION and HM atomic flags;
+ * @recns	- the number of reconnect attempts;
+ * @reconn_list - list of server connections to reconnect;
+ * @reconn_lock - lock for adding to @reconns array;
  * @cleanup	- called right before server is destroyed;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	struct list_head	list;
 	struct timer_list	gs_timer;
+	struct timer_list	rc_timer;
 	TfwSrvGroup		*sg;
 	void __rcu		*sched_data;
 	void			*apmref;
@@ -65,11 +70,15 @@ typedef struct {
 	atomic64_t		refcnt;
 	unsigned int		weight;
 	unsigned long		flags;
+	unsigned int		recns;
+	struct list_head	reconn_list;
+	spinlock_t		reconn_lock;
 	void			(*cleanup)(void *);
 } TfwServer;
 
 /*
- * Bits and corresponding flags for server's health monitor states.
+ * Bits and corresponding flags for server's (health monitor and some
+ * internal) states.
  * These flags are intended for @flags field of 'TfwServer' structure.
  * NOTE: In cfg.h for this field there are also flags definitions, which
  * are responsible for server's configuration processing.
@@ -79,11 +88,15 @@ enum {
 	TFW_SRV_B_HMONITOR = 0x8,
 
 	/* Server is excluded from processing. */
-	TFW_SRV_B_SUSPEND
+	TFW_SRV_B_SUSPEND,
+
+	/* Server will be removed from configuration. */
+	TFW_SRV_B_REMOVED
 };
 
 #define	TFW_SRV_F_HMONITOR		(1 << TFW_SRV_B_HMONITOR)
 #define	TFW_SRV_F_SUSPEND		(1 << TFW_SRV_B_SUSPEND)
+#define	TFW_SRV_F_REMOVED		(1 << TFW_SRV_B_REMOVED)
 
 /**
  * The servers group with the same load balancing, failovering and eviction
@@ -293,11 +306,20 @@ static const unsigned int tfw_srv_tmo_nr = ARRAY_SIZE(tfw_srv_tmo_vals);
  */
 #define TFW_SRV_MAX_RECONNECT  (UINT_MAX - ARRAY_SIZE(tfw_srv_tmo_vals))
 
+static inline unsigned int
+tfw_srv_recns_to_idx(TfwServer *srv)
+{
+	return srv->recns < tfw_srv_tmo_nr ?
+		srv->recns : tfw_srv_tmo_nr - 1;
+}
+
 static inline bool
 tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 {
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
-	unsigned int recns = READ_ONCE(srv_conn->recns);
+	TfwServer *srv = (TfwServer *)srv_conn->peer;
+	unsigned int recns = READ_ONCE(srv->recns);
+
 	/* Rescheduling could not happens during quick reconnect stage. */
 	BUG_ON(recns < tfw_srv_tmo_nr);
 	return (recns - tfw_srv_tmo_nr >= sg->max_recns);
@@ -321,6 +343,7 @@ tfw_srv_suspended(TfwServer *srv)
 	return test_bit(TFW_SRV_B_SUSPEND, &srv->flags);
 }
 
+void tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t);
 /* Server group routines. */
 TfwSrvGroup *tfw_sg_lookup(const char *name, unsigned int len);
 TfwSrvGroup *tfw_sg_lookup_reconfig(const char *name, unsigned int len);
