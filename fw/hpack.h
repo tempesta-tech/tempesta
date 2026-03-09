@@ -305,7 +305,7 @@ int tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr);
 int tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		     bool use_pool, bool dyn_indexing);
 void tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
-			     unsigned short new_size);
+			     unsigned int new_size);
 int tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		     unsigned long n, TfwHttpReq *__restrict req,
 		     unsigned int *__restrict parsed);
