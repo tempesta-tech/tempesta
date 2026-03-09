@@ -99,9 +99,8 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
-		dest->hdr_tbl_sz = min_t(unsigned int,
-					 val, HPACK_ENC_TABLE_MAX_SIZE);
-		tfw_hpack_set_rbuf_size(&ctx->hpack.enc_tbl, dest->hdr_tbl_sz);
+		tfw_hpack_set_rbuf_size(&ctx->hpack.enc_tbl, val);
+		dest->hdr_tbl_sz = ctx->hpack.enc_tbl.window;
 		break;
 
 	case HTTP2_SETTINGS_ENABLE_PUSH:
