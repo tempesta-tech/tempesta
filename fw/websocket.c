@@ -218,7 +218,6 @@ int
 tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 {
 	TfwMsg msg = { 0 };
-	bool was_shutdowned;
 	int r;
 
 	assert_spin_locked(&conn->sk->sk_lock.slock);
@@ -241,13 +240,13 @@ tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 
 	ss_skb_queue_tail(&msg.skb_head, skb);
 
-	if ((r = tfw_connection_send(conn->pair, &msg, &was_shutdowned))) {
+	if ((r = tfw_connection_send(conn->pair, &msg))) {
 		T_DBG("%s: cannot send data via websocket\n", __func__);
 		tfw_connection_close(conn, true);
 	}
 
 	/* When receiving data from client we consider client timeout */
-	if ((TFW_CONN_TYPE(conn) & Conn_Clnt) && !was_shutdowned)
+	if ((TFW_CONN_TYPE(conn) & Conn_Clnt))
 		tfw_ws_cli_mod_timer((TfwCliConn *)conn);
 
 	return r;

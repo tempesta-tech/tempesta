@@ -237,7 +237,7 @@ tdb_put_req_eq_cb(TdbHdr *dbh, TdbRec *rec, void *data)
 }
 
 static inline bool
-tdb_records_are_not_fixed_size(TdbHdr *dbh)
+tdb_records_are_large(TdbHdr *dbh)
 {
 	return (TDB_HTRIE_VARLENRECS(dbh) ||
 		TDB_HTRIE_RALIGN(dbh->rec_len) >= TDB_HTRIE_MINDREC);
@@ -251,8 +251,36 @@ tdb_rec_is_removed(TdbRec *rec)
 }
 
 static void
-tdb_bucket_remove_fixed_size_record(TdbHdr *dbh, TdbBucket *bckt,
-				    tdb_eq_cb_t *eq_cb, void *data)
+tdb_bucket_remove_large_record(TdbHdr *dbh, TdbRec *rec,
+			       tdb_eq_cb_t *eq_cb, void *data,
+			       bool force, bool put_record)
+{
+	TdbBucket *bckt = (TdbBucket *)rec->bucket;
+
+	BUG_ON(tdb_rec_is_removed(rec));
+
+	if (tdb_rec_is_complete(rec)) {
+		if (!eq_cb || eq_cb(dbh, rec, data)) {
+			tdb_rec_set_remove(rec);
+			if (put_record)
+				tdb_htrie_put_rec(dbh, rec);
+			bckt->rec = 0;
+		}
+	} else {
+		/* Remove incomplete record only if @force is set. */
+		if (force && (!eq_cb || eq_cb(dbh, rec, data))) {
+			tdb_rec_set_remove(rec);
+			if (put_record)
+				tdb_htrie_put_rec(dbh, rec);
+			bckt->rec = 0;
+		}
+	}
+}
+
+static void
+tdb_bucket_remove_small_record(TdbHdr *dbh, TdbBucket *bckt,
+			       tdb_eq_cb_t *eq_cb, void *data,
+			       bool put_record)
 {
 	TdbFRec *first, *rec;
 	bool has_alive = false;
@@ -267,7 +295,8 @@ tdb_bucket_remove_fixed_size_record(TdbHdr *dbh, TdbBucket *bckt,
 
 		if (!eq_cb || eq_cb(dbh, rec, data)) {
 			tdb_rec_set_remove(rec);
-			tdb_htrie_put_rec(dbh, rec);
+			if (put_record)
+				tdb_htrie_put_rec(dbh, rec);
 		} else {
 			has_alive = true;
 		}
@@ -280,36 +309,40 @@ tdb_bucket_remove_fixed_size_record(TdbHdr *dbh, TdbBucket *bckt,
 void
 tdb_htrie_put_rec(TdbHdr *dbh, TdbRec *rec)
 {
+	TdbBucket *bckt;
+	tdb_eq_cb_t *eq_cb;
 	int refcnt = atomic_dec_return(&rec->refcnt);
 
 	BUG_ON(refcnt < 0);
-	if (!refcnt) {
-		TdbBucket *bckt = rec->bucket;
-		tdb_eq_cb_t *eq_cb = tdb_put_req_eq_cb;
+	if (refcnt)
+	    return;
 
-		/*
-		 * There are two different strategies of record deletion:
-		 * - Record can be removed at any time (bckt is equal to zero),
-		 *   but still alive, because there are any active users. In
-		 *   this case, we just delete record here (this strategey
-		 *   ised in cache).
-		 * - Record was not removed, but all active users gone. here.
-		 *   Remove record before deletion. (this strategy used for
-		 *   clients).
-		 */
-		if (bckt) {
-			write_lock_bh(&bckt->lock);
-			if (tdb_records_are_not_fixed_size(dbh)) {
-				tdb_rec_set_remove(rec);
-				bckt->rec = 0;
-			} else {
-				tdb_bucket_remove_fixed_size_record(dbh, bckt,
-								    eq_cb, rec);
-			}
-			write_unlock_bh(&bckt->lock);
+	bckt = rec->bucket;
+	eq_cb = tdb_put_req_eq_cb;
+
+	/*
+	 * There are two different strategies of record deletion:
+	 * - Record can be removed at any time (bckt is equal to zero),
+	 *   but still alive, because there are some active users. In
+	 *   this case, we just delete record here (this strategey
+	 *   is used in the web cache).
+	 * - Record was not removed, but all active users gone.
+	 *   Mark the record as removed record before actual deletion (this strategy used for
+	 *   clients).
+	 */
+	if (bckt) {
+		write_lock_bh(&bckt->lock);
+		if (tdb_records_are_large(dbh)) {
+			tdb_bucket_remove_large_record(dbh, rec, eq_cb,
+						       rec, true, false);
+		} else {
+			tdb_bucket_remove_small_record(dbh, bckt, eq_cb, rec,
+						       false);
 		}
-		tdb_htrie_free_rec(dbh, rec);
+		write_unlock_bh(&bckt->lock);
 	}
+
+	tdb_htrie_free_rec(dbh, rec);
 }
 
 static TdbHdr *
@@ -1013,31 +1046,17 @@ tdb_bucket_remove_record(TdbHdr *dbh, TdbBucket *bckt, tdb_eq_cb_t *eq_cb,
 	 * record is removed. Variable-length records intended to store
 	 * large data, small records not expected in such case.
 	 */
-	if (tdb_records_are_not_fixed_size(dbh)) {
+	if (tdb_records_are_large(dbh)) {
 		TdbRec *rec = TDB_HTRIE_BCKT_1ST_REC(dbh, bckt);
 
 		if (!rec)
 			return;
 
-		BUG_ON(tdb_rec_is_removed(rec));
-
-		if (tdb_rec_is_complete(rec)) {
-			if (!eq_cb || eq_cb(dbh, rec, data)) {
-				tdb_rec_set_remove(rec);
-				tdb_htrie_put_rec(dbh, rec);
-				bckt->rec = 0;
-			}
-		} else {
-			/* Remove incomplete record only if @force is set. */
-			if (force && (!eq_cb || eq_cb(dbh, rec, data))) {
-				tdb_rec_set_remove(rec);
-				tdb_htrie_put_rec(dbh, rec);
-				bckt->rec = 0;
-			}
-		}
+		tdb_bucket_remove_large_record(dbh, rec, eq_cb, data,
+					       force, true);
 	} else {
 		/* Remove only small records. */
-		tdb_bucket_remove_fixed_size_record(dbh, bckt, eq_cb, data);
+		tdb_bucket_remove_small_record(dbh, bckt, eq_cb, data, true);
 	}
 }
 

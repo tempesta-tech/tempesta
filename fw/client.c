@@ -100,7 +100,7 @@ tfw_client_free(TdbRec *rec)
 	 * Client always has extra reference counter, so
 	 * it can be deleted only when client_lru.lru_size is
 	 * exceeded from `tfw_client_update_lru` or when
-	 * Tempesta FW shutdowned from `tfw_client_free_lru`
+	 * Tempesta FW shut down from `tfw_client_free_lru`
 	 */
 	WARN_ON(!list_empty(&cli->list));
 }
