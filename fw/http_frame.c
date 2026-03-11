@@ -2210,6 +2210,18 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
+		/*
+		 * This call doesn't change the stream state, but sets ctx->cur_send_headers.
+		 * We do this to force the stream scheduler to select this
+		 * stream during next sending if current sending of this stream
+		 * has been postponed due to lack of tcp window.
+		 */
+		r = tfw_h2_stream_fsm_ignore_err(ctx, stream, HTTP2_HEADERS, 0);
+		if (unlikely(r)) {
+			T_WARN("Wrong state during sending headers.\n");
+			return -EPIPE;
+		}
+
 		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_HEADERS,
 						     stream->xmit.h_len);
 		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
