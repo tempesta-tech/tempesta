@@ -1572,6 +1572,7 @@ ss_do_shutdown(struct sock *sk)
 		ss_linkerror(sk, 0);
 	else
 		SS_CONN_TYPE(sk) |= Conn_Shutdown;
+	SS_CALL(connection_on_shutdown, sk->sk_user_data);
 }
 
 static inline bool
@@ -1600,7 +1601,7 @@ ss_tx_action(void)
 
 		bh_lock_sock(sk);
 		/*
-		 * We can call ss_tx_action() for DEAD or shutdowned sock
+		 * We can call ss_tx_action() for DEAD or shut down sock
 		 * in two cases:
 		 * - Parallel requests, one of which failed with error.
 		 *   All responses to other requests which were sent after

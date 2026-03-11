@@ -225,8 +225,8 @@ EXPORT_SYMBOL(tdb_rec_next);
 
 /**
  * Decrements reference counter. If reference counter became
- * equal to zero and record is still alive (was not removed)
- * remove it, before deletion.
+ * equal to zero and record is still alive (has pointer to it's
+ * bucket) remove it from the bucket, before deletion.
  */
 void
 tdb_rec_put(TDB *db, void *rec)

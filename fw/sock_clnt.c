@@ -86,7 +86,7 @@ tfw_sock_cli_keepalive_timer_cb(struct timer_list *t)
 
 	if (TFW_CONN_TYPE(conn) & Conn_Closing) {
 		/*
-		 * If socket was shutdowned it is in TCP_FIN_WAIT1 or
+		 * If socket was shut down it is in TCP_FIN_WAIT1 or
 		 * TCP_FIN_WAIT2 state depends on receiving ack from
 		 * remote peer. We don't skip default closing procedure
 		 * for socket in such states, so we should call
@@ -157,21 +157,36 @@ tfw_cli_conn_release(TfwCliConn *cli_conn)
 	TFW_INC_STAT_BH(clnt.conn_disconnects);
 }
 
+static inline void
+tfw_cli_conn_mod_timer(TfwCliConn *conn, unsigned int timeout)
+{
+	/*
+	 * The lock is needed because the timer deletion was moved from release() to
+	 * drop(). While release() is called when there are no other users, there is
+	 * no such luxury with drop() and the connection can still be used due to
+	 * lingering threads.
+	 */
+	spin_lock(&conn->timer_lock);
+	if (timer_pending(&conn->timer))
+		mod_timer(&conn->timer,
+			  jiffies + msecs_to_jiffies(timeout * 1000));
+	spin_unlock(&conn->timer_lock);
+}
+
+
 int
 tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 {
-	bool was_shutdowned;
 	int r;
 
 	tfw_connection_get((TfwConn *)cli_conn);
-	r = tfw_connection_send((TfwConn *)cli_conn, msg, &was_shutdowned);
+	r = tfw_connection_send((TfwConn *)cli_conn, msg);
 
 	/*
-	 * If connection was shutdowned keepalive timer was set
+	 * If connection was shut down keepalive timer was set
 	 * in `tfw_connection_send`.
 	 */
-	if (!was_shutdowned)
-		tfw_cli_conn_mod_timer(cli_conn, tfw_cli_cfg_ka_timeout);
+	tfw_cli_conn_mod_timer(cli_conn, tfw_cli_cfg_ka_timeout);
 
 	if (r)
 		/* Quite usual on system shutdown. */
@@ -203,7 +218,7 @@ tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
 	/*
 	 * This function can be called both for HTTP1 and HTTP2 connections.
 	 * Moreover this function can be called when HTTP2 connection is
-	 * shutdowned before TLS hadshake was finished.
+	 * shut down before TLS hadshake was finished.
 	 */
 	h2 = TFW_CONN_PROTO(conn) == TFW_FSM_H2 ?
 		tfw_h2_context_safe(conn) : NULL;
@@ -352,16 +367,36 @@ tfw_sock_clnt_drop(struct sock *sk)
 	tfw_connection_put(conn);
 }
 
+static inline void
+tfw_cli_conn_on_shutdown(TfwConn *conn)
+{
+	static const unsigned int tcp_fin_timeout = 10;
+
+	/*
+	 * Socket that was closed by `tcp_shutdown` is not orphaned.
+	 * After receiving ack from remote peer, such socket moved
+	 * to TCP_FIN_WAIT2 state and can stay in this state unlimited
+	 * time (`tcp_fin_timeout` which was set to 10 seconds during
+	 * Tempesta FW start doesn't work for such sockets).
+	 * To prevent such situation set connection keepalive timer
+	 * to 10 seconds and abort connection if this time is expired.
+	 */ 
+	tfw_cli_conn_mod_timer((TfwCliConn *)conn, tcp_fin_timeout);
+}
+
+
 static const SsHooks tfw_sock_http_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
 	.connection_recv	= tfw_connection_recv,
+	.connection_on_shutdown	= tfw_cli_conn_on_shutdown,
 };
 
 static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
 	.connection_recv	= tfw_tls_connection_recv,
+	.connection_on_shutdown	= tfw_cli_conn_on_shutdown,
 };
 
 /*

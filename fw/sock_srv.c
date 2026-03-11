@@ -2219,7 +2219,7 @@ tfw_sock_srv_stop(void)
 	tfw_sock_srv_grace_shutdown_now();
 	tfw_sg_for_each_srv(NULL, tfw_sock_srv_disconnect_srv);
 	/*
-	 * Wait until all connections will be shutdowned gracefully
+	 * Wait until all connections will be shut down gracefully
 	 * and abort all pending connections.
 	 */
 	if (!ss_synchronize())
