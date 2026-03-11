@@ -89,6 +89,9 @@ typedef struct ss_hooks {
 
 	/* Process data received on the socket. */
 	int (*connection_recv)(TfwConn *conn, struct sk_buff *skb);
+
+	/* Callback to make some job on connection shutdown. */
+	void (*connection_on_shutdown)(TfwConn *conn);
 } SsHooks;
 
 /**
