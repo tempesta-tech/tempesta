@@ -42,6 +42,8 @@
 #define TDB_BLK_SHIFT	PAGE_SHIFT
 #define TDB_BLK_MASK	(~(TDB_BLK_SZ - 1))
 
+typedef void tdb_on_remove_cb_t(TdbHdr *dbh, TdbRec *rec);
+
 /**
  * Tempesta DB extent descriptor.
  *
@@ -231,9 +233,14 @@ tdb_rec_set_remove(TdbRec *rec)
 }
 
 static inline bool
-tdb_put_req_eq_cb(TdbHdr *dbh, TdbRec *rec, void *data)
+tdb_put_rec_eq_cb(TdbHdr *dbh, TdbRec *rec, void *data)
 {
 	return rec == data;
+}
+
+static inline void
+__no_on_remove_cb(TdbHdr *dbh, TdbRec *rec)
+{
 }
 
 static inline bool
@@ -253,34 +260,25 @@ tdb_rec_is_removed(TdbRec *rec)
 static void
 tdb_bucket_remove_large_record(TdbHdr *dbh, TdbRec *rec,
 			       tdb_eq_cb_t *eq_cb, void *data,
-			       bool force, bool put_record)
+			       tdb_on_remove_cb_t on_remove_cb,
+			       bool force)
 {
 	TdbBucket *bckt = (TdbBucket *)rec->bucket;
 
-	BUG_ON(tdb_rec_is_removed(rec));
-
-	if (tdb_rec_is_complete(rec)) {
-		if (!eq_cb || eq_cb(dbh, rec, data)) {
-			tdb_rec_set_remove(rec);
-			if (put_record)
-				tdb_htrie_put_rec(dbh, rec);
-			bckt->rec = 0;
-		}
-	} else {
-		/* Remove incomplete record only if @force is set. */
-		if (force && (!eq_cb || eq_cb(dbh, rec, data))) {
-			tdb_rec_set_remove(rec);
-			if (put_record)
-				tdb_htrie_put_rec(dbh, rec);
-			bckt->rec = 0;
-		}
+	WARN_ON(tdb_rec_is_removed(rec));
+	if (!force && !tdb_rec_is_complete(rec))
+		return;
+	if (!eq_cb || eq_cb(dbh, rec, data)) {
+		tdb_rec_set_remove(rec);
+		on_remove_cb(dbh, rec);
+		bckt->rec = 0;
 	}
 }
 
 static void
 tdb_bucket_remove_small_record(TdbHdr *dbh, TdbBucket *bckt,
 			       tdb_eq_cb_t *eq_cb, void *data,
-			       bool put_record)
+			       tdb_on_remove_cb_t on_remove_cb)
 {
 	TdbFRec *first, *rec;
 	bool has_alive = false;
@@ -295,8 +293,7 @@ tdb_bucket_remove_small_record(TdbHdr *dbh, TdbBucket *bckt,
 
 		if (!eq_cb || eq_cb(dbh, rec, data)) {
 			tdb_rec_set_remove(rec);
-			if (put_record)
-				tdb_htrie_put_rec(dbh, rec);
+			on_remove_cb(dbh, rec);
 		} else {
 			has_alive = true;
 		}
@@ -318,7 +315,7 @@ tdb_htrie_put_rec(TdbHdr *dbh, TdbRec *rec)
 	    return;
 
 	bckt = rec->bucket;
-	eq_cb = tdb_put_req_eq_cb;
+	eq_cb = tdb_put_rec_eq_cb;
 
 	/*
 	 * There are two different strategies of record deletion:
@@ -327,17 +324,17 @@ tdb_htrie_put_rec(TdbHdr *dbh, TdbRec *rec)
 	 *   this case, we just delete record here (this strategey
 	 *   is used in the web cache).
 	 * - Record was not removed, but all active users gone.
-	 *   Mark the record as removed record before actual deletion (this strategy used for
-	 *   clients).
+	 *   Mark the record as removed record before actual deletion
+	 *   (this strategy used for clients).
 	 */
 	if (bckt) {
 		write_lock_bh(&bckt->lock);
 		if (tdb_records_are_large(dbh)) {
-			tdb_bucket_remove_large_record(dbh, rec, eq_cb,
-						       rec, true, false);
+			tdb_bucket_remove_large_record(dbh, rec, eq_cb, rec,
+						       __no_on_remove_cb, true);
 		} else {
 			tdb_bucket_remove_small_record(dbh, bckt, eq_cb, rec,
-						       false);
+						       __no_on_remove_cb);
 		}
 		write_unlock_bh(&bckt->lock);
 	}
@@ -765,7 +762,9 @@ tdb_htrie_create_rec(TdbHdr *dbh, TdbBucket *bckt, unsigned long off,
 	char *ptr = TDB_PTR(dbh, off);
 	TdbRec *r = (TdbRec *)ptr;
 
-	BUG_ON(!bckt);
+	if (WARN_ON(!bckt))
+		return NULL;
+
 	BUG_ON(complete && !data);
 	if (TDB_HTRIE_VARLENRECS(dbh)) {
 		TdbVRec *vr = (TdbVRec *)r;
@@ -1053,10 +1052,11 @@ tdb_bucket_remove_record(TdbHdr *dbh, TdbBucket *bckt, tdb_eq_cb_t *eq_cb,
 			return;
 
 		tdb_bucket_remove_large_record(dbh, rec, eq_cb, data,
-					       force, true);
+					       tdb_htrie_put_rec, force);
 	} else {
 		/* Remove only small records. */
-		tdb_bucket_remove_small_record(dbh, bckt, eq_cb, data, true);
+		tdb_bucket_remove_small_record(dbh, bckt, eq_cb, data,
+					       tdb_htrie_put_rec);
 	}
 }
 
