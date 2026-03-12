@@ -374,10 +374,14 @@ tfw_cli_conn_on_shutdown(TfwConn *conn)
 	 * Tempesta FW start doesn't work for such sockets).
 	 * To prevent such situation set connection keepalive timer
 	 * to 10 seconds and abort connection if this time is expired.
+	 *
+	 * TODO 1346: Rework this part of code, during removing client
+	 * connection keep alive timer. Since we decide to patch and
+	 * reuse TCP keep alive timer, we don't need this callback and
+	 * should directly modify TCP keep alive timer from sock.c.
 	 */ 
 	tfw_cli_conn_mod_timer((TfwCliConn *)conn, tcp_fin_timeout);
 }
-
 
 static const SsHooks tfw_sock_http_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
