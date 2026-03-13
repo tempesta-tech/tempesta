@@ -43,60 +43,119 @@ namespace tus {
 
 /*
  * ------------------------------------------------------------------------
- *	std::expected API for the data path
+ *	std::expected API for the data path:
+ * 		return std::expected<result, Error<Enum, Category>>
  * ------------------------------------------------------------------------
  */
-enum class Err : int {
-	// Clickhouse error.
-	DB_SRV_FATAL,
-	DB_CLT_TRANSIENT,
+/**
+ * ErrorCategoryBase defines a compile-time contract for error categories.
+ */
+template <typename Derived>
+struct ErrorCategoryBase
+ {
+	/**
+	 * We could use the CategoryId enum instead of uint16_t, but this would make
+	 * Tempesta aware of Escudo modules. On the other hand, having a single enum
+	 * for all categories is more reliable.
+	 */
+	static constexpr uint16_t id()
+	{
+		static_assert(requires { Derived::Id; },
+			"Category must define: static constexpr uint16_t Id");
+		return Derived::Id;
+	}
+
+	static constexpr std::string_view name()
+	{
+		static_assert(requires { Derived::Name; },
+			"Category must define: static constexpr std::string_view Name");
+		return Derived::Name;
+	}
 };
 
-class ErrorCategory : public std::error_category {
+struct TfwCategory: ErrorCategoryBase<TfwCategory>
+{
+	static constexpr uint16_t Id = 0x1000;
+	static constexpr std::string_view Name = "tfw";
+};
+
+/**
+ * Each Error instance is tied to a specific error enum (Enum) and a category
+ * (Category) defined via ErrorCategoryBase.
+ * Categories provide stable identifiers and names, enforced at compile-time.
+ * Each error has a combined integer code() composed of the category ID and the
+ * enum value.
+ */
+template <typename Enum, typename Category>
+class Error
+{
 public:
-	const char *
-	name() const noexcept override
+	constexpr Error(Enum e): enum_val_(static_cast<uint16_t>(e))
+		, category_id_(Category::id()), category_name_(Category::name())
 	{
-		return "error";
+		static_assert(std::is_same_v<std::underlying_type_t<Enum>, uint16_t>,
+			      "Enum underlying type must be uint16_t");
+		code_ = compose_code(category_id_, enum_val_);
 	}
 
-	std::string
-	message(int e) const override
+public:
+	/* Code to return outside the module*/
+	constexpr int
+	code() const noexcept
 	{
-		switch (static_cast<Err>(e)) {
-		case Err::DB_SRV_FATAL:
-			return "Database unrecoverable server error";
-		case Err::DB_CLT_TRANSIENT:
-			return "Database recoverable client error";
-		default:
-			return "Unknown error";
-		}
+		return code_;
 	}
+
+	constexpr std::string_view
+	category_name() const noexcept
+	{
+		return category_name_;
+	}
+
+	constexpr std::string_view
+	message() const
+	{
+		return message(static_cast<Enum>(enum_val_));
+	}
+
+	/* Message with category ane error */
+	friend std::ostream&
+	operator<<(std::ostream& os, const Error& err)
+	{
+		return os << err.category_name_ << ": " << err.message()
+			  << " (0x" << std::hex << err.code_ << std::dec << ")";
+	}
+
+private:
+	static constexpr int
+	compose_code(uint16_t category_id, uint16_t enum_val) noexcept
+	{
+		return (category_id << 16) | enum_val;
+	}
+
+private:
+	int			code_;
+	uint16_t		enum_val_;
+	uint16_t		category_id_;
+	std::string_view	category_name_;
 };
 
-const std::error_category &tfw_error_category();
-
-inline std::error_code
-make_error_code_from_int(int e) noexcept
+inline std::string
+code_to_hex(int code)
 {
-	return {e, tfw_error_category()};
+	bool is_neg = code < 0;
+	int abs_code = is_neg ? -code : code;
+
+	return fmt::format("{}0x{:08X}", is_neg ? "-" : "", abs_code);
 }
 
-inline std::error_code
-make_error_code(Err e) noexcept
-{
-	return make_error_code_from_int(static_cast<int>(e));
-}
-
-[[nodiscard]] inline auto
-error(Err e) noexcept
-{
-	return std::unexpected(std::error_code(std::to_underlying(e),
-					       tfw_error_category()));
-}
-
-template <typename T>
-using Error = std::expected<T, std::error_code>;
+/**
+ * TODO: Design a mechanism to recover the category and enum from an error code,
+ * so that a full trace of the error can be reconstructed within a module. Enable
+ * throwing exceptions carrying the Error object, so that at the catch site the
+ * relevant information—category, enum, code, and message—can be easily retrieved
+ * for tracing, diagnostics, and returning the error code outside the module.
+ */
 
 /*
  * ------------------------------------------------------------------------
@@ -163,9 +222,3 @@ template <typename... Args>
 Except(fmt::format_string<Args...>, Args&&...) -> Except<Args...>;
 
 } // tus namespace
-
-namespace std {
-	template<>
-	struct is_error_code_enum<tus::Err> : true_type
-	{};
-}
