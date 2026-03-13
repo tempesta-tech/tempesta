@@ -111,45 +111,17 @@ index f4d82379b..7f0739d59 100644
  		}
  
  		/* Clip off the overlapping region and start over. */
-diff --git a/arch/x86/crypto/blake2s-glue.c b/arch/x86/crypto/blake2s-glue.c
-index 0313f9673..3836b1f4b 100644
---- a/arch/x86/crypto/blake2s-glue.c
-+++ b/arch/x86/crypto/blake2s-glue.c
-@@ -40,13 +40,21 @@ void blake2s_compress(struct blake2s_state *state, const u8 *block,
- 		const size_t blocks = min_t(size_t, nblocks,
- 					    SZ_4K / BLAKE2S_BLOCK_SIZE);
- 
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+		kernel_fpu_begin_mask_no_bh(KFPU_MXCSR);
-+#else
- 		kernel_fpu_begin();
-+#endif
- 		if (IS_ENABLED(CONFIG_AS_AVX512) &&
- 		    static_branch_likely(&blake2s_use_avx512))
- 			blake2s_compress_avx512(state, block, blocks, inc);
- 		else
- 			blake2s_compress_ssse3(state, block, blocks, inc);
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+		kernel_fpu_end_no_bh();
-+#else
- 		kernel_fpu_end();
-+#endif
- 
- 		nblocks -= blocks;
- 		block += blocks * BLAKE2S_BLOCK_SIZE;
 diff --git a/arch/x86/include/asm/fpu/api.h b/arch/x86/include/asm/fpu/api.h
-index f86ad3335..8958c3e02 100644
+index f86ad3335..10b01e057 100644
 --- a/arch/x86/include/asm/fpu/api.h
 +++ b/arch/x86/include/asm/fpu/api.h
-@@ -26,6 +26,12 @@
+@@ -26,6 +26,10 @@
  #define KFPU_387	_BITUL(0)	/* 387 state will be initialized */
  #define KFPU_MXCSR	_BITUL(1)	/* MXCSR will be initialized */
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +extern void __kernel_fpu_begin_mask(unsigned int kfpu_mask);
 +extern void __kernel_fpu_end_bh(void);
-+extern void kernel_fpu_begin_mask_no_bh(unsigned int kfpu_mask);
-+extern void kernel_fpu_end_no_bh(void);
 +#endif
  extern void kernel_fpu_begin_mask(unsigned int kfpu_mask);
  extern void kernel_fpu_end(void);
@@ -211,7 +183,7 @@ index f439763f4..8b54891b1 100644
  	 * Ensure that access to the per CPU representation has the initial
  	 * boot CPU configuration.
 diff --git a/arch/x86/kernel/fpu/core.c b/arch/x86/kernel/fpu/core.c
-index 1209c7aeb..586ded5fa 100644
+index 1209c7aeb..3a9aa7d98 100644
 --- a/arch/x86/kernel/fpu/core.c
 +++ b/arch/x86/kernel/fpu/core.c
 @@ -57,6 +57,10 @@ DEFINE_PER_CPU(struct fpu *, fpu_fpregs_owner_ctx);
@@ -237,23 +209,10 @@ index 1209c7aeb..586ded5fa 100644
  	WARN_ON_FPU(!irq_fpu_usable());
  	WARN_ON_FPU(this_cpu_read(in_kernel_fpu));
  
-@@ -441,17 +443,74 @@ void kernel_fpu_begin_mask(unsigned int kfpu_mask)
+@@ -441,14 +443,48 @@ void kernel_fpu_begin_mask(unsigned int kfpu_mask)
  	if (unlikely(kfpu_mask & KFPU_387) && boot_cpu_has(X86_FEATURE_FPU))
  		asm volatile ("fninit");
  }
-+
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+void kernel_fpu_begin_mask_no_bh(unsigned int kfpu_mask)
-+{
-+	/* SoftIRQ in the Tempesta kernel always enables FPU. */
-+	if (likely(in_serving_softirq()))
-+		return;
-+	preempt_disable();
-+
-+	__kernel_fpu_begin_mask(kfpu_mask);
-+}
-+EXPORT_SYMBOL_GPL(kernel_fpu_begin_mask_no_bh);
-+#endif
 +
 +void kernel_fpu_begin_mask(unsigned int kfpu_mask)
 +{
@@ -267,7 +226,8 @@ index 1209c7aeb..586ded5fa 100644
 +	 * preciseely that softirq uses FPU, so we have to disable softirq as
 +	 * well as task preemption.
 +	 */
-+	local_bh_disable();
++	if (!irqs_disabled())
++		local_bh_disable();
 +#endif
 +	preempt_disable();
 +
@@ -293,26 +253,12 @@ index 1209c7aeb..586ded5fa 100644
 +
  	preempt_enable();
 +#ifdef CONFIG_SECURITY_TEMPESTA
-+	local_bh_enable();
++	if (!irqs_disabled())
++		local_bh_enable();
 +#endif
  }
  EXPORT_SYMBOL_GPL(kernel_fpu_end);
  
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+void kernel_fpu_end_no_bh(void)
-+{
-+	if (likely(in_serving_softirq()))
-+		return;
-+	__kernel_fpu_end_bh();
-+
-+	preempt_enable();
-+}
-+EXPORT_SYMBOL_GPL(kernel_fpu_end_no_bh);
-+#endif
-+
- /*
-  * Sync the FPU register state to current's memory register state when the
-  * current task owns the FPU. The hardware register state is preserved.
 diff --git a/crypto/aead.c b/crypto/aead.c
 index cade53241..fcc8a9226 100644
 --- a/crypto/aead.c
