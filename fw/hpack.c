@@ -3718,9 +3718,10 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
  * into the HTTP/2 HPACK format.
  */
 int
-tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr)
+tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
+		    bool dyn_indexing)
 {
-	return __tfw_hpack_encode(resp, hdr, true, true, true);
+	return __tfw_hpack_encode(resp, hdr, true, dyn_indexing, true);
 }
 
 void
@@ -3760,11 +3761,13 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
 }
 
 int
-tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream)
+tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *tbl, struct sk_buff *skb_head,
+			   unsigned int offset,
+			   unsigned int *acc_len)
 {
 	TfwMsgIter it = {
-		.skb = stream->xmit.skb_head,
-		.skb_head = stream->xmit.skb_head,
+		.skb = skb_head,
+		.skb_head = skb_head,
 		.frag = -1
 	};
 	TfwStr new_size = {};
@@ -3778,15 +3781,15 @@ tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream)
 	new_size.data = tmp.buf;
 	new_size.len = tmp.sz;
 
-	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
-					 FRAME_HEADER_SIZE);
+	data = ss_skb_data_ptr_by_offset(skb_head,
+					 offset + FRAME_HEADER_SIZE);
 	BUG_ON(!data);
 
 	r = tfw_http_msg_insert(&it, &data, &new_size);
 	if (unlikely(r))
 		return r;
 
-	stream->xmit.h_len += tmp.sz;
+	*acc_len += tmp.sz;
 	tbl->wnd_changed = false;
 
 	return 0;
