@@ -2139,6 +2139,14 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	return r;
 }
 
+static inline int
+__tfw_h2_is_ready_to_send_postponed(const TfwH2Ctx *ctx,
+				    const TfwStream *stream)
+{
+	return stream->xmit.postponed && !stream->xmit.frame_length &&
+	       !ctx->cur_send_headers;
+}
+
 static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			   bool stream_is_exclusive, unsigned int mss_now,
@@ -2165,7 +2173,7 @@ do {									\
 	T_FSM_EXIT();							\
 } while(0)
 
-#define CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(type, len)			\
+#define CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(type, len)		\
 do {									\
 	unsigned int max_len;						\
 	unsigned int min_len;						\
@@ -2226,13 +2234,15 @@ do {									\
 			return -EPIPE;
 		}
 
-		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_HEADERS,
-						     stream->xmit.h_len);
+		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_HEADERS,
+							     stream->xmit.h_len);
 		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
 			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
-						       stream);
+						       stream->xmit.skb_head,
+						       0,
+						       &stream->xmit.h_len);
 			if (unlikely(r < 0)) {
-				T_WARN("Failed to encode hpack dynamic"
+				T_WARN("Failed to encode hpack dynamic "
 				       "table size %d", r);
 				return r;
 			}
@@ -2249,8 +2259,8 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
-		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_CONTINUATION,
-						     stream->xmit.h_len);
+		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_CONTINUATION,
+							     stream->xmit.h_len);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
 		if (unlikely(r)) {
@@ -2265,8 +2275,8 @@ do {									\
 		if (unlikely(ctx->rem_wnd <= 0 || stream->rem_wnd <= 0))
 			ADJUST_BLOCKED_STREAMS_AND_EXIT(0, HTTP2_DATA);
 
-		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_DATA,
-						     stream->xmit.b_len);
+		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_DATA,
+							     stream->xmit.b_len);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
 		if (unlikely (r)) {
@@ -2280,8 +2290,28 @@ do {									\
 
 	T_FSM_STATE(HTTP2_MAKE_TRAILER_FRAMES) {
 		is_trailer_cont = true;
-		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_HEADERS,
-						     stream->xmit.t_len);
+		/*
+		 * This call doesn't change the stream state, but sets ctx->cur_send_headers.
+		 * We do this to force the stream scheduler to select this
+		 * stream during next sending if current sending of this stream
+		 * has been postponed due to lack of tcp window.
+		 */
+		r = tfw_h2_stream_fsm_ignore_err(ctx, stream, HTTP2_HEADERS, 0);
+
+		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_HEADERS,
+							     stream->xmit.t_len);
+
+		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
+			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
+						       stream->xmit.skb_head,
+						       stream->xmit.frame_length,
+						       &stream->xmit.t_len);
+			if (unlikely(r < 0)) {
+				T_WARN("Failed to encode hpack dynamic "
+				       "table size %d", r);
+				return r;
+			}
+		}
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
 		if (unlikely(r)) {
@@ -2294,8 +2324,8 @@ do {									\
 
 	T_FSM_STATE(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES) {
 		is_trailer_cont = true;
-		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_CONTINUATION,
-						     stream->xmit.t_len);
+		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_CONTINUATION,
+							     stream->xmit.t_len);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
 		if (unlikely(r)) {
@@ -2308,42 +2338,40 @@ do {									\
 
 	T_FSM_STATE(HTTP2_SEND_FRAMES) {
 		if (likely(stream->xmit.frame_length)) {
-			r =  tfw_h2_entail_stream_skb(sk, ctx, stream,
-						      &stream->xmit.frame_length,
-						      false);
+			r = tfw_h2_entail_stream_skb(sk, ctx, stream,
+						     &stream->xmit.frame_length,
+						     false);
 			if (unlikely(r)) {
 				T_WARN("Failed to send frame %d", r);
 				return r;
 			}
 		}
 
-		if (stream->xmit.h_len) {
+		if (stream->xmit.h_len)
 			T_FSM_JMP(HTTP2_MAKE_CONTINUATION_FRAMES);
-		} else {
-			if (stream->xmit.postponed
-			    && !stream->xmit.frame_length
-			    && !ctx->cur_send_headers) {
-				struct sk_buff **postponed =
-					&stream->xmit.postponed;
 
-				r = ss_skb_tcp_entail_list(sk, postponed);
-				if (unlikely(r)) {
-					T_WARN("Failed to send postponed"
-					       " frames %d", r);
-					return r;
-				}
+		if (__tfw_h2_is_ready_to_send_postponed(ctx, stream)) {
+			struct sk_buff **postponed = &stream->xmit.postponed;
+
+			r = ss_skb_tcp_entail_list(sk, postponed);
+			if (unlikely(r)) {
+				T_WARN("Failed to send postponed frames %d", r);
+				return r;
 			}
-			if (stream->xmit.b_len) {
-				T_FSM_JMP(HTTP2_MAKE_DATA_FRAMES);
-			} else if (stream->xmit.t_len) {
-				if (likely(!is_trailer_cont)) {
-					T_FSM_JMP(HTTP2_MAKE_TRAILER_FRAMES);
-				} else {
-					T_FSM_JMP(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES);
-				}
+		}
+
+		if (stream->xmit.b_len) {
+			T_FSM_JMP(HTTP2_MAKE_DATA_FRAMES);
+		}
+		else if (stream->xmit.t_len) {
+			if (likely(!is_trailer_cont)) {
+				T_FSM_JMP(HTTP2_MAKE_TRAILER_FRAMES);
 			} else {
-				fallthrough;
+				T_FSM_JMP(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES);
 			}
+		}
+		else {
+			fallthrough;
 		}
 	}
 
@@ -2401,7 +2429,7 @@ do {									\
 	return r;
 
 #undef FRAME_XMIT_FSM_NEXT
-#undef CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE
+#undef CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT
 #undef ADJUST_BLOCKED_STREAMS_AND_EXIT
 }
 
