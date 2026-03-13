@@ -5385,7 +5385,7 @@ tfw_h2_hpack_encode_headers(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		    || tgt->flags & TFW_STR_TRAILER_HDR)
 			continue;
 
-		r = tfw_hpack_transform(resp, tgt);
+		r = tfw_hpack_transform(resp, tgt, true);
 		if (unlikely(r))
 			return r;
 	}
