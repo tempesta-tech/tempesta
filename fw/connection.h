@@ -257,8 +257,6 @@ enum {
 	/* Has non-idempotent requests. */
 	TFW_CONN_B_HASNIP,
 
-	/* Remove connection */
-	TFW_CONN_B_DEL,
 	/* Connection is in use or at least scheduled to be established. */
 	TFW_CONN_B_ACTIVE,
 	/* Connection is disconnected and stopped. */
