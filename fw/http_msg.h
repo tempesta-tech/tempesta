@@ -163,7 +163,7 @@ int tfw_h2_msg_expand_from_pool_lc(TfwHttpMsg *hm, const TfwStr *str,
 				   TfwHttpTransIter *mit);
 int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *cmp_hdr);
 int __http_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
-int tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup);
+int tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwSkbCleanup *cleanup);
 
 #define TFW_H2_MSG_HDR_ADD(hm, name, val, idx)				\
 	tfw_h2_msg_hdr_add(hm, name, sizeof(name) - 1, val,		\

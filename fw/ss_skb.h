@@ -23,6 +23,7 @@
 #define __TFW_SS_SKB_H__
 
 #include <linux/skbuff.h>
+#include <linux/skbuff_ref.h>
 #include <net/tcp.h>
 
 #include "str.h"
@@ -58,6 +59,19 @@ struct tfw_skb_cb {
 };
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
+
+/**
+ * Represents a data that should be cleaned up.
+ *
+ * @skb_head	- head of skb list that must be freed;
+ * @pages	- pages that must be freed;
+ * @pages_sz	- current number of @pages;
+ */
+typedef struct {
+	struct sk_buff	*skb_head;
+	netmem_ref	pages[MAX_SKB_FRAGS];
+	unsigned char	pages_sz;
+} TfwSkbCleanup;
 
 void ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
 		      TfwClientMem *owner, unsigned int delta);
@@ -486,6 +500,80 @@ int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff **skb, char* addr,
 int ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
 			    unsigned char *split_point);
 int ss_skb_realloc_headroom(struct sk_buff *skb);
+
+/* Remove all paged fragments from @skb and move them into @cleanup. */
+static inline void
+ss_skb_rm_all_frags(struct sk_buff *skb, TfwSkbCleanup *cleanup)
+{
+	int i, len;
+	struct skb_shared_info *si = skb_shinfo(skb);
+
+	for (i = 0; i < si->nr_frags; i++)
+		cleanup->pages[i] = skb_frag_netmem(&si->frags[i]);
+
+	len = skb->data_len;
+	cleanup->pages_sz = si->nr_frags;
+	si->nr_frags = 0;
+	ss_skb_adjust_data_len(skb, -len);
+}
+
+/*
+ * Remove paged fragments until @frag_idx and move them into @cleanup. Shift
+ * remaining fragments to the beginning of fragments array.
+ */
+static inline void
+ss_skb_shift_frags(struct sk_buff *skb, int frag_idx,
+		   TfwSkbCleanup *cleanup)
+{
+	int i, len;
+	struct skb_shared_info *si = skb_shinfo(skb);
+
+	for (i = 0, len = 0; i < frag_idx; i++) {
+		cleanup->pages[i] = skb_frag_netmem(&si->frags[i]);
+		cleanup->pages_sz++;
+		len += skb_frag_size(&si->frags[i]);
+	}
+
+	si->nr_frags -= frag_idx;
+	ss_skb_adjust_data_len(skb, -len);
+	memmove(&si->frags, &si->frags[frag_idx],
+		(si->nr_frags) * sizeof(skb_frag_t));
+}
+
+/*
+ * Shrink fragment with @frag_idx index, set @nbegin as the starting position
+ * of that fragment.
+ */
+static inline void
+ss_skb_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
+{
+	skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_idx];
+	const int len = nbegin - (char *)skb_frag_address(frag);
+
+	/* Add offset and decrease fragment's size */
+	skb_frag_off_add(frag, len);
+	skb_frag_size_sub(frag, len);
+	ss_skb_adjust_data_len(skb, -len);
+}
+
+static inline void
+ss_skb_free_cleanup(TfwSkbCleanup *cleanup)
+{
+	int i;
+	struct sk_buff *skb;
+
+	while ((skb = ss_skb_dequeue(&cleanup->skb_head)))
+		__ss_kfree_skb(skb);
+
+	for (i = 0; i < cleanup->pages_sz; i++)
+		/*
+		 * Pass "true" even for non recyclable pages, relying on check
+		 * pp_magic == PP_SIGNATURE in napi_pp_put_page(), which avoid
+		 * recycling of non page_pool pages. Overhead seems the same
+		 * as to have/maintain flag for each fragment.
+		 */
+		skb_page_unref(cleanup->pages[i], true);
+}
 
 #if defined(DEBUG) && (DEBUG >= 4)
 #define ss_skb_queue_for_each_do(queue, lambda)		\
