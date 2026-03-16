@@ -25,7 +25,6 @@
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
-#include <linux/skbuff_ref.h>
 #include <net/sock.h>
 #include <net/tcp.h>
 #include <net/xfrm.h>
