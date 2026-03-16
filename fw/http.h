@@ -344,19 +344,6 @@ typedef struct {
 } TfwHttpCond;
 
 /**
- * Represents the data that should be cleaned up after message transformation.
- *
- * @skb_head	- head of skb list that must be freed;
- * @pages	- pages that must be freed;
- * @pages_sz	- current number of @pages;
- */
-typedef struct {
-	struct sk_buff	*skb_head;
-	netmem_ref	pages[MAX_SKB_FRAGS];
-	unsigned char	pages_sz;
-} TfwHttpMsgCleanup;
-
-/**
  * HTTP Request.
  *
  * @vhost	- virtual host for the request;
@@ -404,7 +391,7 @@ struct tfw_http_req_t {
 	TfwHttpSess		*sess;
 	TfwClient		*peer;
 	void			*stale_ce;
-	TfwHttpMsgCleanup	*cleanup;
+	TfwSkbCleanup		*cleanup;
 	TfwHttpCond		cond;
 	TfwMsgParseIter		pit;
 	HttpTfh			tfh;
@@ -796,5 +783,4 @@ void tfw_http_extract_request_authority(TfwHttpReq *req);
 bool tfw_http_mark_is_in_whitlist(unsigned int mark);
 char *tfw_http_resp_status_line(int status, size_t *len);
 int tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head);
-
 #endif /* __TFW_HTTP_H__ */

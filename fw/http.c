@@ -85,7 +85,6 @@
 #include <linux/string.h>
 #include <linux/sort.h>
 #include <linux/bsearch.h>
-#include <linux/skbuff_ref.h>
 
 #undef DEBUG
 #if DBG_HTTP > 0
@@ -1799,30 +1798,11 @@ do {									\
 }
 
 static void
-__tfw_http_free_cleanup(TfwHttpMsgCleanup *cleanup)
-{
-	int i;
-	struct sk_buff *skb;
-
-	while ((skb = ss_skb_dequeue(&cleanup->skb_head)))
-		__kfree_skb(skb);
-
-	for (i = 0; i < cleanup->pages_sz; i++)
-		/*
-		 * Pass "true" even for non recyclable pages, relying on check
-		 * pp_magic == PP_SIGNATURE in napi_pp_put_page(), which avoid
-		 * recycling of non page_pool pages. Overhead seems the same
-		 * as to have/maintain flag for each fragment.
-		 */
-		skb_page_unref(cleanup->pages[i], true);
-}
-
-static void
 __tfw_http_req_cleanup(TfwHttpReq *req)
 {
 	if (!req->cleanup)
 		return;
-	__tfw_http_free_cleanup(req->cleanup);
+	ss_skb_free_cleanup(req->cleanup);
 	req->cleanup = NULL;
 }
 
@@ -3869,7 +3849,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_REQ);
 
-	req->cleanup = tfw_pool_alloc(hm->pool, sizeof(TfwHttpMsgCleanup));
+	req->cleanup = tfw_pool_alloc(hm->pool, sizeof(TfwSkbCleanup));
 	if (unlikely(!req->cleanup))
 		return -ENOMEM;
 	req->cleanup->pages_sz = 0;
@@ -4222,10 +4202,10 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	bool need_cl = req->body.len &&
 		       TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH]);
 
-	req->cleanup = tfw_pool_alloc(req->pool, sizeof(TfwHttpMsgCleanup));
+	req->cleanup = tfw_pool_alloc(req->pool, sizeof(TfwSkbCleanup));
 	if (unlikely(!req->cleanup))
 		return -ENOMEM;
-	memset(req->cleanup, 0, sizeof(TfwHttpMsgCleanup));
+	memset(req->cleanup, 0, sizeof(TfwSkbCleanup));
 
 	if (need_cl) {
 		cl_data_len = tfw_ultoa(req->body.len, cl_data, TFW_ULTOA_BUF_SIZ);
@@ -4564,7 +4544,7 @@ tfw_http_resp_get_conn_flags(TfwHttpResp *resp)
  * headers will be avoided.
  */
 static int
-tfw_http_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
+tfw_http_resp_set_empty_skb_head(TfwHttpResp *resp, TfwSkbCleanup *cleanup)
 {
 	struct sk_buff *nskb;
 	TfwMsgIter *iter = &resp->iter;
@@ -4584,7 +4564,7 @@ tfw_http_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
 }
 
 static int
-tfw_h1_resp_cutoff_headers(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
+tfw_h1_resp_cutoff_headers(TfwHttpResp *resp, TfwSkbCleanup *cleanup)
 {
 	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
 	TfwHttpReq *req = resp->req;
@@ -4682,7 +4662,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
 	TfwMsgIter *iter = &resp->iter;
-	TfwHttpMsgCleanup cleanup = {};
+	TfwSkbCleanup cleanup = {};
 	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
 							  req->vhost,
 							  TFW_VHOST_HDRMOD_RESP);
@@ -4735,7 +4715,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	r = tfw_http_msg_expand_from_pool(hm, &STR_CRLF);
 
 clean:
-	__tfw_http_free_cleanup(&cleanup);
+	ss_skb_free_cleanup(&cleanup);
 
 	return r;
 }
@@ -5822,7 +5802,7 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	int r = -EINVAL;
 	TfwHttpReq *req = resp->req;
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwHttpMsgCleanup cleanup = {};
+	TfwSkbCleanup cleanup = {};
 	TfwStr codings = {};
 	const TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location,
 							  req->vhost,
@@ -5924,7 +5904,7 @@ tfw_h2_resp_encode_headers(TfwHttpResp *resp)
 	       req, resp);
 	SS_SKB_QUEUE_DUMP(&resp->msg.skb_head);
 
-	__tfw_http_free_cleanup(&cleanup);
+	ss_skb_free_cleanup(&cleanup);
 	return r;
 }
 
