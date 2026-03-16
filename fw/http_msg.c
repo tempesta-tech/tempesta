@@ -1407,8 +1407,7 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwSkbCleanup *cleanup)
 							    it->skb, body);
 				break;
 			} else {
-				ss_skb_put(it->skb, -skb_headlen(it->skb));
-				it->skb->tail_lock = 1;
+				ss_skb_remove_linear_data(it->skb);
 			}
 		}
 

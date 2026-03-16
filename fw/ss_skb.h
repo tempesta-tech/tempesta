@@ -487,10 +487,16 @@ int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 				   struct page ***old_pages);
 int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff **skb, char* addr,
 		    int *frag_idx, size_t frag_sz);
-int
-ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
-			unsigned char *split_point);
+int ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
+			    unsigned char *split_point);
 int ss_skb_realloc_headroom(struct sk_buff *skb);
+
+static inline void
+ss_skb_remove_linear_data(struct sk_buff *skb)
+{
+	ss_skb_put(skb, -skb_headlen(skb));
+	skb->tail_lock = 1;
+}
 
 /* Remove all paged fragments from @skb and move them into @cleanup. */
 static inline void
