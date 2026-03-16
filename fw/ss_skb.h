@@ -501,6 +501,13 @@ int ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
 			    unsigned char *split_point);
 int ss_skb_realloc_headroom(struct sk_buff *skb);
 
+static inline void
+ss_skb_remove_linear_data(struct sk_buff *skb)
+{
+	ss_skb_put(skb, -skb_headlen(skb));
+	skb->tail_lock = 1;
+}
+
 /* Remove all paged fragments from @skb and move them into @cleanup. */
 static inline void
 ss_skb_rm_all_frags(struct sk_buff *skb, TfwSkbCleanup *cleanup)
