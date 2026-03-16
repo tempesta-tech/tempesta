@@ -79,7 +79,10 @@ enum {
 	TFW_SRV_B_HMONITOR = 0x8,
 
 	/* Server is excluded from processing. */
-	TFW_SRV_B_SUSPEND
+	TFW_SRV_B_SUSPEND,
+
+	/* Server will be removed from configuration. */
+	TFW_SRV_B_REMOVED
 };
 
 #define	TFW_SRV_F_HMONITOR		(1 << TFW_SRV_B_HMONITOR)

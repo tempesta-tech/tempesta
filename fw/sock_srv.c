@@ -181,6 +181,8 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 static void
 tfw_srv_conn_release(TfwSrvConn *srv_conn)
 {
+	TfwServer *srv = (TfwServer *)srv_conn->peer;
+
 	tfw_connection_release((TfwConn *)srv_conn);
 	/*
 	 * conn->sk may be zeroed if we get here after a failed
@@ -195,7 +197,7 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 	 * callback). The only reason not to start new reconnect
 	 * attempt is removing server from the current configuration.
 	 */
-	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
+	if (likely(!test_bit(TFW_SRV_B_REMOVED, &srv->flags)))
 		tfw_sock_srv_connect_try_later(srv_conn);
 	else
 		tfw_srv_conn_stop(srv_conn);
@@ -358,7 +360,7 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 	TfwConn *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
-	if (test_bit(TFW_CONN_B_DEL, &((TfwSrvConn *)conn)->flags)) {
+	if (test_bit(TFW_SRV_B_REMOVED, &srv->flags)) {
 		/**
 		 * This is executed when we intentionally close a server
 		 * connection during shutdown process. Now @sk is closed (but
@@ -446,21 +448,19 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
 	/*
-	 * Exit if connection is already stopping, or if it has never been
-	 * activated (due to some error in @sock_srv start procedure; so,
-	 * consequently, it will never gets to its destructor and will never
-	 * reach the stopped state).
+	 * Exit if connection has never been activated (due to some error
+	 * in @sock_srv start procedure; so, consequently, it will never
+	 * gets to its destructor and will never reach the stopped state).
 	 */
-	if (test_bit(TFW_CONN_B_DEL, &srv_conn->flags)
-	    || !test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
+	if (!test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
 		return 0;
 	/*
 	 * Stop any attempts to reconnect or reschedule. Every activated
 	 * connection must pass through its destructor @tfw_srv_conn_release():
 	 * either during failovering procedure or after it had been intentionally
 	 * closed via @tfw_connection_close(). So, in the following cycle, after
-	 * TFW_CONN_B_DEL bit set, we are waiting for all active connections'
-	 * destructors to be finished.
+	 * TFW_SRV_B_REMOVED bit set for appropriate server, we are waiting for
+	 * all active connection's destructors to be finished.
 	 *
 	 * NOTE: Considering mentioned cycle, connection's destructor execution
 	 * may have one of three allowed results:
@@ -474,8 +474,6 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 * If connection's destructor will have any other result - the cycle
 	 * will last forever.
 	 */
-	set_bit(TFW_CONN_B_DEL, &srv_conn->flags);
-	smp_mb__after_atomic();
 	do {
 		/*
 		 * If timer successfully deactivated here, that means the
@@ -528,9 +526,9 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	} while (!test_bit(TFW_CONN_B_STOPPED, &srv_conn->flags));
 	/*
 	 * If we here, connection is stopped (in destructor or after deactivation
-	 * of rearmed timer), and connection's resources should be cleaned - just
-	 * in case that wasn't done in destructor (bit TFW_CONN_B_DEL had been
-	 * set too late).
+	 * of rearmed timer), and connection's resources should be cleaned -
+	 * just in case that wasn't done in destructor (bit TFW_SRV_B_REMOVED
+	 * for server had been set too late).
 	 */
 	tfw_connection_release((TfwConn *)srv_conn);
 
@@ -605,6 +603,8 @@ tfw_sock_srv_abort_srv(TfwServer *srv)
 static int
 tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
+	WARN_ON(test_bit(TFW_SRV_B_REMOVED, &srv->flags));
+	set_bit(TFW_SRV_B_REMOVED, &srv->flags);
 	return tfw_peer_for_each_conn((TfwPeer *)srv, tfw_sock_srv_disconnect);
 }
 
