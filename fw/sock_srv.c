@@ -122,6 +122,62 @@ tfw_srv_conn_stop(TfwSrvConn *srv_conn)
 	tfw_server_put((TfwServer *)srv_conn->peer);
 }
 
+static inline void
+tfw_srv_conn_mod_timer(TfwSrvConn *srv_conn, unsigned int idx)
+{
+	TfwServer *srv = (TfwServer *)srv_conn->peer;
+	bool modify = false;
+
+	BUG_ON(!list_empty(&srv_conn->in_reconn_list));
+
+	spin_lock_bh(&srv->recns_lock);
+
+	/*
+	 * If server reconnection timer is already setup, we should
+	 * modify it only if new reconnection timeout is less, then
+	 * previous one.
+	 */
+	if (list_empty(&srv->recns[idx]) && idx <= srv->recns_idx) {
+		modify = true;
+		srv->recns_idx = idx;
+	}
+	list_add_tail(&srv_conn->in_reconn_list, &srv->recns[idx]);
+	++srv->recns_cnt;
+	if (modify) {
+		mod_timer(&srv->rc_timer,
+			  jiffies + msecs_to_jiffies(tfw_srv_tmo_vals[idx]));
+	}
+
+	spin_unlock_bh(&srv->recns_lock);
+}
+
+static inline bool
+tfw_srv_conn_del_timer_sync(TfwSrvConn *srv_conn)
+{
+	TfwServer *srv = (TfwServer *)srv_conn->peer;
+
+	spin_lock_bh(&srv->recns_lock);
+
+	if (likely(list_empty(&srv_conn->in_reconn_list))) {
+		spin_unlock_bh(&srv->recns_lock);
+		return false;
+	}
+
+	list_del_init(&srv_conn->in_reconn_list);
+	if (unlikely(!(--srv->recns_cnt))) {
+		srv->recns_idx = tfw_srv_tmo_nr;
+		goto out_unlock;
+	}
+
+	if (unlikely(list_empty(&srv->recns[srv->recns_idx])))
+		srv->recns_idx = tfw_server_find_new_reconnect_idx(srv);
+
+out_unlock:
+	spin_unlock_bh(&srv->recns_lock);
+
+	return true;
+}
+
 /*
  * There are several stages in the reconnect process. All stages are
  * covered by tfw_connection_repair() function.
@@ -154,13 +210,13 @@ tfw_srv_conn_stop(TfwSrvConn *srv_conn)
 static inline void
 tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 {
-	unsigned long timeout;
+	unsigned int idx;
 
 	if (srv_conn->recns < tfw_srv_tmo_nr) {
 		if (srv_conn->recns)
 			T_DBG_ADDR("Cannot establish connection",
 				   &srv_conn->peer->addr, TFW_WITH_PORT);
-		timeout = tfw_srv_tmo_vals[srv_conn->recns];
+		idx = srv_conn->recns;
 	} else {
 		if (srv_conn->recns == tfw_srv_tmo_nr || !(srv_conn->recns % 60))
 		{
@@ -171,11 +227,11 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 		}
 
 		tfw_connection_repair((TfwConn *)srv_conn);
-		timeout = tfw_srv_tmo_vals[tfw_srv_tmo_nr - 1];
+		idx = tfw_srv_tmo_nr - 1;
 	}
 	srv_conn->recns++;
 
-	mod_timer(&srv_conn->timer, jiffies + msecs_to_jiffies(timeout));
+	tfw_srv_conn_mod_timer(srv_conn, idx);
 }
 
 static void
@@ -285,26 +341,95 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	}
 }
 
-static void
+void
 tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 {
-	TfwSrvConn *srv_conn = from_timer(srv_conn, t, timer);
+#define TFW_SRV_MAX_RECONNECT_PER_TIME	10
 
-	/* A new socket is created for each connect attempt. */
-	tfw_sock_srv_connect_try(srv_conn);
+	TfwServer *srv = from_timer(srv, t, rc_timer);
+	TfwSrvConn *srv_conn, *tmp;
+	LIST_HEAD(reconnect_list);
+	unsigned int idx, count = 0;
+
+	spin_lock(&srv->recns_lock);
+
+	idx = srv->recns_idx;
+	list_splice_tail_init(&srv->recns[idx], &reconnect_list);
+
+	spin_unlock(&srv->recns_lock);
+
+	list_for_each_entry_safe(srv_conn, tmp, &reconnect_list,
+				 in_reconn_list)
+	{
+		list_del_init(&srv_conn->in_reconn_list);
+		tfw_sock_srv_connect_try(srv_conn);
+		if (++count > TFW_SRV_MAX_RECONNECT_PER_TIME)
+			break;
+	}
+
+	spin_lock(&srv->recns_lock);
+
+	srv->recns_cnt -= count;
+	/*
+	 * All connections were successfully established,
+	 * nothing to do.
+	 */
+	if (!srv->recns_cnt) {
+		BUG_ON(!list_empty(&reconnect_list));
+		srv->recns_idx = tfw_srv_tmo_nr;
+		goto out_unlock;
+	}
+
+	/*
+	 * `srv->recns_idx` can be updated upper only during
+	 * connection removing. We call `timer_shutdown_sync` before it,
+	 * so `tfw_sock_srv_connect_retry_timer_cb` never called, when
+	 * `srv->recns_idx` can be decremented.
+	 */
+	BUG_ON(srv->recns_idx > idx);
+
+	if (unlikely(!list_empty(&srv->recns[idx]) || srv->recns_idx < idx)) {
+		/*
+		 * Connections can be reestablished and released on
+		 * other cpu. If this list is not empty, or `srv->recns_idx`
+		 * is less then current `idx` some connections were added to
+		 * @recns array on other cpu, so `srv->recns_idx` is correct
+		 * and timer was already modifyed, just add remaning
+		 * connections back to the end of the appropriate list.
+		 */
+		list_splice_tail_init(&reconnect_list, &srv->recns[idx]);
+		goto out_unlock;
+	}
+
+	list_splice_init(&reconnect_list, &srv->recns[idx]);
+	/*
+	 * No one connection was added to the list with smaller index and
+	 * all connections from appropriate list were reestablished during
+	 * this function. Need to find new `srv->recns_idx` before modify
+	 * timer.
+	 */
+	if (list_empty(&srv->recns[idx]))
+		srv->recns_idx = tfw_server_find_new_reconnect_idx(srv);
+
+	/*
+	 * We need to modify timer under `recns_lock` to prevent situation
+	 * when some connection will be released on other cpu and
+	 * `srv->recns_idx` will be decremented after this lock will be
+	 * released.
+	 */
+	mod_timer(&srv->rc_timer,
+		  jiffies + msecs_to_jiffies(tfw_srv_tmo_vals[srv->recns_idx]));
+
+out_unlock:
+	spin_unlock(&srv->recns_lock);
+
+#undef TFW_SRV_MAX_RECONNECT_PER_TIME
 }
 
 static inline void
 __reset_retry_timer(TfwSrvConn *srv_conn)
 {
 	srv_conn->recns = 0;
-}
-
-static inline void
-__setup_retry_timer(TfwSrvConn *srv_conn)
-{
-	__reset_retry_timer(srv_conn);
-	timer_setup(&srv_conn->timer, tfw_sock_srv_connect_retry_timer_cb, 0);
 }
 
 static inline void
@@ -481,7 +606,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 		 * procedure, and server had not been put. See for details in
 		 * connection's destructor @tfw_srv_conn_release().
 		 */
-		if (del_timer_sync(&conn->timer)) {
+		if (tfw_srv_conn_del_timer_sync(srv_conn)) {
 			tfw_srv_conn_stop(srv_conn);
 			break;
 		}
@@ -605,6 +730,8 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
 	WARN_ON(test_bit(TFW_SRV_B_REMOVED, &srv->flags));
 	set_bit(TFW_SRV_B_REMOVED, &srv->flags);
+	timer_shutdown_sync(&srv->rc_timer);
+
 	return tfw_peer_for_each_conn((TfwPeer *)srv, tfw_sock_srv_disconnect);
 }
 
@@ -638,6 +765,7 @@ tfw_srv_conn_alloc(void)
 	tfw_connection_init((TfwConn *)srv_conn);
 	memset((char *)srv_conn + sizeof(TfwConn), 0,
 	       sizeof(TfwSrvConn) - sizeof(TfwConn));
+	INIT_LIST_HEAD(&srv_conn->in_reconn_list);
 	INIT_LIST_HEAD(&srv_conn->fwd_queue);
 	INIT_LIST_HEAD(&srv_conn->nip_queue);
 	spin_lock_init(&srv_conn->fwd_qlock);
@@ -648,7 +776,7 @@ tfw_srv_conn_alloc(void)
 	 */
 	atomic_set(&srv_conn->refcnt, TFW_CONN_DEATHCNT);
 
-	__setup_retry_timer(srv_conn);
+	__reset_retry_timer(srv_conn);
 	ss_proto_init(&srv_conn->proto, &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
 
 	return srv_conn;
@@ -658,7 +786,7 @@ ALLOW_ERROR_INJECTION(tfw_srv_conn_alloc, NULL);
 static void
 tfw_srv_conn_free(TfwSrvConn *srv_conn)
 {
-	BUG_ON(timer_pending(&srv_conn->timer));
+	BUG_ON(!list_empty(&srv_conn->in_reconn_list));
 
 	tfw_connection_unlink_from_peer((TfwConn *)srv_conn);
 
