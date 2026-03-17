@@ -7,7 +7,7 @@
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -25,7 +25,6 @@
  */
 #include <linux/ip.h>
 #include <linux/ipv6.h>
-#include <linux/skbuff_ref.h>
 #include <net/sock.h>
 #include <net/tcp.h>
 #include <net/xfrm.h>
@@ -1683,8 +1682,7 @@ ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
 
 	if (!split_point) {
 		/* Usage of linear portion of SKB is not expected */
-		ss_skb_put(skb, -skb_headlen(skb));
-		skb->tail_lock = 1;
+		ss_skb_remove_linear_data(skb);
 	} else {
 		unsigned int off = split_point - skb->data;
 
