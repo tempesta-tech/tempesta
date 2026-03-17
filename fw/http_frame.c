@@ -1040,6 +1040,10 @@ tfw_h2_calc_min_to_send(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now)
 {
 	/* Empirically chosen value. */
 	const unsigned int min_to_send_dflt = 512;
+	unsigned int min_to_send_by_mss = likely(mss_now > TLS_MAX_OVERHEAD)
+					? mss_now - TLS_MAX_OVERHEAD : 1;
+	unsigned int min_to_send_by_wnd_sz = likely(ctx->rsettings.wnd_sz >= 2)
+					   ? ctx->rsettings.wnd_sz >> 1 : 1;
 	unsigned int min_to_send;
 
 	/*
@@ -1049,8 +1053,8 @@ tfw_h2_calc_min_to_send(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now)
 	 * window update frame with a size equal to a half of initial
 	 * window).
 	 */
-	min_to_send = min3(min_to_send_dflt, mss_now - TLS_MAX_OVERHEAD,
-			   ctx->rsettings.wnd_sz >> 1);
+	min_to_send = min3(min_to_send_dflt, min_to_send_by_mss,
+			   min_to_send_by_wnd_sz);
 
 	return min_to_send;
 }
