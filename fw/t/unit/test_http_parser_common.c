@@ -525,7 +525,8 @@ do_split_and_parse(int type, int chunk_mode)
 		tfw_http_init_parser_req(req);
 		stream.msg = (TfwMsg*)req;
 		hmreq = (TfwHttpMsg *)req;
-		req->pit.pool = __tfw_pool_new(0, tfw_http_msg_client(hmreq));
+		req->pit.pool =
+			__tfw_pool_new(0, tfw_http_msg_client_mem(hmreq));
 		BUG_ON(!req->pit.pool);
 		__set_bit(TFW_HTTP_B_H2, req->flags);
 	} else if (type == FUZZ_RESP) {

@@ -44,9 +44,15 @@
 #include "tf_conf.h"
 #include "tf_filter.h"
 
+static DEFINE_PER_CPU(long, mem);
 unsigned int tfw_cli_max_concurrent_streams;
 TfwConn conn_req, conn_resp;
-TfwClient client;
+TfwClientMem cli_mem = {
+	.mem = &mem,
+};
+TfwClient client = {
+	.cli_mem = &cli_mem,
+};
 
 TfwHttpReq *
 test_req_alloc(size_t data_len)
@@ -59,7 +65,7 @@ test_req_alloc(size_t data_len)
 	 * tfw_http_msg_alloc(). It is removed because we need to test how it
 	 * initializes the message and we would not like to test the copy-paste.
 	 */
-	hmreq = __tfw_http_msg_alloc(&client, Conn_HttpClnt, true);
+	hmreq = __tfw_http_msg_alloc(&cli_mem, Conn_HttpClnt, true);
 	BUG_ON(!hmreq);
 
 	tfw_connection_init(&conn_req);
@@ -68,7 +74,7 @@ test_req_alloc(size_t data_len)
 	hmreq->conn = &conn_req;
 	hmreq->stream = &conn_req.stream;
 
-	ret = tfw_msg_iter_setup(&it, tfw_http_msg_client(hmreq),
+	ret = tfw_msg_iter_setup(&it, tfw_http_msg_client_mem(hmreq),
 				 &hmreq->msg.skb_head, data_len);
 	BUG_ON(ret);
 
@@ -94,7 +100,7 @@ test_resp_alloc(size_t data_len, TfwHttpReq *req)
 	int ret;
 	TfwHttpMsg *hmresp = (TfwHttpMsg *)test_resp_alloc_no_data(req);
 
-	ret = tfw_msg_iter_setup(&it, tfw_http_msg_client(hmresp),
+	ret = tfw_msg_iter_setup(&it, tfw_http_msg_client_mem(hmresp),
 				 &hmresp->msg.skb_head, data_len);
 	BUG_ON(ret);
 
@@ -106,7 +112,7 @@ test_resp_alloc_no_data(TfwHttpReq *req)
 {
 	TfwHttpMsg *hmresp;
 
-	hmresp = __tfw_http_msg_alloc(req->conn->peer, Conn_HttpSrv, true);
+	hmresp = __tfw_http_msg_alloc(&cli_mem, Conn_HttpSrv, true);
 	BUG_ON(!hmresp);
 
 	tfw_connection_init(&conn_resp);
@@ -197,11 +203,6 @@ int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 			   unsigned int mss_now, unsigned long *snd_wnd)
 {
 	return 0;
-}
-
-void
-tfw_client_get(TfwClient *cli)
-{
 }
 
 void

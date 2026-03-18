@@ -88,7 +88,8 @@ static inline TfwHttpResp *
 __tfw_http_msg_alloc_resp(TfwHttpReq *req, bool full)
 {
 	TfwHttpResp *resp = (TfwHttpResp *)
-		__tfw_http_msg_alloc(req->conn->peer, Conn_Srv, full);
+		__tfw_http_msg_alloc(CLIENT_MEM_FROM_CONN(req->conn),
+				     Conn_Srv, full);
 	if (resp)
 		tfw_http_msg_pair(resp, req);
 

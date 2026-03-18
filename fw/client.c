@@ -65,6 +65,9 @@ static struct {
 
 static TDB *client_db;
 
+static atomic_t shutdown_pending = ATOMIC_INIT(0);
+static DECLARE_WAIT_QUEUE_HEAD(shutdown_wq);
+
 /*
  * Called only under db->ga_lock.
  *
@@ -104,7 +107,11 @@ tfw_client_free(TdbRec *rec)
 	 * Tempesta FW shut down from `tfw_client_free_lru`
 	 */
 	WARN_ON(!list_empty(&cli->list));
-	free_percpu(cli->mem);
+	if (likely(cli->cli_mem)) {
+		atomic_inc(&shutdown_pending);
+		if (!schedule_work(&cli->cli_mem->kill_work))
+			atomic_dec(&shutdown_pending);
+	}
 }
 
 static void
@@ -143,12 +150,6 @@ tfw_client_put(TfwClient *cli)
 	T_DBG("put client: cli=%p\n", cli);
 
 	tdb_rec_put(client_db, rec);
-}
-
-void
-tfw_client_get(TfwClient *cli)
-{
-	tdb_rec_keep(((TdbFRec *)cli) - 1);
 }
 
 typedef struct {
@@ -193,16 +194,67 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 	return true;
 }
 
+static void
+cli_mem_release(struct percpu_ref *ref)
+{
+	TfwClientMem *cli_mem = container_of(ref, TfwClientMem, refcnt);
+
+	percpu_ref_exit(&cli_mem->refcnt);
+	free_percpu(cli_mem->mem);
+	kfree(cli_mem);
+
+	if (atomic_dec_and_test(&shutdown_pending))
+		wake_up(&shutdown_wq);
+}
+
+static void
+tfw_cli_mem_kill_work_fn(struct work_struct *work)
+{
+	TfwClientMem *cli_mem = container_of(work, TfwClientMem, kill_work);
+
+	percpu_ref_kill(&cli_mem->refcnt);
+	percpu_ref_put(&cli_mem->refcnt);
+}
+
+static inline TfwClientMem *
+tfw_client_mem_alloc(void)
+{
+	TfwClientMem *cli_mem;
+
+	cli_mem = tfw_kmalloc(sizeof(TfwClientMem), GFP_ATOMIC);
+	if (unlikely(!cli_mem))
+		return NULL;
+
+	cli_mem->mem = tfw_alloc_percpu_gfp(long, GFP_ATOMIC | __GFP_ZERO);
+	if (!cli_mem->mem)
+		goto free_cli_mem;
+
+	if (percpu_ref_init(&cli_mem->refcnt, cli_mem_release, 0, GFP_ATOMIC))
+		goto free_per_cpu_mem;
+
+	percpu_ref_get(&cli_mem->refcnt);
+
+	INIT_WORK(&cli_mem->kill_work, tfw_cli_mem_kill_work_fn);
+
+	return cli_mem;
+
+free_per_cpu_mem:
+	free_percpu(cli_mem->mem);
+free_cli_mem:
+	kfree(cli_mem);
+
+	return NULL;
+}
+
 static int
 tfw_client_ent_init(TdbRec *rec, void *data)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
-	int cpu;
 
-	cli->mem = tfw_alloc_percpu(long);
-	if (unlikely(!cli->mem))
+	cli->cli_mem = tfw_client_mem_alloc();
+	if (unlikely(!cli->cli_mem))
 		return -ENOMEM;
 
 	assert_spin_locked(&client_db->ga_lock);
@@ -214,8 +266,6 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	if (ctx->init)
 		ctx->init(cli);
 
-	for_each_online_cpu(cpu)
-		*(per_cpu_ptr(cli->mem, cpu)) = 0;
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
 	ent->xff_addr = ctx->xff_addr;
 	tfw_str_to_cstr(&ctx->user_agent, ent->user_agent,
@@ -344,6 +394,7 @@ tfw_client_stop(void)
 
 	if (client_db) {
 		tfw_client_free_lru();
+		wait_event(shutdown_wq, !atomic_read(&shutdown_pending));
 		tdb_close(client_db);
 		client_db = NULL;
 	}
