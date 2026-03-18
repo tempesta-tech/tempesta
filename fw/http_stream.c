@@ -817,7 +817,7 @@ tfw_h2_stream_skb_destructor(struct sk_buff *skb)
 {
 	TfwHttpResp *resp = (TfwHttpResp *)TFW_SKB_CB(skb)->opaque_data;
 
-	TFW_SKB_CB(skb)->opaque_data = resp->req->conn->peer;
+	TFW_SKB_CB(skb)->opaque_data = CLIENT_MEM_FROM_CONN(resp->req->conn);
 	ss_skb_dflt_destructor(skb);
 	tfw_http_resp_pair_free_and_put_conn(resp);
 }

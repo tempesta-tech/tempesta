@@ -96,10 +96,13 @@ http_match_suite_rule_release(TfwHttpMatchRule *rule)
 static void
 http_match_suite_setup(void)
 {
+	TfwHttpMsg *hm;
+
 	test_req = test_req_alloc(1);
+	hm = (TfwHttpMsg *)test_req;
 
 	test_table = tfw_pool_new(TfwHttpTable,
-				  tfw_http_msg_client((TfwHttpMsg *)test_req),
+				  tfw_http_msg_client_mem(hm),
 				  TFW_POOL_ZERO);
 	BUG_ON(!test_table);
 	INIT_LIST_HEAD(&test_table->head);
