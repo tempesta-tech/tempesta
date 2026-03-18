@@ -728,7 +728,7 @@ tfw_h1_write_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 	int r = 0;
 	TfwStr *c, *end, *field_c, *field_end;
 
-	r = tfw_msg_iter_setup(&it, tfw_http_msg_client((TfwHttpMsg *)resp),
+	r = tfw_msg_iter_setup(&it, tfw_http_msg_client_mem((TfwHttpMsg *)resp),
 			       &resp->msg.skb_head, msg->len);
 	if (unlikely(r))
 		return r;
@@ -1164,7 +1164,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	if (resp_in_xmit) {
 		void *owner = TFW_SKB_CB(resp->msg.skb_head)->opaque_data;
 
-		BUG_ON(owner != resp->req->conn->peer);
+		BUG_ON(owner != CLIENT_MEM_FROM_CONN(resp->req->conn));
 		TFW_SKB_CB(resp->msg.skb_head)->opaque_data = resp;
 		TFW_SKB_CB(resp->msg.skb_head)->destructor =
 			tfw_h2_stream_skb_destructor;
@@ -2864,7 +2864,7 @@ static TfwMsg *
 tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 {
 	int type = TFW_CONN_TYPE(conn);
-	void *owner = type & Conn_Clnt ? conn->peer : NULL;
+	void *owner = type & Conn_Clnt ? CLIENT_MEM_FROM_CONN(conn) : NULL;
 	TfwHttpMsg *hm;
 
 	hm = __tfw_http_msg_alloc(owner, type, true);
@@ -2901,10 +2901,11 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 		/* Can be equal to zero for health monitor requests. */
 		if (likely(hm->req->conn)) {
 			TfwClient *cli = (TfwClient *)hm->req->conn->peer;
+			TfwClientMem *cli_mem = cli->cli_mem;
 
-			hm->pool->owner = cli;
-			tfw_client_get(cli);
-			tfw_client_adjust_mem(cli,
+			hm->pool->owner = cli_mem;
+			BUG_ON(!tfw_client_mem_get(cli_mem));
+			tfw_client_adjust_mem(cli_mem,
 					      PAGE_SIZE << hm->pool->order);
 		}
 
@@ -4373,7 +4374,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	if (WARN_ON_ONCE(h1_hdrs_sz < 0))
 		return -EINVAL;
 
-	r = tfw_msg_iter_setup(&it, tfw_http_msg_client((TfwHttpMsg *)req),
+	r = tfw_msg_iter_setup(&it, tfw_http_msg_client_mem((TfwHttpMsg *)req),
 			       &new_head, h1_hdrs_sz);
 	if (unlikely(r))
 		return r;
@@ -5460,7 +5461,8 @@ tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 		return -EPIPE;
 
 	BUG_ON(stream->xmit.skb_head || stream->xmit.resp);
-	TFW_SKB_CB(*skb_head)->opaque_data = resp->req->conn->peer;
+	TFW_SKB_CB(*skb_head)->opaque_data =
+		CLIENT_MEM_FROM_CONN(resp->req->conn);
 	TFW_SKB_CB(*skb_head)->destructor = ss_skb_dflt_destructor;
 	stream->xmit.resp = resp;
 
@@ -6591,7 +6593,8 @@ next_msg:
 	 */
 	if (!TFW_SKB_CB(skb)->opaque_data) {
 		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
-				 conn->peer, skb->truesize);
+				 CLIENT_MEM_FROM_CONN(conn),
+				 skb->truesize);
 	}
 
 	r = frang_client_mem_limit((TfwCliConn *)conn, false);
@@ -7446,7 +7449,8 @@ next_msg:
 			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP,
 					     hmresp->req->flags);
 		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
-				 cli_conn->peer, skb->truesize);
+				 CLIENT_MEM_FROM_CONN(cli_conn),
+				 skb->truesize);
 
 		r = frang_client_mem_limit(cli_conn, false);
 		if (unlikely(r)) {

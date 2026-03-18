@@ -109,6 +109,7 @@ static bool
 __test_resp_data_alloc(TfwStr *head_data, TfwStr *paged_data,
 		       unsigned short nr_frags)
 {
+	TfwHttpMsg *hmresp = (TfwHttpMsg*)resp;
 	TfwMsgIter *it;
 	struct sk_buff *skb;
 	struct page *page;
@@ -120,7 +121,7 @@ __test_resp_data_alloc(TfwStr *head_data, TfwStr *paged_data,
 		return false;
 
 	ss_skb_set_owner(skb, ss_skb_dflt_destructor,
-			 tfw_http_msg_client((TfwHttpMsg*)resp),
+			 tfw_http_msg_client_mem(hmresp),
 			 skb->truesize);
 	skb->next = skb->prev = skb;
 	it = &resp->iter;

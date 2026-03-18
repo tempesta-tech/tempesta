@@ -2820,6 +2820,8 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, bool h2)
 	if (!h2)
 		skb_frag_ref(it->skb, it->frag);
 	ss_skb_adjust_data_len(it->skb, sz);
+	if (!h2)
+		ss_skb_adjust_client_mem(it->skb, -sz);
 
 	return 0;
 }

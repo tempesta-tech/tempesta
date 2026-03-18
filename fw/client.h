@@ -24,27 +24,33 @@
 #include "http_limits.h"
 #include "connection.h"
 
+typedef struct {
+	struct rcu_head		rcu_head;
+	struct percpu_ref	refcnt;
+	struct work_struct	kill_work;
+   	long __percpu		*mem;
+} TfwClientMem;
+
 /**
  * Client descriptor.
  *
  * @class_prvt		- private client accounting data for classifier module.
  *			  Typically it's large and wastes memory in vain if
  *			  no any classification logic is used;
- * list_head		- entry in the lru list;
- * @mem			- memory used by current client;
+ * @list_head		- entry in the lru list;
+ * @cli_mem		- memory used by current client;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
 	struct list_head	list;
-	long __percpu 		*mem;
+	TfwClientMem		*cli_mem;
 } TfwClient;
 
 int tfw_client_init(void);
 void tfw_client_exit(void);
 TfwClient *tfw_client_obtain(TfwAddr addr, TfwAddr *cli_addr,
 			     TfwStr *user_agent, void (*init)(void *));
-void tfw_client_get(TfwClient *cli);
 void tfw_client_put(TfwClient *cli);
 int tfw_client_for_each(int (*fn)(void *));
 void tfw_cli_conn_release(TfwCliConn *cli_conn);
@@ -54,11 +60,25 @@ void tfw_cli_abort_all(void);
 
 void tfw_tls_connection_lost(TfwConn *conn);
 
-static inline void
-tfw_client_adjust_mem(TfwClient *cli, int delta)
-{
-	this_cpu_add(*cli->mem, delta);
+#define CLIENT_MEM_FROM_CONN(conn)				\
+	((TfwClient *)((TfwConn *)conn)->peer)->cli_mem
 
+static inline void
+tfw_client_adjust_mem(TfwClientMem *cli_mem, int delta)
+{
+	this_cpu_add(*cli_mem->mem, delta);
+}
+
+static inline bool
+tfw_client_mem_get(TfwClientMem *cli_mem)
+{
+	return percpu_ref_tryget(&cli_mem->refcnt);
+}
+
+static inline void
+tfw_client_mem_put(TfwClientMem *cli_mem)
+{
+	percpu_ref_put(&cli_mem->refcnt);
 }
 
 static inline long
@@ -68,7 +88,7 @@ tfw_client_mem(TfwClient *cli)
 	int cpu;
 
 	for_each_online_cpu(cpu)
-		mem += *(per_cpu_ptr(cli->mem, cpu));
+		mem += *(per_cpu_ptr(cli->cli_mem->mem, cpu));
 
 	return mem;
 }
