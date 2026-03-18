@@ -71,7 +71,7 @@ static unsigned long __percpu (*pg_cache)[TFW_POOL_PGCACHE_SZ];
  * through buddies coalescing). So we never cache multi-pages.
  */
 static unsigned long
-tfw_pool_alloc_pages(TfwClient *cli, unsigned int order)
+tfw_pool_alloc_pages(TfwClientMem *cli_mem, unsigned int order)
 {
 	unsigned long pg_res = 0;
 	unsigned int *pgn;
@@ -91,8 +91,8 @@ tfw_pool_alloc_pages(TfwClient *cli, unsigned int order)
 		flags = order > 0 ? GFP_ATOMIC | __GFP_COMP : GFP_ATOMIC;
 		pg_res = __get_free_pages(flags, order);
 	}
-	if (likely(pg_res) && cli)
-		tfw_client_adjust_mem(cli, PAGE_SIZE << order);
+	if (likely(pg_res) && cli_mem)
+		tfw_client_adjust_mem(cli_mem, PAGE_SIZE << order);
 
 	return pg_res;
 
@@ -100,7 +100,8 @@ tfw_pool_alloc_pages(TfwClient *cli, unsigned int order)
 ALLOW_ERROR_INJECTION(tfw_pool_alloc_pages, NULL);
 
 static void
-tfw_pool_free_pages(TfwClient *cli, unsigned long addr, unsigned int order)
+tfw_pool_free_pages(TfwClientMem *cli_mem, unsigned long addr,
+		    unsigned int order)
 {
 	unsigned int *pgn;
 	int refcnt;
@@ -110,8 +111,8 @@ tfw_pool_free_pages(TfwClient *cli, unsigned long addr, unsigned int order)
 	pgn = this_cpu_ptr(&pg_next);
 	refcnt = page_count(virt_to_page(addr));
 
-	if (cli)
-		tfw_client_adjust_mem(cli, -(PAGE_SIZE << order));
+	if (cli_mem)
+		tfw_client_adjust_mem(cli_mem, -(PAGE_SIZE << order));
 
 	if (likely(*pgn < TFW_POOL_PGCACHE_SZ && !order && refcnt == 1)) {
 		((unsigned long *)this_cpu_ptr(pg_cache))[*pgn] = addr;
@@ -258,25 +259,25 @@ tfw_pool_clean(TfwPool *pool)
 TfwPool *
 __tfw_pool_new(size_t n, void *owner)
 {
-	TfwClient *cli = (TfwClient *)owner;
+	TfwClientMem *cli_mem = (TfwClientMem *)owner;
 	TfwPool *p;
 	TfwPoolChunk *c;
 	unsigned int order;
 
 	order = get_order(TFW_POOL_ALIGN_SZ(n) + TFW_POOL_HEAD_OFF);
 
-	c = (TfwPoolChunk *)tfw_pool_alloc_pages(cli, order);
+	c = (TfwPoolChunk *)tfw_pool_alloc_pages(cli_mem, order);
 	if (unlikely(!c))
 		return NULL;
 
-	if (cli)
-		tfw_client_get(cli);
+	if (cli_mem)
+		BUG_ON(!tfw_client_mem_get(cli_mem));
 
 	p = (TfwPool *)((char *)c + TFW_POOL_ALIGN_SZ(sizeof(*c)));
 
 	c->next = NULL;
 	p->order = c->order = order;
-	p->owner = owner;
+	p->owner = cli_mem;
 	p->off = c->off = TFW_POOL_HEAD_OFF;
 	p->curr = c;
 
@@ -287,19 +288,19 @@ void
 tfw_pool_destroy(TfwPool *p)
 {
 	TfwPoolChunk *c, *next;
-	TfwClient *cli;
+	TfwClientMem *cli_mem;
 
 	if (!p)
 		return;
 
-	cli = p->owner;
+	cli_mem = p->owner;
 	for (c = p->curr; c; c = next) {
 		next = c->next;
 		tfw_pool_free_pages(p->owner, TFW_POOL_CHUNK_BASE(c),
 				    c->order);
 	}
-	if (cli)
-		tfw_client_put(cli);
+	if (cli_mem)
+		tfw_client_mem_put(cli_mem);
 }
 
 int

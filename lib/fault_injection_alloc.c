@@ -71,4 +71,12 @@ tfw__alloc_percpu(size_t size, size_t align)
 ALLOW_ERROR_INJECTION(tfw__alloc_percpu, NULL);
 EXPORT_SYMBOL(tfw__alloc_percpu);
 
+void *
+tfw__alloc_percpu_gfp(size_t size, size_t align, gfp_t gfp)
+{
+	return __alloc_percpu_gfp(size, align, gfp);
+}
+ALLOW_ERROR_INJECTION(tfw__alloc_percpu_gfp, NULL);
+EXPORT_SYMBOL(tfw__alloc_percpu_gfp);
+
 #endif

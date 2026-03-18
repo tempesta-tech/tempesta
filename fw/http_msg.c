@@ -817,7 +817,7 @@ tfw_http_msg_append_skb(TfwHttpMsg *hm)
 	TfwMsgIter *it = &hm->iter;
 	int r;
 
-	r = ss_skb_alloc_data(&it->skb_head, tfw_http_msg_client(hm), 0);
+	r = ss_skb_alloc_data(&it->skb_head, tfw_http_msg_client_mem(hm), 0);
 	if (unlikely(r))
 		return r;
 
@@ -939,7 +939,7 @@ this_chunk:
 				return -ENOMEM;
 
 			ss_skb_set_owner(it->skb, ss_skb_dflt_destructor,
-					 tfw_http_msg_client(hm),
+					 tfw_http_msg_client_mem(hm),
 					 it->skb->truesize);
 			ss_skb_queue_tail(skb_head, it->skb);
 			it->frag = -1;
@@ -1211,7 +1211,7 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 					return -ENOMEM;
 
 				ss_skb_set_owner(nskb, ss_skb_dflt_destructor,
-						 tfw_http_msg_client(hm),
+						 tfw_http_msg_client_mem(hm),
 						 nskb->truesize);
 				/*
 				 * TODO #2136: Remove this flag during reworking
