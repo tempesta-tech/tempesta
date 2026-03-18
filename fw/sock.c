@@ -658,6 +658,8 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * and after the transmission.
 	 */
 	if (flags & SS_F_KEEP_SKB) {
+		unsigned int head_data, copied_truesize;
+
 		skb = *skb_head;
 		do {
 			/* tcp_transmit_skb() will clone the skb. */
@@ -669,9 +671,14 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 				goto err;
 			}
 			memset(twin_skb->cb, 0, sizeof(twin_skb->cb));
+			head_data = MAX_TCP_HEADER + skb_headlen(twin_skb);
+			copied_truesize  =
+				SKB_DATA_ALIGN(sizeof(struct sk_buff)) +
+				SKB_DATA_ALIGN(head_data +
+					       sizeof(struct skb_shared_info));
 			ss_skb_set_owner(twin_skb, ss_skb_dflt_destructor,
 					 TFW_SKB_CB(skb)->opaque_data,
-					 skb_headlen(skb));
+					 copied_truesize);
 			ss_skb_queue_tail(&sw.skb_head, twin_skb);
 			skb = skb->next;
 		} while (skb != *skb_head);

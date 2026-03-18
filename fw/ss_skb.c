@@ -1742,11 +1742,12 @@ ALLOW_ERROR_INJECTION(ss_skb_realloc_headroom, ERRNO);
 void
 ss_skb_dflt_destructor(struct sk_buff *skb)
 {
-	TfwClient *cli = (TfwClient *)TFW_SKB_CB(skb)->opaque_data;
+	TfwClientMem *cli_mem =
+		(TfwClientMem *)TFW_SKB_CB(skb)->opaque_data;
 
 	BUG_ON(skb_tfw_is_in_socket_write_queue(skb));
 	ss_skb_adjust_client_mem(skb, -TFW_SKB_CB(skb)->mem);
-	tfw_client_put(cli);
+	tfw_client_mem_put(cli_mem);
 }
 
 void
@@ -1760,42 +1761,30 @@ void
 ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
 		 void *owner, unsigned int mem)
 {
-	/*
-	 * Can be zero when this function is called from `__extend_pgfrags`
-	 * for already orphaned SKBs.
-	 */
-	if (owner) {
-		/*
-		 * All SKBs were orphaned when Tempesta FW received them.
-		 * We can safely use `skb->sk` for our purposes until
-		 * this SKBs will be passed to the socket write queue.
-		 */
-		BUG_ON(TFW_SKB_CB(skb)->opaque_data);
-		WARN_ON(TFW_SKB_CB(skb)->mem != 0);
+	TfwClientMem *cli_mem = (TfwClientMem *)owner;
 
-		tfw_client_get((TfwClient *)owner);
-		TFW_SKB_CB(skb)->opaque_data = owner;
-		TFW_SKB_CB(skb)->destructor = destructor;
-		ss_skb_adjust_client_mem(skb, mem);
-	}
+	if (!cli_mem || !tfw_client_mem_get(cli_mem))
+		return;
+
+	WARN_ON(TFW_SKB_CB(skb)->opaque_data);
+	WARN_ON(TFW_SKB_CB(skb)->mem != 0);
+	TFW_SKB_CB(skb)->opaque_data = cli_mem;
+	TFW_SKB_CB(skb)->destructor = destructor;
+	ss_skb_adjust_client_mem(skb, mem);
 }
 
 void
 ss_skb_adjust_client_mem(struct sk_buff *skb, int delta)
 {
-	TfwClient *cli;
+	TfwClientMem *cli_mem;
 
 	if (skb_tfw_is_in_socket_write_queue(skb))
 		return;
 
-	cli = (TfwClient *)TFW_SKB_CB(skb)->opaque_data;
-	/*
-	 * `cli` can be zero here when this function is called
-	 * from `ss_skb_split` for SKBs which are already orphaned
-	 */
-	if (cli) {
+	cli_mem = (TfwClientMem *)TFW_SKB_CB(skb)->opaque_data;
+	if (cli_mem) {
 		TFW_SKB_CB(skb)->mem += delta;
 		BUG_ON(TFW_SKB_CB(skb)->mem < 0);
-		tfw_client_adjust_mem(cli, delta);
+		tfw_client_adjust_mem(cli_mem, delta);
 	}
 }
