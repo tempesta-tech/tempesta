@@ -116,6 +116,7 @@
 #include "websocket.h"
 #include "tf_filter.h"
 #include "tf_conf.h"
+#include "training.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -1344,6 +1345,13 @@ tfw_http_conn_nip_reset(TfwSrvConn *srv_conn)
 static inline void
 tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
+
+	if (cli) {
+		tfw_training_mode_update_stat(&cli->req_stat, 1,
+					      tfw_training_mode_adjust_req_num);
+	}
+
 	BUG_ON(!list_empty(&req->nip_list));
 	list_add_tail(&req->nip_list, &srv_conn->nip_queue);
 	set_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
@@ -1359,6 +1367,13 @@ tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 static inline void
 tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
+
+	if (cli) {
+		tfw_training_mode_update_stat(&cli->req_stat, -1,
+					      tfw_training_mode_adjust_req_num);
+	}
+
 	if (!list_empty(&req->nip_list)) {
 		list_del_init(&req->nip_list);
 		tfw_http_conn_nip_reset(srv_conn);
