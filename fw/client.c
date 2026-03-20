@@ -30,6 +30,7 @@
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
+#include "lib/fault_injection_alloc.h"
 #include "lib/str.h"
 #include "lib/common.h"
 
@@ -103,6 +104,8 @@ tfw_client_free(TdbRec *rec)
 	 * Tempesta FW shut down from `tfw_client_free_lru`
 	 */
 	WARN_ON(!list_empty(&cli->list));
+	if (likely(cli->cli_mem))
+		schedule_work(&cli->cli_mem->kill_work);
 }
 
 static void
@@ -185,12 +188,70 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 	return true;
 }
 
+
 static void
+__cli_mem_release(struct rcu_head *rcu)
+{
+	TfwClientMem *cli_mem = container_of(rcu, TfwClientMem, rcu_head);
+
+	free_percpu(cli_mem->mem);
+	kfree(cli_mem);
+}
+
+static void
+cli_mem_release(struct percpu_ref *ref)
+{
+	TfwClientMem *cli_mem = container_of(ref, TfwClientMem, refcnt);
+
+	call_rcu(&cli_mem->rcu_head, __cli_mem_release);
+}
+
+static void
+tfw_cli_mem_kill_work_fn(struct work_struct *work)
+{
+	TfwClientMem *cli_mem = container_of(work, TfwClientMem, kill_work);
+
+	percpu_ref_kill_and_confirm(&cli_mem->refcnt, cli_mem_release);
+}
+
+static inline TfwClientMem *
+tfw_client_mem_alloc(void)
+{
+	TfwClientMem *cli_mem;
+
+	cli_mem = tfw_kmalloc(sizeof(TfwClientMem), GFP_ATOMIC);
+	if (unlikely(!cli_mem))
+		return NULL;
+
+	cli_mem->mem = tfw_alloc_percpu_gfp(long, GFP_ATOMIC | __GFP_ZERO);
+	if (!cli_mem->mem)
+		goto free_cli_mem;
+
+	if (percpu_ref_init(&cli_mem->refcnt, cli_mem_release, 0, GFP_ATOMIC))
+		goto free_per_cpu_mem;
+
+	INIT_WORK(&cli_mem->kill_work, tfw_cli_mem_kill_work_fn);
+
+	return cli_mem;
+
+free_per_cpu_mem:
+	free_percpu(cli_mem->mem);
+free_cli_mem:
+	kfree(cli_mem);
+
+	return NULL;
+}
+
+static int
 tfw_client_ent_init(TdbRec *rec, void *data)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
+
+	cli->cli_mem = tfw_client_mem_alloc();
+	if (unlikely(!cli->cli_mem))
+		return -ENOMEM;
 
 	assert_spin_locked(&client_db->ga_lock);
 
@@ -210,6 +271,8 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	T_DBG("new client: cli=%p\n", cli);
 	T_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
 	T_DBG2("client %p, users=%d\n", cli, 1);
+
+	return 0;
 }
 
 /**
@@ -324,6 +387,7 @@ tfw_client_stop(void)
 {
 	if (tfw_runstate_is_reconfig())
 		return;
+
 	if (client_db) {
 		tfw_client_free_lru();
 		tdb_close(client_db);

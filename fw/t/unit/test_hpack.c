@@ -75,6 +75,13 @@ do {								\
 	HDR_COMPOUND_STR(hdr_res, name, value);			\
 } while (0)
 
+static DEFINE_PER_CPU(long, mem);
+static TfwClientMem cli_mem = {
+	.mem = &mem,
+};
+static TfwClient client = {
+	.cli_mem = &cli_mem,
+};
 static TfwH2Conn conn;
 static TfwH2Ctx *ctx;
 static TfwHttpReq *test_req;
@@ -84,9 +91,10 @@ static inline TfwHttpReq *
 test_hpack_req_alloc(void)
 {
 	TfwHttpReq *req = test_req_alloc(0);
+	TfwHttpMsg *hmreq = (TfwHttpMsg *)req;
 
 	BUG_ON(!req);
-	req->pit.pool = __tfw_pool_new(0);
+	req->pit.pool = __tfw_pool_new(0, tfw_http_msg_client_mem(hmreq));
 	BUG_ON(!req->pit.pool);
 	req->pit.parsed_hdr = &req->stream->parser.hdr;
 	__set_bit(TFW_HTTP_B_H2, req->flags);
@@ -102,6 +110,7 @@ test_h2_setup(void)
 	create_str_pool();
 	conn.h2 = ctx = tfw_h2_context_alloc();
 	BUG_ON(!ctx);
+	((TfwConn *)&conn)->peer = (TfwPeer *)&client;
 	r = tfw_h2_context_init(ctx, &conn);
 	BUG_ON(r);
 	test_req = test_hpack_req_alloc();
