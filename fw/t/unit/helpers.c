@@ -257,6 +257,11 @@ tfw_filter_block_ip(const TfwClient *cli, long duration)
 {
 }
 
+void
+tfw_client_filter_block_ip(TfwClient *cli)
+{
+}
+
 TfwCfgSpec tfw_http_sess_specs[0];
 
 int
@@ -509,21 +514,16 @@ tfh_get_records_rate(HttpTfh fingerprint)
 	return 0;
 }
 
-void
-tfw_training_mode_adjust_req_num(u64 delta1, u64 delta2, bool new_client)
-{
-}
-
 bool
-tfw_training_mode_defence_req_num(u64 val)
+tfw_training_mode_update_req_num_stat(TfwTrainingStat *stat, int delta)
 {
 	return true;
 }
 
-void
-tfw_training_mode_update_stat(TfwTrainingStat *stat, int delta,
-			      void (*adjust)(u64, u64, bool))
+bool
+tfw_training_mode_update_cpu_num_stat(TfwTrainingStat *stat, int delta)
 {
+	return true;
 }
 
 TfwCfgSpec tf_hash_specs[0];

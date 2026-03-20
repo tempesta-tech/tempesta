@@ -1347,14 +1347,14 @@ tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
 	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
 
-	if (cli) {
-		tfw_training_mode_update_stat(&cli->req_stat, 1,
-					      tfw_training_mode_adjust_req_num);
-	}
-
 	BUG_ON(!list_empty(&req->nip_list));
 	list_add_tail(&req->nip_list, &srv_conn->nip_queue);
 	set_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
+
+	if (unlikely(!cli))
+		return;
+
+	tfw_training_mode_update_req_num_stat(&cli->req_stat, 1);
 }
 
 /*
@@ -1369,15 +1369,15 @@ tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
 	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
 
-	if (cli) {
-		tfw_training_mode_update_stat(&cli->req_stat, -1,
-					      tfw_training_mode_adjust_req_num);
-	}
-
 	if (!list_empty(&req->nip_list)) {
 		list_del_init(&req->nip_list);
 		tfw_http_conn_nip_reset(srv_conn);
 	}
+
+	if (unlikely(!cli))
+		return;
+
+	tfw_training_mode_update_req_num_stat(&cli->req_stat, -1);
 }
 
 /*
@@ -5531,22 +5531,13 @@ tfw_h2_choose_close_type(ErrorType type, bool reply)
 static void
 tfw_http_req_filter_block_ip(TfwHttpReq *req)
 {
-	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 	TfwClient *cli;
-
-	if (WARN_ON_ONCE(!dflt_vh))
-		return;
 
 	cli = req->peer ? : (TfwClient *)(req->conn ? req->conn->peer : NULL);
 	if (!cli)
-		goto out;
+		return;
 
-	if (dflt_vh->frang_gconf->ip_block)
-		tfw_filter_block_ip(cli,
-				    dflt_vh->frang_gconf->ip_block_duration);
-
-out:
-	tfw_vhost_put(dflt_vh);
+	tfw_client_filter_block_ip(cli);
 }
 
 static int

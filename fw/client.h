@@ -45,6 +45,7 @@ typedef struct {
 	unsigned int		conn_max;
 	unsigned int		conn_training_num;
 	TfwTrainingStat		req_stat;
+	TfwTrainingStat		cpu_stat;
 } TfwClient;
 
 int tfw_client_init(void);
@@ -57,8 +58,9 @@ void tfw_cli_conn_release(TfwCliConn *cli_conn);
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg);
 int tfw_cli_conn_abort_all(void *data);
 void tfw_cli_abort_all(void);
-void tfw_client_training_adjust_conn_num(TfwClient *cli,
+bool tfw_client_training_adjust_conn_num(TfwClient *cli,
 					 unsigned int conn_curr);
 void tfw_tls_connection_lost(TfwConn *conn);
+void tfw_client_filter_block_ip(TfwClient *cli);
 
 #endif /* __TFW_CLIENT_H__ */

@@ -27,6 +27,7 @@
 #include "hash.h"
 #include "client.h"
 #include "connection.h"
+#include "filter.h"
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
@@ -199,6 +200,10 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	if (unlikely(r))
 		return r;
 
+	r = tfw_training_stat_init(&cli->cpu_stat);
+	if (unlikely(r))
+		return r;
+
 	assert_spin_locked(&client_db->ga_lock);
 
 	INIT_LIST_HEAD(&cli->list);
@@ -289,15 +294,18 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 EXPORT_SYMBOL(tfw_client_obtain);
 ALLOW_ERROR_INJECTION(tfw_client_obtain, NULL);
 
-void
+bool
 tfw_client_training_adjust_conn_num(TfwClient *cli, unsigned int conn_curr)
 {
 	u64 delta1, delta2;
 	unsigned int old_max;
 	bool new_client = false;
 
-	if (!tfw_mode_is_training())
-		return;
+	if (tfw_mode_is_disabled())
+		return true;
+
+	if (tfw_mode_is_defence())
+		return tfw_training_mode_defence_conn_num(conn_curr);
 
 	/*
 	 * This function same as all `*_conn_num` functions are called
@@ -312,11 +320,28 @@ tfw_client_training_adjust_conn_num(TfwClient *cli, unsigned int conn_curr)
 
 	old_max = cli->conn_max;
 	if (conn_curr <= old_max)
-		return;
+		return true;
 	cli->conn_max = conn_curr;
 	delta1 = conn_curr - old_max;
 	delta2 = (u64)conn_curr * conn_curr - (u64)old_max * old_max;
 	tfw_training_mode_adjust_conn_num(delta1, delta2, new_client);
+
+	return true;
+}
+
+void
+tfw_client_filter_block_ip(TfwClient *cli)
+{
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return;
+
+	if (dflt_vh->frang_gconf->ip_block)
+		tfw_filter_block_ip(cli,
+				    dflt_vh->frang_gconf->ip_block_duration);
+
+	tfw_vhost_put(dflt_vh);
 }
 
 /**
