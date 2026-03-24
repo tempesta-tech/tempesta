@@ -7402,6 +7402,14 @@ do {									\
 	parser->cstate.is_set = 1;					\
 } while(0)
 
+/*
+ * RFC 9111 does not explicitly define the behavior of caches when multiple
+ * identical Cache-Control directives are present within a single request
+ * (e.g., "Cache-Control: max-age=1, max-age=5").
+ * Empirical testing of the Apache HTTP Server indicates that, in such cases,
+ * it prioritizes the last occurrence of the directive (in this example,
+ * max-age=5). We follow the same behavior.
+ */
 #define __SET_CACHE_CTL_FIELD(field, val, flag)				\
 do {									\
 	req->cache_ctl.field = val;					\
@@ -7444,6 +7452,14 @@ __h2_dump_state_cache_ctl(const TfwCachedHeaderState *cstate)
 void
 h2_set_hdr_cache_control(TfwHttpReq *req, const TfwCachedHeaderState *cstate)
 {
+/*
+ * RFC 9111 does not explicitly define the behavior of caches when multiple
+ * identical Cache-Control directives are present within a single request
+ * (e.g., "Cache-Control: max-age=1, max-age=5").
+ * Empirical testing of the Apache HTTP Server indicates that, in such cases,
+ * it prioritizes the last occurrence of the directive (in this example,
+ * max-age=5). We follow the same behavior.
+ */
 #define SET_HDR_CACHE_CONTROL_FIELD(field, flag)			\
 do {									\
 	if (cstate->cache_ctl.flags & flag)				\
@@ -7454,10 +7470,6 @@ do {									\
 		return;
 
 	__h2_dump_state_cache_ctl(cstate);
-	BUG_ON((req->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE) ||
-	       (req->cache_ctl.flags & TFW_HTTP_CC_MAX_STALE) ||
-	       (req->cache_ctl.flags & TFW_HTTP_CC_MIN_FRESH) ||
-	       (req->cache_ctl.flags & TFW_HTTP_CC_STALE_IF_ERROR));
 	SET_HDR_CACHE_CONTROL_FIELD(max_age, TFW_HTTP_CC_MAX_AGE);
 	SET_HDR_CACHE_CONTROL_FIELD(max_stale, TFW_HTTP_CC_MAX_STALE);
 	SET_HDR_CACHE_CONTROL_FIELD(min_fresh, TFW_HTTP_CC_MIN_FRESH);
