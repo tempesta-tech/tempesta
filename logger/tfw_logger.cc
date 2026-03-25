@@ -127,8 +127,7 @@ event_loop(std::vector<std::unique_ptr<IPluginProcessor>> &&processors) noexcept
 			const int err = processor->consume(&consumed);
 			if (err) [[unlikely]] {
 				spdlog::error("Processor {} error: {}",
-					processor->name(),
-					tus::make_error_code_from_int(err).message());
+					processor->name(), tus::code_to_hex(err));
        				++it;
 				continue;
 			}
