@@ -23,6 +23,7 @@
 #include "test.h"
 #include "test_http_parser_defs.h"
 #include "test_http_parser_common.h"
+#include "helpers.h"
 
 int test_fail_counter;
 test_fixture_fn_t test_setup_fn;
@@ -118,16 +119,20 @@ test_run_all(void)
 	__fpu_schedule();
 
 	TEST_SUITE_MPART_RUN(http1_parser);
+	test_req_resp_cleanup();
+	EXPECT_EQ(tfw_client_mem((TfwClient *)conn_req.peer), 0);
 	__fpu_schedule();
 
-	test_case_alloc_h2();
+	TEST_SETUP(test_http2_parser_setup_fn);
+	TEST_TEARDOWN(test_http2_parser_teardown_fn);
 
 	TEST_SUITE_MPART_RUN(http2_parser);
+	EXPECT_EQ(tfw_client_mem((TfwClient *)conn_req.peer), 0);
 	__fpu_schedule();
 
-	test_case_cleanup_h2();
 
 	TEST_SUITE_RUN(http2_parser_hpack);
+	EXPECT_EQ(tfw_client_mem((TfwClient *)conn_req.peer), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http_cache);
@@ -137,6 +142,8 @@ test_run_all(void)
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http_msg);
+	test_req_resp_cleanup();
+	EXPECT_EQ(tfw_client_mem((TfwClient *)conn_req.peer), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(hash);
