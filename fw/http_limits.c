@@ -45,6 +45,7 @@
 #include "http_match.h"
 #include "http.h"
 #include "http_sess.h"
+#include "training.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -221,6 +222,13 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	spin_lock(&ra->lock);
 
 	frang_acc_history_init(ra, ts);
+
+	if (tfw_client_training_adjust_conn_num(FRANG_ACC2CLI(ra),
+						ra->conn_curr))
+	{
+		spin_unlock(&ra->lock);
+		return T_BLOCK;
+	}
 
 	if (conf->conn_max && unlikely(ra->conn_curr > conf->conn_max)) {
 		frang_limmsg("connections max num.", ra->conn_curr,

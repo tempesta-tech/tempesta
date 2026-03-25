@@ -33,6 +33,7 @@
 #include "http_limits.h"
 #include "tf_conf.h"
 #include "tf_filter.h"
+#include "training.h"
 #include "msg.h"
 #include "procfs.h"
 #include "tls.h"
@@ -80,6 +81,8 @@ tfw_tls_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	struct sk_buff *nskb = NULL;
 	TlsCtx *tls = tfw_tls_context(conn);
 	TfwFsmData data_up = {};
+	u64 begin_time = ktime_get_ns();
+	TfwClient *cli = (TfwClient *)conn->peer;
 
 	/*
 	 * Perform TLS handshake if necessary and decrypt the TLS message
@@ -120,7 +123,8 @@ next_msg:
 	case T_POSTPONE:
 		/* No complete TLS record seen yet. */
 		spin_unlock(&tls->lock);
-		return T_OK;
+		r = T_OK;
+		goto finish;
 	case T_OK:
 		/* A complete TLS record is received. */
 		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
@@ -184,7 +188,7 @@ next_msg:
 
 		/* Do upcall to http or websocket */
 		r = tfw_connection_recv(conn, data_up.skb);
-		if (r && r != T_POSTPONE && r != T_DROP) {
+		if (t_error_code_is_critical(r)) {
 			kfree_skb(nskb);
 			return r;
 		}
@@ -201,6 +205,14 @@ next_msg:
 		skb = nskb;
 		nskb = NULL;
 		goto next_msg;
+	}
+
+finish:
+	if (!t_error_code_is_critical(r)
+	    && !tfw_client_training_adjust_cpu_num(cli, begin_time))
+	{
+		tfw_client_filter_block_ip(cli);
+		r = T_BLOCK_WITH_RST;
 	}
 
 	return r;
