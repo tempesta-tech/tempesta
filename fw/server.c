@@ -82,11 +82,15 @@ static DECLARE_RWSEM(sg_sem);
 void
 tfw_server_destroy(TfwServer *srv)
 {
+	WARN_ON(atomic_read(&srv->recns_in_progress));
 	if (srv->cleanup)
 		srv->cleanup(srv);
 	/* Close all connections before freeing the server! */
+	BUG_ON(!list_empty(&srv->recns_list));
+	BUG_ON(!list_empty(&srv->failed_recns_list));
 	BUG_ON(!list_empty(&srv->conn_list));
 	BUG_ON(timer_pending(&srv->gs_timer));
+	BUG_ON(timer_pending(&srv->rc_timer));
 
 	tfw_apm_del_srv(srv);
 	if (srv->sg)
@@ -340,6 +344,13 @@ tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 	tfw_server_get(srv);
 	tfw_sg_get(sg);
 	srv->sg = sg;
+	timer_setup(&srv->rc_timer, tfw_sock_srv_connect_retry_timer_cb, 0);
+	srv->recns = 0;
+	srv->recns_idx = 0;
+	atomic_set(&srv->recns_in_progress, 0);
+	INIT_LIST_HEAD(&srv->recns_list);
+	INIT_LIST_HEAD(&srv->failed_recns_list);
+	spin_lock_init(&srv->recns_lock);
 
 	T_DBG2("Add new backend server to group '%s'\n", sg->name);
 	down_write(&sg_sem);

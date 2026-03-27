@@ -98,7 +98,6 @@ enum {
  * @list	- member in the list of connections with @peer;
  * @refcnt	- number of users of the connection structure instance;
  * @stream	- instance for control messages processing;
- * @timer	- The keep-alive/retry timer for the connection;
  * @peer	- TfwClient or TfwServer handler. Hop-by-hop peer;
  * @pair	- Paired TfwCliConn or TfwSrvConn for websocket connections;
  * @sk		- an appropriate sock handler;
@@ -111,7 +110,6 @@ typedef struct tfw_conn_t TfwConn;
 	struct list_head	list;			\
 	atomic_t		refcnt;			\
 	TfwStream		stream;			\
-	struct timer_list	timer;			\
 	TfwPeer 		*peer;			\
 	TfwConn			*pair;			\
 	struct sock		*sk;			\
@@ -161,6 +159,7 @@ typedef struct tfw_conn_t {
 /*
  * These are specific properties that are relevant to client connections.
  *
+ * @timer	- The keep-alive timer for the connection;
  * @seq_queue	- queue of client's messages in the order they came;
  * @seq_qlock	- lock for accessing @seq_queue;
  * @ret_qlock	- lock for serializing sets of responses;
@@ -171,6 +170,7 @@ typedef struct tfw_conn_t {
  */
 typedef struct {
 	TFW_CONN_COMMON;
+	struct timer_list	timer;
 	struct list_head	seq_queue;
 	spinlock_t		seq_qlock;
 	spinlock_t		ret_qlock;
@@ -217,6 +217,7 @@ tfw_cli_conn_inc_js_max_misses(TfwCliConn *conn, unsigned int freq)
  * These are specific properties that are relevant to server connections.
  * See the description of special features of this structure in sock_srv.c.
  *
+ * @in_reconn_list	- entry in server reconnect list;
  * @fwd_queue		- queue of messages to be sent to a back-end server;
  * @nip_queue		- queue of non-idempotent messages in server's
  *			  @fwd_queue;
@@ -235,6 +236,7 @@ tfw_cli_conn_inc_js_max_misses(TfwCliConn *conn, unsigned int freq)
  */
 typedef struct {
 	TFW_CONN_COMMON;
+	struct list_head	in_reconn_list;
 	struct list_head	fwd_queue;
 	struct list_head	nip_queue;
 	spinlock_t		fwd_qlock;
@@ -257,8 +259,6 @@ enum {
 	/* Has non-idempotent requests. */
 	TFW_CONN_B_HASNIP,
 
-	/* Remove connection */
-	TFW_CONN_B_DEL,
 	/* Connection is in use or at least scheduled to be established. */
 	TFW_CONN_B_ACTIVE,
 	/* Connection is disconnected and stopped. */
@@ -267,7 +267,13 @@ enum {
 	 * Mark connection as unavailable to schedulers.
 	 * Used to steal server connections for websockets.
 	 */
-	TFW_CONN_B_UNSCHED
+	TFW_CONN_B_UNSCHED,
+
+	/*
+	* Internal flag used to indicate that the connection
+	* is currently being reestablished.
+	*/
+	__TFW_CONN_B_RECONNECT,
 };
 
 /**
