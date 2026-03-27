@@ -82,17 +82,13 @@ static DECLARE_RWSEM(sg_sem);
 void
 tfw_server_destroy(TfwServer *srv)
 {
-	unsigned int i;
-
-	for (i = 0; i < TFW_SRV_TMO_NR; i++)
-		WARN_ON(!list_empty(&srv->recns[i]));
-
+	WARN_ON(atomic_read(&srv->recns_in_progress));
 	if (srv->cleanup)
 		srv->cleanup(srv);
 	/* Close all connections before freeing the server! */
+	BUG_ON(!list_empty(&srv->recns_list));
+	BUG_ON(!list_empty(&srv->failed_recns_list));
 	BUG_ON(!list_empty(&srv->conn_list));
-	WARN_ON(srv->recns_cnt);
-	WARN_ON(srv->recns_idx < TFW_SRV_TMO_NR);
 	BUG_ON(timer_pending(&srv->gs_timer));
 	BUG_ON(timer_pending(&srv->rc_timer));
 
@@ -344,17 +340,16 @@ tfw_sg_drop_reconfig(void)
 void
 tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 {
-	unsigned int i;
-
 	BUG_ON(srv->sg);
 	tfw_server_get(srv);
 	tfw_sg_get(sg);
 	srv->sg = sg;
 	timer_setup(&srv->rc_timer, tfw_sock_srv_connect_retry_timer_cb, 0);
-	for (i = 0; i < TFW_SRV_TMO_NR; i++)
-		INIT_LIST_HEAD(&srv->recns[i]);
-	srv->recns_cnt = 0;
-	srv->recns_idx = TFW_SRV_TMO_NR;
+	srv->recns = 0;
+	srv->recns_idx = 0;
+	atomic_set(&srv->recns_in_progress, 0);
+	INIT_LIST_HEAD(&srv->recns_list);
+	INIT_LIST_HEAD(&srv->failed_recns_list);
 	spin_lock_init(&srv->recns_lock);
 
 	T_DBG2("Add new backend server to group '%s'\n", sg->name);
