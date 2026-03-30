@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2023-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2023-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -155,7 +155,7 @@ TEST(http_msg, cutoff_linear_headers_paged_body)
 		TFW_STR_STRING("paged_body")
 	};
 	TfwStr *head = &frags[0], *pgd = &frags[1];
-	TfwHttpMsgCleanup cleanup = {};
+	TfwSkbCleanup cleanup = {};
 	TfwMsgIter *it;
 	int i;
 
@@ -190,7 +190,7 @@ TEST(http_msg, cutoff_linear_headers_and_linear_body)
 		TFW_STR_STRING("paged_body2")
 	};
 	TfwStr *head = &frags[0], *pgd = &frags[1];
-	TfwHttpMsgCleanup cleanup = {};
+	TfwSkbCleanup cleanup = {};
 	TfwMsgIter *it;
 	int i;
 
@@ -222,7 +222,7 @@ TEST(http_msg, expand_from_pool_for_headers)
 	};
 	TfwStr *hdr = &frags[0], *head = &frags[0], *pgd = &frags[1];
 	TfwHttpMsg *msg = (TfwHttpMsg *)resp;
-	TfwHttpMsgCleanup cleanup = {};
+	TfwSkbCleanup cleanup = {};
 	TfwMsgIter *it;
 	int i;
 
@@ -277,7 +277,7 @@ TEST(http_msg, expand_from_pool_for_trailers)
 	};
 	TfwStr *trailer = &frags[0], *head = &frags[1], *pgd = &frags[2];
 	TfwHttpMsg *msg = (TfwHttpMsg *)resp;
-	TfwHttpMsgCleanup cleanup = {};
+	TfwSkbCleanup cleanup = {};
 	TfwMsgIter *it;
 	int i;
 
