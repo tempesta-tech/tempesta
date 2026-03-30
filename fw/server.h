@@ -92,7 +92,6 @@ typedef struct {
 	atomic64_t		sess_n;
 	atomic64_t		refcnt;
 	unsigned long		flags;
-	unsigned int		recns;
 	unsigned int		recns_idx;
 	atomic_t		recns_in_progress;
 	struct list_head	recns_list;

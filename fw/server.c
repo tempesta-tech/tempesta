@@ -345,7 +345,6 @@ tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 	tfw_sg_get(sg);
 	srv->sg = sg;
 	timer_setup(&srv->rc_timer, tfw_sock_srv_connect_retry_timer_cb, 0);
-	srv->recns = 0;
 	srv->recns_idx = 0;
 	atomic_set(&srv->recns_in_progress, 0);
 	INIT_LIST_HEAD(&srv->recns_list);

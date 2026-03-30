@@ -208,7 +208,7 @@ int frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len);
 static inline int
 frang_time_in_frame(const unsigned long tcur, const unsigned long tprev)
 {
-	return tprev + FRANG_FREQ > tcur;
+	return time_before(tcur, tprev + FRANG_FREQ);
 }
 
 static inline void *
