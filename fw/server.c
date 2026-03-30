@@ -350,6 +350,7 @@ tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 	atomic_set(&srv->recns_in_progress, 0);
 	INIT_LIST_HEAD(&srv->recns_list);
 	INIT_LIST_HEAD(&srv->failed_recns_list);
+	bzero_fast(srv->history, sizeof(srv->history));
 	spin_lock_init(&srv->recns_lock);
 
 	T_DBG2("Add new backend server to group '%s'\n", sg->name);
