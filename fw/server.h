@@ -53,6 +53,26 @@ typedef struct tfw_scheduler_t TfwScheduler;
 #define TFW_SRV_MAX_RECONNECT  (UINT_MAX - TFW_SRV_TMO_NR)
 
 /**
+ * Structure to control server connections re-establishing;
+ * 
+ * @recns_list		- list of connections, should be re-established;
+ * @failed_recns_list	- list of connections, which were failed to
+ * 			  re-establish;
+ * @recns_in_progress	- number of connections currently being
+ * 			  re-established;
+ * @recns_batch_idx	- index to calculate, count of connections should
+ *			  be re-established during timer callback;
+ * @recns_lock		- spinlock to syncronization;
+ */
+typedef struct {
+	struct list_head	recns_list;
+	struct list_head	failed_recns_list;
+	atomic_t		recns_in_progress;
+	unsigned int		recns_batch_idx;
+	spinlock_t		recns_lock;
+} TfwServerRecnsCtrl;
+
+/**
  * Server descriptor, a TfwPeer successor.
  *
  * @list	- member pointer in the list of servers of a server group;
@@ -66,12 +86,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @sess_n	- number of pinned sticky sessions;
  * @refcnt	- number of users of the server structure instance;
  * @flags	- server related flags: TFW_CFG_M_ACTION and HM atomic flags;
- * @recns	- the number of reconnect attempts;
- * @recns_in_progress - count of connections currently we
- *			  try to reestablish;
- * @failed_recns_list - list of the connections, which failed to reestablish; 
- * @recns_list	- list of connections should be reconneted;
- * @recns_lock	- lock for adding to @recns_list array;
+ * @ctrl	- structure to control server connections re-establishing;
  * @cleanup	- called right before server is destroyed;
  */
 typedef struct {
@@ -87,11 +102,7 @@ typedef struct {
 	atomic64_t		sess_n;
 	atomic64_t		refcnt;
 	unsigned long		flags;
-	unsigned int		recns_idx;
-	atomic_t		recns_in_progress;
-	struct list_head	recns_list;
-	struct list_head	failed_recns_list;
-	spinlock_t		recns_lock;
+	TfwServerRecnsCtrl	ctrl;
 	void			(*cleanup)(void *);
 } TfwServer;
 
