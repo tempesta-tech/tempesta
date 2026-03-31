@@ -40,7 +40,7 @@
 #include "http_msg.h"
 #include "procfs.h"
 #include "vhost.h"
-#include "log.h"
+#include "system_log.h"
 #include "hash.h"
 #include "http_match.h"
 #include "http.h"

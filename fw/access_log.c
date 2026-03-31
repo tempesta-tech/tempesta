@@ -17,15 +17,13 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include "access_log.h"
+#include "event_log.h"
 #include "connection.h"
 #include "server.h"
 #include "http.h"
 #include "mmap_buffer.h"
 #include "lib/common.h"
 #include <linux/jiffies.h>
-
-#define ACCESS_LOG_MAX_BIN_LEN 65535U
 
 /* This thing describes access log format.
  * - FIXED => fixed string, passed as is
@@ -318,7 +316,8 @@ static inline __must_check int
 tfw_log_write_bin(char **buff, const void *data, size_t size,
 		  unsigned int *room_size)
 {
-	unsigned short data_len = min_t(size_t, size, ACCESS_LOG_MAX_BIN_LEN);
+	unsigned short data_len = min_t(size_t, size,
+					TFW_EVENT_LOG_MAX_BIN_LEN);
 	unsigned int total_len = data_len + sizeof(data_len);
 
 	if (unlikely(*room_size < total_len))
@@ -340,7 +339,7 @@ tfw_log_write_tfwstr_as_bin(char **buff, const TfwStr *str,
 			    unsigned int *room_size)
 {
 	const TfwStr *c, *end;
-	unsigned short len = min_t(size_t, str->len, ACCESS_LOG_MAX_BIN_LEN);
+	unsigned short len = min_t(size_t, str->len, TFW_EVENT_LOG_MAX_BIN_LEN);
 
 	if (unlikely(*room_size < len + sizeof(len)))
 		return -ENOSPC;

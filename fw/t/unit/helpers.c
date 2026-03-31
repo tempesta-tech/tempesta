@@ -40,7 +40,7 @@
 #include "http_sess_conf.h"
 #include "cache.h"
 #include "http_tbl.h"
-#include "access_log.h"
+#include "event_log.h"
 #include "tf_conf.h"
 #include "tf_filter.h"
 #include "regex/kmod/rex.h"

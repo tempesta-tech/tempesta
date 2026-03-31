@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2022-2026 Tempesta Technologies, Inc.
+ * Copyright (C) 2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,8 +17,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_ACCESS_LOG_H__
-#define __TFW_ACCESS_LOG_H__
+
+#ifndef __EVENT_LOG_H__
+#define __EVENT_LOG_H__
 
 #ifdef __KERNEL__
 
@@ -35,6 +36,7 @@
 
 #endif /* __KERNEL__ */
 
+#define TFW_EVENT_LOG_MAX_BIN_LEN 65535U
 #define TFW_MMAP_LOG_TYPE_LEN 3
 
 /*
@@ -74,12 +76,13 @@ typedef enum {
 #define TFW_MMAP_LOG_FIELD_IS_SET(event, field) \
 	((event)->fields >> field & 1)
 #define TFW_MMAP_LOG_FIELD_SET(event, field) \
-	do { (event)->fields |= 1 << (field); } while (0)
+	((event)->fields |= 1 << (field))
 #define TFW_MMAP_LOG_FIELD_RESET(event, field) \
-	do { (event)->fields &= ~((u16)1 << (field)); } while (0)
+	((event)->fields &= ~((u16)1 << (field)))
 #define TFW_MMAP_LOG_ALL_FIELDS_MASK ((1 << TFW_MMAP_LOG_MAX) - 1)
 
-static inline int tfw_mmap_log_field_len(TfwBinLogFields field)
+static inline int
+tfw_mmap_log_field_len(TfwBinLogFields field)
 {
 	static const int TfwBinLogFieldsLens[] = {
 		[TFW_MMAP_LOG_ADDR] = 16,
@@ -100,11 +103,10 @@ static inline int tfw_mmap_log_field_len(TfwBinLogFields field)
 }
 
 #ifdef __KERNEL__
-
 int tfw_access_log_init(void);
 void tfw_access_log_exit(void);
 void do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length);
 void do_access_log(TfwHttpResp *resp);
 #endif
 
-#endif /* __TFW_ACCESS_LOG_H__ */
+#endif /* __EVENT_LOG_H__ */
