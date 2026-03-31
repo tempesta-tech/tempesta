@@ -192,16 +192,14 @@ tfw_server_has_reconnections(TfwServer *srv)
 }
 
 static inline unsigned int
-tfw_server_reconnect_timeout(TfwServer *srv)
+tfw_server_reconnect_timeout(TfwServer *srv, unsigned long ts)
 {
 	static const unsigned long tfw_srv_tmo_vals[][TFW_SRV_TMO_NR] = {
-		{ 1, 10, 100, 250, 500, 1000 },
-		{ 100, 500, 1000, 2000, 5000, 10000 },
-		{ 1000, 2000, 5000, 10000, 20000, 30000 },
-		{ 5000, 10000, 20000, 30000, 45000, 60000 }
+		{ 10,    50,    100,   200,   500,   1000 },
+		{ 100,   500,   1000,  2000,  5000,  10000 },
+		{ 1000,  2000,  5000,  10000, 20000, 30000 },
+		{ 5000,  10000, 20000, 30000, 45000, 60000 }
 	};
-	const unsigned short ticks = 10 * HZ / FRANG_FREQ;
-	const unsigned long ts = jiffies / ticks;
 	unsigned int idx, tmo_arr_idx;
 	unsigned int sum = 0;
 	unsigned int timeout;
@@ -219,11 +217,21 @@ tfw_server_reconnect_timeout(TfwServer *srv)
 }
 
 static inline void
+__tfw_server_mod_timer(TfwServer *srv, unsigned long ts)
+{
+        unsigned int timeout = tfw_server_reconnect_timeout(srv, ts);
+
+        mod_timer(&srv->rc_timer, jiffies + timeout);
+}
+
+
+static inline void
 tfw_server_mod_timer(TfwServer *srv)
 {
-	unsigned int timeout = tfw_server_reconnect_timeout(srv);
+	const unsigned short ticks = (10 * HZ) / FRANG_FREQ;
+	const unsigned long ts = jiffies / ticks;
 
-	mod_timer(&srv->rc_timer, jiffies + timeout);
+	__tfw_server_mod_timer(srv, ts);
 }
 
 static inline void
@@ -278,14 +286,15 @@ tfw_srv_conn_mod_timer(TfwSrvConn *srv_conn)
 		 * timer only if we are not already trying to re-establish
 		 * connections. 
 		 */
-		modify = list_empty(&srv->failed_recns_list);
+		modify = list_empty(&srv->failed_recns_list) &&
+			!atomic_read(&srv->recns_in_progress);
 		list_add_tail(&srv_conn->in_reconn_list, &srv->recns_list);
 		break; 
 	}
 	srv->recns_idx = 0;
 
 	if (modify)
-		tfw_server_mod_timer(srv);
+		__tfw_server_mod_timer(srv, ts);
 
 	spin_unlock_bh(&srv->recns_lock);
 }
@@ -471,10 +480,15 @@ static inline unsigned int
 tfw_sock_srv_calc_max_recns_per_time(TfwServer *srv)
 {
 	static const unsigned int max_recns_per_time[] = {
-		1, 2, 5, 10, 25, 50, 100, 200, 500, 1000
+		1, 2, 4, 8, 16, 25, 50, 100
 	};
+	const unsigned short ticks = (10 * HZ) / FRANG_FREQ;
+	const unsigned long ts = jiffies / ticks;
 	unsigned int idx = min(srv->recns_idx,
 			       ARRAY_SIZE(max_recns_per_time) - 1);
+	unsigned sum = tfw_server_reconnection_count(srv, ts);
+	unsigned limit = 10000 / (sum + 100);
+	unsigned max_recns;
 
 	/*
 	 * Despite the fact that now we use a single timer for reconnects
@@ -487,7 +501,10 @@ tfw_sock_srv_calc_max_recns_per_time(TfwServer *srv)
 	 * this number exceeds certain thresholds, we reduce the number
 	 * of attempts performed in a single timer callback invocation.
 	 */
-	return max_recns_per_time[idx];
+	max_recns = min(max_recns_per_time[idx], limit);
+	max_recns -= get_random_u32_below(max_recns / 5 + 1);
+
+	return max_recns;
 }
 
 void
@@ -508,6 +525,7 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 	 */
 	list_splice_tail_init(&srv->failed_recns_list, &reconnect_list);
 	list_splice_tail_init(&srv->recns_list, &reconnect_list);
+	atomic_inc(&srv->recns_in_progress);
 
 	spin_unlock(&srv->recns_lock);
 
@@ -516,7 +534,7 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 	{
 		list_del_init(&srv_conn->in_reconn_list);
 
-		if (tfw_srv_conn_adjust_inc_recns(srv_conn) == max)
+		if (tfw_srv_conn_adjust_inc_recns(srv_conn) == max + 1)
 			limit_reached = true;
 
 		tfw_sock_srv_connect_try(srv_conn);
@@ -538,7 +556,7 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 	 * successfully reestablished. We will modify timer, when all
 	 * these connections will be reestablished.
 	 */
-	if (atomic_read(&srv->recns_in_progress))
+	if (atomic_dec_return(&srv->recns_in_progress))
 		goto out_unlock;
 
 	if (tfw_server_has_reconnections(srv))
@@ -564,8 +582,16 @@ __reset_retry_timer(TfwSrvConn *srv_conn)
 		 * reestablished, reset server reconnection counter to
 		 * decrease timeout.
 		 */
-		if (list_empty(&srv->failed_recns_list))
-			srv->recns_idx++;
+#if 0
+		if (list_empty(&srv->failed_recns_list)) {
+			const unsigned short ticks = (10 * HZ) / FRANG_FREQ;
+			const unsigned long ts = jiffies / ticks;
+			unsigned sum = tfw_server_reconnection_count(srv, ts);
+
+			//if (!sum)
+				//srv->recns_idx++;
+		}
+#endif
 		if (tfw_server_has_reconnections(srv))
 			tfw_server_mod_timer(srv);
 	}
@@ -964,7 +990,8 @@ tfw_sock_srv_append_conns_n(TfwServer *srv, size_t conn_n)
 
 	spin_lock_bh(&srv->recns_lock);
 
-	modify = !tfw_server_has_reconnections(srv);
+	modify = !tfw_server_has_reconnections(srv)
+		&& !atomic_read(&srv->recns_in_progress);
 
 	for (i = 0; i < conn_n; ++i) {
 		if (!(srv_conn = tfw_sock_srv_new_conn(srv))) {
