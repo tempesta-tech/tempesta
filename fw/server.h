@@ -52,11 +52,6 @@ typedef struct tfw_scheduler_t TfwScheduler;
  */
 #define TFW_SRV_MAX_RECONNECT  (UINT_MAX - TFW_SRV_TMO_NR)
 
-typedef struct {
-	unsigned long	ts;
-	unsigned int	count;
-} RecnsHistory;
-
 /**
  * Server descriptor, a TfwPeer successor.
  *
@@ -97,7 +92,6 @@ typedef struct {
 	struct list_head	recns_list;
 	struct list_head	failed_recns_list;
 	spinlock_t		recns_lock;
-	RecnsHistory		history[FRANG_FREQ];
 	void			(*cleanup)(void *);
 } TfwServer;
 
