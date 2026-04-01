@@ -136,7 +136,7 @@ enum {
 	__TFW_SRV_L_CNT = 4
 };
 
-static inline unsigned int
+static inline void
 tfw_srv_conn_adjust_inc_recns(TfwSrvConn *srv_conn)
 {
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
@@ -149,10 +149,8 @@ tfw_srv_conn_adjust_inc_recns(TfwSrvConn *srv_conn)
 	 * reestablishing failed from `tfw_srv_conn_mod_timer`.
 	 */
 	WARN_ON(test_and_set_bit(__TFW_CONN_B_RECONNECT, &srv_conn->flags));
-	rc = atomic_inc_return(&srv->ctrl.recns_in_progress);
+	atomic_inc_return(&srv->ctrl.recns_in_progress);
 	WARN_ON(rc > srv->conn_n + 1);
-
-	return rc;
 }
 
 static inline int
@@ -522,18 +520,14 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 	TfwServer *srv = from_timer(srv, t, rc_timer);
 	TfwSrvConn *srv_conn, *tmp;
 	LIST_HEAD(reconnect_list);
-	unsigned int max;
-	bool limit_reached = false;
+	unsigned int count, max;
 
 	spin_lock(&srv->ctrl.recns_lock);
 
+	count = 0;
 	max = tfw_sock_srv_calc_max_recns_per_time(srv);
-	/*
-	 * First try to reestablish connections, which we already
-	 * try to reestablish.
-	 */
-	list_splice_tail_init(&srv->ctrl.failed_recns_list, &reconnect_list);
 	list_splice_tail_init(&srv->ctrl.recns_list, &reconnect_list);
+	list_splice_tail_init(&srv->ctrl.failed_recns_list, &reconnect_list);
 	atomic_inc(&srv->ctrl.recns_in_progress);
 
 	spin_unlock(&srv->ctrl.recns_lock);
@@ -542,12 +536,9 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 				 in_reconn_list)
 	{
 		list_del_init(&srv_conn->in_reconn_list);
-
-		if (tfw_srv_conn_adjust_inc_recns(srv_conn) == max + 1)
-			limit_reached = true;
-
+		tfw_srv_conn_adjust_inc_recns(srv_conn);
 		tfw_sock_srv_connect_try(srv_conn);
-		if (limit_reached)
+		if (++count >= max)
 			break;
 	}
 
