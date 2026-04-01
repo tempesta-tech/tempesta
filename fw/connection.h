@@ -267,7 +267,13 @@ enum {
 	 * Mark connection as unavailable to schedulers.
 	 * Used to steal server connections for websockets.
 	 */
-	TFW_CONN_B_UNSCHED
+	TFW_CONN_B_UNSCHED,
+
+	/*
+	* Internal flag used to indicate that the connection
+	* is currently being reestablished.
+	*/
+	__TFW_CONN_B_RECONNECT,
 };
 
 /**
