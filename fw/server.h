@@ -53,6 +53,28 @@ typedef struct tfw_scheduler_t TfwScheduler;
 #define TFW_SRV_MAX_RECONNECT  (UINT_MAX - TFW_SRV_TMO_NR)
 
 /**
+ * Structure to control server connections re-establishing;
+ *
+ * @recns_list		- list of connections, should be re-established;
+ * @failed_recns_list	- list of connections, which were failed to
+ * 			  re-establish;
+ * @recns_in_progress	- number of connections currently being
+ * 			  re-established;
+ * @recns_batch_idx	- index to calculate, count of connections should
+ *			  be re-established during timer callback;
+ * @@recns		- number of reconnection attempts;
+ * @recns_lock		- spinlock to syncronization;
+ */
+typedef struct {
+	struct list_head	recns_list;
+	struct list_head	failed_recns_list;
+	atomic_t		recns_in_progress;
+	unsigned int		recns_batch_idx;
+	unsigned int		recns;
+	spinlock_t		recns_lock;
+} TfwServerRecnsCtrl;
+
+/**
  * Server descriptor, a TfwPeer successor.
  *
  * @list	- member pointer in the list of servers of a server group;
@@ -66,10 +88,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @sess_n	- number of pinned sticky sessions;
  * @refcnt	- number of users of the server structure instance;
  * @flags	- server related flags: TFW_CFG_M_ACTION and HM atomic flags;
- * @recns_idx	- the least active index in @recns array;
- * @recns_cnt	- count of connections should be reconneted;
- * @recns	- array of lists of connections should be reconneted;
- * @recns_lock	- lock for adding to @recns array;
+ * @ctrl	- structure to control server connections re-establishing;
  * @cleanup	- called right before server is destroyed;
  */
 typedef struct {
@@ -85,10 +104,7 @@ typedef struct {
 	atomic64_t		sess_n;
 	atomic64_t		refcnt;
 	unsigned long		flags;
-	unsigned int		recns_idx;
-	unsigned int		recns_cnt;
-	struct list_head	recns[TFW_SRV_TMO_NR];
-	spinlock_t		recns_lock;
+	TfwServerRecnsCtrl	ctrl;
 	void			(*cleanup)(void *);
 } TfwServer;
 
@@ -107,7 +123,7 @@ enum {
 	TFW_SRV_B_SUSPEND,
 
 	/* Server will be removed from configuration. */
-	TFW_SRV_B_REMOVED
+	TFW_SRV_B_REMOVED,
 };
 
 #define	TFW_SRV_F_HMONITOR		(1 << TFW_SRV_B_HMONITOR)
@@ -268,19 +284,6 @@ tfw_server_unpin_sess(TfwServer *srv)
 {
 	atomic64_dec(&srv->sess_n);
 	tfw_server_put(srv);
-}
-
-static inline unsigned int
-tfw_server_find_new_reconnect_idx(TfwServer *srv)
-{
-	unsigned int i;
-
-	for (i = srv->recns_idx + 1; i < TFW_SRV_TMO_NR; i++) {
-		if (!list_empty(&srv->recns[i]))
-			break;
-	}
-
-	return i;
 }
 
 /*
