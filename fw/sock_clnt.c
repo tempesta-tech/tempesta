@@ -85,7 +85,7 @@ tfw_sock_cli_keepalive_timer_cb(struct timer_list *t)
 
 	T_DBG("Client timeout end\n");
 
-	if (TFW_CONN_TYPE(conn) & Conn_Closing) {
+	if (TFW_CONN_TYPE(conn) & Conn_Shutdown) {
 		/*
 		 * If socket was shut down it is in TCP_FIN_WAIT1 or
 		 * TCP_FIN_WAIT2 state depends on receiving ack from
