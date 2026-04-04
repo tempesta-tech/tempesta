@@ -195,20 +195,14 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 }
 
 static void
-__cli_mem_release(struct rcu_head *rcu)
-{
-	TfwClientMem *cli_mem = container_of(rcu, TfwClientMem, rcu_head);
-
-	free_percpu(cli_mem->mem);
-	kfree(cli_mem);
-}
-
-static void
 cli_mem_release(struct percpu_ref *ref)
 {
 	TfwClientMem *cli_mem = container_of(ref, TfwClientMem, refcnt);
 
-	call_rcu(&cli_mem->rcu_head, __cli_mem_release);
+	percpu_ref_exit(&cli_mem->refcnt);
+	free_percpu(cli_mem->mem);
+	kfree(cli_mem);
+
 	if (atomic_dec_and_test(&shutdown_pending))
 		wake_up(&shutdown_wq);
 }
@@ -401,7 +395,6 @@ tfw_client_stop(void)
 	if (client_db) {
 		tfw_client_free_lru();
 		wait_event(shutdown_wq, !atomic_read(&shutdown_pending));
-		rcu_barrier();
 		tdb_close(client_db);
 		client_db = NULL;
 	}

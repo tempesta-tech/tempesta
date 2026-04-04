@@ -25,7 +25,6 @@
 #include "connection.h"
 
 typedef struct {
-	struct rcu_head		rcu_head;
 	struct percpu_ref	refcnt;
 	struct work_struct	kill_work;
    	long __percpu		*mem;
