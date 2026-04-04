@@ -38,38 +38,79 @@
 typedef struct tfw_srv_group_t TfwSrvGroup;
 typedef struct tfw_scheduler_t TfwScheduler;
 
+/*
+ * The number of  reconnection attempts during increasing timeout (quick
+ * reconnect) stage.
+ * This number is not included in the total count of reconnection attempts.
+ */
+#define TFW_SRV_TMO_NR		6
+/*
+ * max_recns can be the maximum value for the data type to mean
+ * the unlimited number of attempts, which is the value that should
+ * never be reached. UINT_MAX seconds is more than 136 years. It's
+ * safe to assume that it's not reached in a single run of Tempesta.
+ */
+#define TFW_SRV_MAX_RECONNECT  (UINT_MAX - TFW_SRV_TMO_NR)
+
+/**
+ * Structure to control server connections re-establishing;
+ *
+ * @recns_list		- list of connections, should be re-established;
+ * @failed_recns_list	- list of connections, which were failed to
+ * 			  re-establish;
+ * @recns_in_progress	- number of connections currently being
+ * 			  re-established;
+ * @recns_batch_idx	- index to calculate, count of connections should
+ *			  be re-established during timer callback;
+ * @@recns		- number of reconnection attempts;
+ * @recns_lock		- spinlock to syncronization;
+ */
+typedef struct {
+	struct list_head	recns_list;
+	struct list_head	failed_recns_list;
+	atomic_t		recns_in_progress;
+	unsigned int		recns_batch_idx;
+	unsigned int		recns;
+	spinlock_t		recns_lock;
+} TfwServerRecnsCtrl;
+
 /**
  * Server descriptor, a TfwPeer successor.
  *
  * @list	- member pointer in the list of servers of a server group;
  * @gs_timer	- grace shutdown timer;
+ * @rc_timer	- reconnect timer;
+ * @weight	- static server weight for load balancers;
  * @sg		- back-reference to the server group;
  * @sched_data	- private scheduler data for the server;
  * @apmref	- opaque handle for APM stats;
  * @conn_n	- configured number of connections to the server;
  * @sess_n	- number of pinned sticky sessions;
  * @refcnt	- number of users of the server structure instance;
- * @weight	- static server weight for load balancers;
  * @flags	- server related flags: TFW_CFG_M_ACTION and HM atomic flags;
+ * @ctrl	- structure to control server connections re-establishing;
  * @cleanup	- called right before server is destroyed;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	struct list_head	list;
 	struct timer_list	gs_timer;
+	struct timer_list	rc_timer;
+	unsigned int		weight;
 	TfwSrvGroup		*sg;
 	void __rcu		*sched_data;
 	void			*apmref;
 	size_t			conn_n;
 	atomic64_t		sess_n;
 	atomic64_t		refcnt;
-	unsigned int		weight;
 	unsigned long		flags;
+	TfwServerRecnsCtrl	ctrl;
 	void			(*cleanup)(void *);
 } TfwServer;
 
 /*
- * Bits and corresponding flags for server's health monitor states.
+ * Bits and corresponding flags for server's (health monitor and some
+ * internal) states.
  * These flags are intended for @flags field of 'TfwServer' structure.
  * NOTE: In cfg.h for this field there are also flags definitions, which
  * are responsible for server's configuration processing.
@@ -79,7 +120,10 @@ enum {
 	TFW_SRV_B_HMONITOR = 0x8,
 
 	/* Server is excluded from processing. */
-	TFW_SRV_B_SUSPEND
+	TFW_SRV_B_SUSPEND,
+
+	/* Server will be removed from configuration. */
+	TFW_SRV_B_REMOVED,
 };
 
 #define	TFW_SRV_F_HMONITOR		(1 << TFW_SRV_B_HMONITOR)
@@ -265,42 +309,14 @@ tfw_srv_conn_suitable_common(TfwSrvConn *srv_conn)
 		&& !tfw_srv_conn_queue_full(srv_conn);
 }
 
-/*
- * Timeout between connect attempts is increased with each unsuccessful
- * attempt. Length of the timeout for each attempt is chosen to follow
- * a variant of exponential backoff delay algorithm.
- *
- * It's essential that the new connection is established and the failed
- * connection is restored ASAP, so the min retry interval is set to 1.
- * The next step is good for a cyclic reconnect, e.g. if an upstream
- * ia configured to reset a connection periodically. The next steps are
- * almost a pure backoff algo starting from 100ms, which is a good RTT
- * for a fast 10Gbps link. The timeout is not increased after 1 second
- * as it has moderate overhead, and it's still good in response time.
- */
-static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
-/*
- * The number of  reconnection attempts during increasing timeout (quick
- * reconnect) stage.
- * This number is not included in the total count of reconnection attempts.
- */
-static const unsigned int tfw_srv_tmo_nr = ARRAY_SIZE(tfw_srv_tmo_vals);
-/*
- * max_recns can be the maximum value for the data type to mean
- * the unlimited number of attempts, which is the value that should
- * never be reached. UINT_MAX seconds is more than 136 years. It's
- * safe to assume that it's not reached in a single run of Tempesta.
- */
-#define TFW_SRV_MAX_RECONNECT  (UINT_MAX - ARRAY_SIZE(tfw_srv_tmo_vals))
-
 static inline bool
 tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 {
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
 	unsigned int recns = READ_ONCE(srv_conn->recns);
 	/* Rescheduling could not happens during quick reconnect stage. */
-	BUG_ON(recns < tfw_srv_tmo_nr);
-	return (recns - tfw_srv_tmo_nr >= sg->max_recns);
+	BUG_ON(recns < TFW_SRV_TMO_NR);
+	return (recns - TFW_SRV_TMO_NR >= sg->max_recns);
 }
 
 /*
@@ -321,6 +337,7 @@ tfw_srv_suspended(TfwServer *srv)
 	return test_bit(TFW_SRV_B_SUSPEND, &srv->flags);
 }
 
+void tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t);
 /* Server group routines. */
 TfwSrvGroup *tfw_sg_lookup(const char *name, unsigned int len);
 TfwSrvGroup *tfw_sg_lookup_reconfig(const char *name, unsigned int len);
