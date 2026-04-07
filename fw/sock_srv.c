@@ -109,6 +109,10 @@
  *    soon as the last client releases the server connection.
  */
 
+static atomic_t alfa = ATOMIC_INIT(0);
+static atomic_t beta = ATOMIC_INIT(0);
+static atomic_t ceta = ATOMIC_INIT(0);
+
 #define srv_warn(check, addr, fmt, ...)					\
 	T_WARN_MOD_ADDR(sock_srv, check, addr, TFW_WITH_PORT, fmt,	\
 			##__VA_ARGS__)
@@ -290,7 +294,13 @@ tfw_server_mod_timer(TfwServer *srv)
 {
         unsigned int timeout = tfw_server_reconnect_timeout(srv);
 
+        printk(KERN_ALERT "tfw_server_mod_timer !!!!");
+        if (atomic_read(&beta))
+        	mdelay(6000);
+
         mod_timer(&srv->rc_timer, jiffies + timeout);
+        printk(KERN_ALERT "tfw_server_mod_timer AAA %d!!!!",
+        	timer_pending(&srv->rc_timer));
 }
 
 static inline void
@@ -363,6 +373,9 @@ tfw_srv_conn_del_timer_sync(TfwSrvConn *srv_conn)
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 
 	spin_lock_bh(&srv->ctrl.recns_lock);
+
+	printk(KERN_ALERT "tfw_srv_conn_del_timer_sync %px %d\n",
+		srv_conn, list_empty(&srv_conn->in_reconn_list));
 
 	if (likely(list_empty(&srv_conn->in_reconn_list))) {
 		spin_unlock_bh(&srv->ctrl.recns_lock);
@@ -568,6 +581,8 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 	LIST_HEAD(reconnect_list);
 	unsigned int count, max;
 
+	printk(KERN_ALERT "tfw_sock_srv_connect_retry_timer_cb AAA\n");
+
 	spin_lock(&srv->ctrl.recns_lock);
 
 	count = 0;
@@ -593,6 +608,11 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 			break;
 	}
 
+	printk(KERN_ALERT "BEFORE\n");
+	atomic_set(&alfa, 1);
+	printk(KERN_ALERT "AFTER\n");
+	mdelay(2000);
+
 	spin_lock(&srv->ctrl.recns_lock);
 
 	/*
@@ -607,11 +627,24 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 	 * successfully reestablished. We will modify timer, when all
 	 * these connections will be reestablished.
 	 */
-	if (atomic_dec_return(&srv->ctrl.recns_in_progress))
-		goto out_unlock;
 
-	if (tfw_server_has_reconnections(srv))
+	printk(KERN_ALERT "BBB CETA\n");
+	mdelay(6000);
+	printk(KERN_ALERT "AAA CETA\n");
+
+	if (atomic_dec_return(&srv->ctrl.recns_in_progress)) {
+		printk(KERN_ALERT "DEC 0!!!!");
+		goto out_unlock;
+	}
+
+	printk(KERN_ALERT "DEC 1!!!!");
+
+	if (tfw_server_has_reconnections(srv)) {
+		printk(KERN_ALERT "TUT!!! BEFORE BETA\n");
+		mdelay(6000);
+		printk(KERN_ALERT "TUT!!! AFTER BETA\n");
 		tfw_server_mod_timer(srv);
+	}
 
 out_unlock:
 	spin_unlock(&srv->ctrl.recns_lock);
@@ -623,6 +656,9 @@ __reset_retry_timer(TfwSrvConn *srv_conn)
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 
 	srv_conn->recns = 0;
+
+	printk(KERN_ALERT "__reset_retry_timer QQQ\n");
+	atomic_set(&ceta, 1);
 
 	spin_lock(&srv->ctrl.recns_lock);
 
@@ -638,9 +674,14 @@ __reset_retry_timer(TfwSrvConn *srv_conn)
 			srv->ctrl.recns = 0;
 		}
 
+		printk(KERN_ALERT "TUT %d\n", tfw_server_has_reconnections(srv));
+		while(!atomic_read(&beta));
+
 		if (tfw_server_has_reconnections(srv))
 			tfw_server_mod_timer(srv);
 	}
+
+	printk(KERN_ALERT "__reset_retry_timer QQQ AAA\n");
 
 	spin_unlock(&srv->ctrl.recns_lock);
 }
@@ -792,6 +833,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 */
 	if (!test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
 		return 0;
+
 	/*
 	 * Stop any attempts to reconnect or reschedule. Every activated
 	 * connection must pass through its destructor @tfw_srv_conn_release():
@@ -819,6 +861,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 		 * procedure, and server had not been put. See for details in
 		 * connection's destructor @tfw_srv_conn_release().
 		 */
+		printk(KERN_ALERT "tfw_sock_srv_disconnect %px\n", srv_conn);
 		if (tfw_srv_conn_del_timer_sync(srv_conn)) {
 			tfw_srv_conn_stop(srv_conn);
 			break;
@@ -836,6 +879,8 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 			TfwServer *srv = (TfwServer *)conn->peer;
 			int r = 0;
 
+			printk(KERN_ALERT "tfw_sock_srv_disconnect %px TUT\n",
+				srv_conn);
 			/*
 			 * We set TFW_CFG_B_DEL flag when we gracefully
 			 * shutdown server. If `grace_shutdown_time` is
@@ -947,8 +992,13 @@ tfw_sock_srv_disconnect_srv(TfwServer *srv)
 {
 	WARN_ON(test_bit(TFW_SRV_B_REMOVED, &srv->flags));
 	set_bit(TFW_SRV_B_REMOVED, &srv->flags);
+	printk(KERN_ALERT "tfw_sock_srv_disconnect_srv timer_shutdown_sync BBB\n");
 	timer_shutdown_sync(&srv->rc_timer);
 
+	printk(KERN_ALERT "tfw_sock_srv_disconnect_srv timer_shutdown_sync\n");
+	atomic_set(&beta, 1);
+	printk(KERN_ALERT "tfw_sock_srv_disconnect_srv timer_shutdown_sync AAA\n");
+	mdelay(3000);
 	return tfw_peer_for_each_conn((TfwPeer *)srv, tfw_sock_srv_disconnect);
 }
 
@@ -2473,6 +2523,12 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 static int
 tfw_cfgop_sg_start_sched(TfwCfgSrvGroup *sg_cfg, TfwSrvGroup *sg)
 {
+	printk(KERN_ALERT "tfw_cfgop_sg_start_sched BBB\n");
+	while(!atomic_read(&alfa));
+	printk(KERN_ALERT "tfw_cfgop_sg_start_sched AAA\n");
+
+	return -EINVAL;
+
 	if (tfw_sg_start_sched(sg, sg_cfg->parsed_sg->sched,
 			       sg_cfg->sched_arg)) {
 		T_ERR_NL("Unable to add srv_group '%s' to scheduler '%s'\n",
