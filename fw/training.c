@@ -23,9 +23,11 @@
 #include "tempesta_fw.h"
 #include "lib/fault_injection_alloc.h"
 
+static const unsigned int req_num_batch = 64;
+static const unsigned int cpu_num_batch = 1024;
+
 unsigned int tfw_training_mod_period = 0;
 unsigned int tfw_training_mod_state = TFW_MODE_DISABLED;
-u64 training_time_in_jiffies;
 int g_training_num = 0;
 
 static u64 training_start_time;
@@ -198,12 +200,6 @@ __init_z_score(void)
 	return 0;
 }
 
-/*
- * We use integer calculation in kernel mode, so use
- * scale for more accuracy calculation.
- */
-#define SCALE_SHIFT 16
-
 static inline void
 __calculate_mean_and_std(struct stats *s)
 {
@@ -235,8 +231,6 @@ __calculate_z_score(u64 val, struct stats *s, s64 *z_score)
 	return true;
 
 }
-
-#undef SCALE_SHIFT
 
 static inline void
 tfw_training_mode_adjust_new_el(struct stats *s, u64 delta1, u64 delta2,
@@ -270,8 +264,8 @@ tfw_trainging_mode_adjust_new_start(atomic64_t *max, int *num,
 	return false;
 }
 
-#define TFW_TRAINING_MODE_ADJUST(name)						\
-void										\
+#define TFW_TRAINING_MODE_ADJUST(name, retcode)						\
+retcode										\
 tfw_training_mode_adjust##_##name(u64 delta1, u64 delta2, bool new_client)	\
 {										\
 	struct stats *s;							\
@@ -285,12 +279,12 @@ tfw_training_mode_adjust##_##name(u64 delta1, u64 delta2, bool new_client)	\
 	rcu_read_unlock();							\
 }
 
-TFW_TRAINING_MODE_ADJUST(req_num);
-TFW_TRAINING_MODE_ADJUST(conn_num);
-TFW_TRAINING_MODE_ADJUST(cpu_num);
+TFW_TRAINING_MODE_ADJUST(conn_num, void);
+TFW_TRAINING_MODE_ADJUST(req_num, static void);
+TFW_TRAINING_MODE_ADJUST(cpu_num, static void);
 
-#define TFW_TRAINING_MODE_DEFENCE(name)				\
-bool								\
+#define TFW_TRAINING_MODE_DEFENCE(name, retcode)		\
+retcode								\
 tfw_training_mode_defence##_##name(u64 val)			\
 {								\
 	struct stats *p;					\
@@ -316,9 +310,9 @@ tfw_training_mode_defence##_##name(u64 val)			\
 	return true;						\
 }
 
-TFW_TRAINING_MODE_DEFENCE(conn_num)
-TFW_TRAINING_MODE_DEFENCE(req_num)
-TFW_TRAINING_MODE_DEFENCE(cpu_num)
+TFW_TRAINING_MODE_DEFENCE(conn_num, bool)
+TFW_TRAINING_MODE_DEFENCE(req_num, static bool)
+TFW_TRAINING_MODE_DEFENCE(cpu_num, static bool)
 
 #undef TFW_TRAINING_MODE_DEFENCE
 
@@ -344,9 +338,10 @@ tfw_training_mode_adjust(atomic64_t *max, u64 curr, bool new_client,
 	adjust(delta1, delta2, new_client);
 }
 
-static inline void
+static inline bool
 tfw_training_mode_flush_inc(TfwTrainingStat *stat,
-			    void (*adjust)(u64, u64, bool))
+			    void (*adjust)(u64, u64, bool),
+			    bool (*defence)(u64))
 {
 	u64 *inc = this_cpu_ptr(stat->inc);
 	bool new_client = false;
@@ -356,31 +351,50 @@ tfw_training_mode_flush_inc(TfwTrainingStat *stat,
 	*inc = 0;
 	curr = atomic64_add_return(delta, &stat->curr);
 
-	if (!tfw_mode_is_training())
-		return;
+	if (tfw_mode_is_disabled())
+		return true;
+
+	if (tfw_mode_is_defence())
+		return defence(curr);
 
 	if (tfw_trainging_mode_adjust_new_start(&stat->max, &stat->num,
 						&stat->lock))
 		new_client = true;
 
 	tfw_training_mode_adjust(&stat->max, curr, new_client, adjust);
+
+	return true;
 }
 
-void
-tfw_training_mode_update_stat(TfwTrainingStat *stat, int delta,
-			      void (*adjust)(u64, u64, bool))
-{
-	if (delta > 0) {
-		static const unsigned int cpu_batch = 64;
-		s64 *inc = this_cpu_ptr(stat->inc);
-
-		inc += delta;
-		if (unlikely(*inc >= cpu_batch))
-			tfw_training_mode_flush_inc(stat, adjust);
-	} else {
-		atomic64_sub(delta, &stat->curr);
-	}
+#define TFW_TRAINING_MODE_UPDATE_STAT(name)				\
+bool									\
+tfw_training_mode_update##_##name##_##stat(TfwTrainingStat *stat,	\
+					   int delta) 			\
+{									\
+	bool r = true;							\
+									\
+	if (delta > 0) {						\
+		s64 *inc = this_cpu_ptr(stat->inc);			\
+		void (*adjust)(u64, u64, bool) =			\
+			tfw_training_mode_adjust##_##name;		\
+		bool (*defence)(u64) =					\
+			tfw_training_mode_defence##_##name;		\
+									\
+		*inc += delta;						\
+		if (unlikely(*inc >= name##_batch))			\
+			r = tfw_training_mode_flush_inc(stat, adjust,	\
+							defence);	\
+	} else {							\
+		atomic64_add(delta, &stat->curr);			\
+	}								\
+									\
+	return r;							\
 }
+
+TFW_TRAINING_MODE_UPDATE_STAT(req_num);
+TFW_TRAINING_MODE_UPDATE_STAT(cpu_num);
+
+#undef TFW_TRAINING_MODE_UPDATE_STAT
 
 static inline void
 tfw_training_mode_prepare_for_defence(void)
@@ -392,7 +406,6 @@ tfw_training_mode_prepare_for_defence(void)
 	__calculate_mean_and_std(g_conn_num);
 	__calculate_mean_and_std(g_req_num);
 	__calculate_mean_and_std(g_cpu_num);
-	training_time_in_jiffies = get_jiffies_64() - training_start_time;
 	WRITE_ONCE(tfw_training_mod_state, TFW_MODE_IS_DEFENCE);
 }
 

@@ -1347,14 +1347,14 @@ tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
 	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
 
-	if (cli) {
-		tfw_training_mode_update_stat(&cli->req_stat, 1,
-					      tfw_training_mode_adjust_req_num);
-	}
-
 	BUG_ON(!list_empty(&req->nip_list));
 	list_add_tail(&req->nip_list, &srv_conn->nip_queue);
 	set_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
+
+	if (unlikely(!cli))
+		return;
+
+	tfw_training_mode_update_req_num_stat(&cli->req_stat, 1);
 }
 
 /*
@@ -1369,15 +1369,15 @@ tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
 	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
 
-	if (cli) {
-		tfw_training_mode_update_stat(&cli->req_stat, -1,
-					      tfw_training_mode_adjust_req_num);
-	}
-
 	if (!list_empty(&req->nip_list)) {
 		list_del_init(&req->nip_list);
 		tfw_http_conn_nip_reset(srv_conn);
 	}
+
+	if (unlikely(!cli))
+		return;
+
+	tfw_training_mode_update_req_num_stat(&cli->req_stat, -1);
 }
 
 /*
@@ -5531,22 +5531,13 @@ tfw_h2_choose_close_type(ErrorType type, bool reply)
 static void
 tfw_http_req_filter_block_ip(TfwHttpReq *req)
 {
-	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 	TfwClient *cli;
-
-	if (WARN_ON_ONCE(!dflt_vh))
-		return;
 
 	cli = req->peer ? : (TfwClient *)(req->conn ? req->conn->peer : NULL);
 	if (!cli)
-		goto out;
+		return;
 
-	if (dflt_vh->frang_gconf->ip_block)
-		tfw_filter_block_ip(cli,
-				    dflt_vh->frang_gconf->ip_block_duration);
-
-out:
-	tfw_vhost_put(dflt_vh);
+	tfw_client_filter_block_ip(cli);
 }
 
 static int
@@ -6534,6 +6525,9 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 	TfwFsmData data_up;
 	int r;
 	TfwHttpActionResult res;
+	u64 begin_time = ktime_get_ns();
+	bool conn_is_tls = TFW_CONN_TLS(conn);
+	TfwClient *cli = (TfwClient *)conn->peer;
 
 	BUG_ON(!stream->msg);
 
@@ -6671,7 +6665,8 @@ next_msg:
 		 * just supply data for parsing. They only want to know
 		 * if processing of a message should continue or not.
 		 */
-		return T_OK;
+		r = T_OK;
+		goto finish;
 
 	case T_OK:
 		/*
@@ -6827,7 +6822,8 @@ next_msg:
 
 	if (res.type == TFW_HTTP_RES_REDIR) {
 		tfw_http_req_redir(req, res.redir.resp_code, &res.redir);
-		return T_OK;
+		r = T_OK;
+		goto finish;
 	}
 
 	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
@@ -6976,6 +6972,14 @@ next_msg:
 		 */
 		stream->msg = (TfwMsg *)hmsib;
 		goto next_msg;
+	}
+
+finish:
+	if (!conn_is_tls && !t_error_code_is_critical(r)
+	    && !tfw_client_training_adjust_cpu_num(cli, begin_time))
+	{
+		tfw_client_filter_block_ip(cli);
+		r = T_BLOCK_WITH_RST;
 	}
 
 	return r;
@@ -7361,8 +7365,10 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
 	TfwCliConn *cli_conn;
+	TfwClient *cli;
 	TfwFsmData data_up;
 	bool conn_stop, filtout = false, websocket = false;
+	u64 begin_time = ktime_get_ns();
 
 	BUG_ON(!stream->msg);
 	/*
@@ -7389,8 +7395,10 @@ next_msg:
 			conn_stop = !hmresp->req->stream;
 		else
 			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP, hmresp->req->flags);
+		cli = (TfwClient *)cli_conn->peer;
 	} else {
 		conn_stop = false;
+		cli = NULL;
 	}
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,

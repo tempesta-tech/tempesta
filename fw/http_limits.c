@@ -181,7 +181,6 @@ frang_req_is_whitelisted(TfwHttpReq *req)
 static void
 frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 {
-	TfwClient *cli = FRANG_ACC2CLI(ra);
 	int i = ts % FRANG_FREQ;
 
 	if (ra->history[i].ts != ts) {
@@ -200,7 +199,6 @@ frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 	ra->conn_curr++;
 	if (ra->conn_curr == 1)
 		TFW_INC_STAT_BH(clnt.online);
-	tfw_client_training_adjust_conn_num(cli, ra->conn_curr);
 }
 
 /**
@@ -225,7 +223,9 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 
 	frang_acc_history_init(ra, ts);
 
-	if (!tfw_training_mode_defence_conn_num(ra->conn_curr)) {
+	if (tfw_client_training_adjust_conn_num(FRANG_ACC2CLI(ra),
+						ra->conn_curr))
+	{
 		spin_unlock(&ra->lock);
 		return T_BLOCK;
 	}
