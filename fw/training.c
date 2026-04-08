@@ -381,7 +381,7 @@ tfw_training_mode_update##_##name##_##stat(TfwTrainingStat *stat,	\
 			tfw_training_mode_defence##_##name;		\
 									\
 		*inc += delta;						\
-		if (unlikely(*inc >= name##_batch))			\
+		if (unlikely(*inc >= name##_##batch))			\
 			r = tfw_training_mode_flush_inc(stat, adjust,	\
 							defence);	\
 	} else {							\
@@ -493,6 +493,7 @@ static TfwCfgSpec tfw_training_mode_specs[] = {
 		.name = "training_period",
 		.deflt = "75",
 		.handler = tfw_cfg_set_int,
+		.allow_reconfig = true,
 		.dest = &tfw_training_mod_period,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, UINT_MAX },
@@ -502,6 +503,7 @@ static TfwCfgSpec tfw_training_mode_specs[] = {
 		.name = "training_z_score_mem",
 		.deflt = "0",
 		.handler = tfw_cfg_set_int,
+		.allow_reconfig = true,
 		.dest = &tfw_training_mod_z_score_mem_num,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, UINT_MAX },
@@ -511,6 +513,7 @@ static TfwCfgSpec tfw_training_mode_specs[] = {
 		.name = "training_z_score_cpu",
 		.deflt = "0",
 		.handler = tfw_cfg_set_int,
+		.allow_reconfig = true,
 		.dest = &tfw_training_mod_z_score_cpu_num,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, UINT_MAX },
@@ -520,6 +523,7 @@ static TfwCfgSpec tfw_training_mode_specs[] = {
 		.name = "training_z_score_connection_num",
 		.deflt = "0",
 		.handler = tfw_cfg_set_int,
+		.allow_reconfig = true,
 		.dest = &tfw_training_mod_z_score_conn_num,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, UINT_MAX },
@@ -529,6 +533,7 @@ static TfwCfgSpec tfw_training_mode_specs[] = {
 		.name = "training_z_score_request_num",
 		.deflt = "0",
 		.handler = tfw_cfg_set_int,
+		.allow_reconfig = true,
 		.dest = &tfw_training_mod_z_score_req_num,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, UINT_MAX },

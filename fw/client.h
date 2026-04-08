@@ -27,9 +27,9 @@
 
 typedef struct {
 	u64 last_ts;
-	u64 ema;
+	u64 usage;
 	u64 pending_cpu;
-} TfwCpuEma;
+} TfwCpuUsage;
 
 /**
  * Client descriptor.
@@ -52,7 +52,7 @@ typedef struct {
 	unsigned int		conn_training_num;
 	TfwTrainingStat		req_stat;
 	TfwTrainingStat		cpu_stat;
-	TfwCpuEma __percpu	*cpu_ema;
+	TfwCpuUsage __percpu	*cpu_usage;
 } TfwClient;
 
 int tfw_client_init(void);
