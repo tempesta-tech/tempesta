@@ -119,7 +119,7 @@ next_msg:
 
 		spin_unlock(&tls->lock);
 		/* The skb is freed in tfw_tls_conn_dtor(). */
-		return r;
+		goto finish;
 	case T_POSTPONE:
 		/* No complete TLS record seen yet. */
 		spin_unlock(&tls->lock);
@@ -156,7 +156,8 @@ next_msg:
 		if (unlikely(!nskb)) {
 			spin_unlock(&tls->lock);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			return T_BAD;
+			r = T_BAD;
+			goto finish;
 		}
 	}
 
@@ -175,7 +176,8 @@ next_msg:
 			tfw_tls_purge_io_ctx(&tls->io_in);
 			kfree_skb(nskb);
 			spin_unlock(&tls->lock);
-			return T_BAD;
+			r = T_BAD;
+			goto finish;
 		}
 
 		/*
@@ -190,7 +192,7 @@ next_msg:
 		r = tfw_connection_recv(conn, data_up.skb);
 		if (t_error_code_is_critical(r)) {
 			kfree_skb(nskb);
-			return r;
+			goto finish;
 		}
 	} else {
 		/*
@@ -208,9 +210,7 @@ next_msg:
 	}
 
 finish:
-	if (!t_error_code_is_critical(r)
-	    && !tfw_client_training_adjust_cpu_num(cli, begin_time))
-	{
+	if (!tfw_client_training_adjust_cpu_num(cli, begin_time)) {
 		tfw_client_filter_block_ip(cli);
 		r = T_BLOCK_WITH_RST;
 	}

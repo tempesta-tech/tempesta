@@ -223,8 +223,8 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 
 	frang_acc_history_init(ra, ts);
 
-	if (tfw_client_training_adjust_conn_num(FRANG_ACC2CLI(ra),
-						ra->conn_curr))
+	if (!tfw_client_training_adjust_conn_num(FRANG_ACC2CLI(ra),
+						 ra->conn_curr))
 	{
 		spin_unlock(&ra->lock);
 		return T_BLOCK;
