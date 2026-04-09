@@ -1373,52 +1373,6 @@ tfw_h2_msg_expand_from_pool_lc(TfwHttpMsg *hm, const TfwStr *str,
 	return r;
 }
 
-static inline void
-__tfw_http_msg_move_frags(struct sk_buff *skb, int frag_idx,
-			  TfwHttpMsgCleanup *cleanup)
-{
-	int i, len;
-	struct skb_shared_info *si = skb_shinfo(skb);
-
-	for (i = 0, len = 0; i < frag_idx; i++) {
-		cleanup->pages[i] = skb_frag_netmem(&si->frags[i]);
-		cleanup->pages_sz++;
-		len += skb_frag_size(&si->frags[i]);
-	}
-
-	si->nr_frags -= frag_idx;
-	ss_skb_adjust_data_len(skb, -len);
-	memmove(&si->frags, &si->frags[frag_idx],
-		(si->nr_frags) * sizeof(skb_frag_t));
-}
-
-static inline void
-__tfw_http_msg_rm_all_frags(struct sk_buff *skb, TfwHttpMsgCleanup *cleanup)
-{
-	int i, len;
-	struct skb_shared_info *si = skb_shinfo(skb);
-
-	for (i = 0; i < si->nr_frags; i++)
-		cleanup->pages[i] = skb_frag_netmem(&si->frags[i]);
-
-	len = skb->data_len;
-	cleanup->pages_sz = si->nr_frags;
-	si->nr_frags = 0;
-	ss_skb_adjust_data_len(skb, -len);
-}
-
-static inline void
-__tfw_http_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin)
-{
-	skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_idx];
-	const int len = nbegin - (char*)skb_frag_address(frag);
-
-	/* Add offset and decrease fragment's size */
-	skb_frag_off_add(frag, len);
-	skb_frag_size_sub(frag, len);
-	ss_skb_adjust_data_len(skb, -len);
-}
-
 /*
  * Delete SKBs and paged fragments related to @hm that contains message
  * headers. SKBs and fragments will be "unlinked" and placed to @cleanup.
@@ -1426,7 +1380,7 @@ __tfw_http_msg_shrink_frag(struct sk_buff *skb, int frag_idx, const char *nbegin
  * as source for message trasformation.
  */
 int
-tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
+tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwSkbCleanup *cleanup)
 {
 	int i, r = 0;
 	char *begin, *end;
@@ -1453,8 +1407,7 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 							    it->skb, body);
 				break;
 			} else {
-				ss_skb_put(it->skb, -skb_headlen(it->skb));
-				it->skb->tail_lock = 1;
+				ss_skb_remove_linear_data(it->skb);
 			}
 		}
 
@@ -1472,14 +1425,14 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 			 * fragments from skb where LF is located.
 			 */
 			if (!body) {
-				__tfw_http_msg_rm_all_frags(it->skb, cleanup);
+				ss_skb_rm_all_frags(it->skb, cleanup);
 				goto end;
 			} else if (off != begin) {
 				/*
 				 * Fragment contains headers and body.
 				 * Set beginning of frag as beginning of body.
 				 */
-				__tfw_http_msg_shrink_frag(it->skb, i, off);
+				ss_skb_shrink_frag(it->skb, i, off);
 			}
 
 			/*
@@ -1488,7 +1441,7 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 			 * from skb.
 			 */
 			if (i >= 1)
-				__tfw_http_msg_move_frags(it->skb, i, cleanup);
+				ss_skb_shift_frags(it->skb, i, cleanup);
 
 			goto end;
 		}

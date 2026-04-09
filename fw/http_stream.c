@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -346,10 +346,11 @@ do {									\
 	}								\
 } while(0)
 
-#define TFW_H2_FSM_TYPE_CHECK(ctx, stream, op, type)			\
+#define TFW_H2_FSM_TYPE_CHECK(ctx, op, type, is_send)			\
 do {									\
 	if ((ctx->cur_##op##_headers					\
-	     && (type != HTTP2_CONTINUATION && type != HTTP2_RST_STREAM)) \
+	     && ((type == HTTP2_HEADERS && !is_send) ||			\
+		(type != HTTP2_HEADERS && type != HTTP2_CONTINUATION)))	\
 	    || (!ctx->cur_##op##_headers && type == HTTP2_CONTINUATION)) { \
 		*err = HTTP2_ECODE_PROTO;				\
 		res = STREAM_FSM_RES_TERM_CONN;				\
@@ -372,7 +373,7 @@ do {									\
 
 	if (send) {
 		TFW_H2_FSM_STREAM_CHECK(ctx, stream, send);
-		TFW_H2_FSM_TYPE_CHECK(ctx, stream, send, type);
+		TFW_H2_FSM_TYPE_CHECK(ctx, send, type, true);
 		/*
 		 * Usually we would send HEADERS/CONTINUATION or DATA frames
 		 * to the client when HTTP2_STREAM_REM_HALF_CLOSED state
@@ -399,7 +400,7 @@ do {									\
 		 */
 	} else {
 		TFW_H2_FSM_STREAM_CHECK(ctx, stream, recv);
-		TFW_H2_FSM_TYPE_CHECK(ctx, stream, recv, type);
+		TFW_H2_FSM_TYPE_CHECK(ctx, recv, type, false);
 	}
 
 	switch (tfw_h2_get_stream_state(stream)) {

@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -3718,23 +3718,19 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
  * into the HTTP/2 HPACK format.
  */
 int
-tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr)
+tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
+		    bool dyn_indexing)
 {
-	return __tfw_hpack_encode(resp, hdr, true, true, true);
+	return __tfw_hpack_encode(resp, hdr, true, dyn_indexing, true);
 }
 
 void
-tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
+tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
+			unsigned int requested_size)
 {
-	if (new_size > HPACK_ENC_TABLE_MAX_SIZE) {
-		T_WARN("Client requests hpack table size (%hu), which is "
-			"greater than HPACK_ENC_TABLE_MAX_SIZE.", new_size);
-		new_size = HPACK_ENC_TABLE_MAX_SIZE;
-	}
-
 	T_DBG3("%s: tbl->rb_len=%hu, tbl->size=%hu, tbl->window=%hu,"
-	       " new_size=%hu\n", __func__, tbl->rb_len, tbl->size,
-	       tbl->window, new_size);
+	       " requested_size=%u\n", __func__, tbl->rb_len, tbl->size,
+	       tbl->window, requested_size);
 
 	/*
 	 * RFC7541#section-4.2:
@@ -3744,9 +3740,13 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 	 * size that occurs in that interval MUST be signaled in a dynamic
 	 * table size update.
 	 */
-	if (tbl->window != new_size && (likely(!tbl->wnd_changed)
-	    || unlikely(!tbl->window) || new_size < tbl->window))
+	if (tbl->window != requested_size && (likely(!tbl->wnd_changed)
+	    || unlikely(!tbl->window) || requested_size < tbl->window))
 	{
+		unsigned short new_size = min_t(unsigned int, requested_size,
+						HPACK_ENC_TABLE_MAX_SIZE);
+		BUILD_BUG_ON(HPACK_ENC_TABLE_MAX_SIZE > USHRT_MAX ||
+			     sizeof(new_size) != sizeof(tbl->window));
 		if (tbl->size > new_size)
 			tfw_hpack_rbuf_calc(tbl, new_size, NULL,
 					    (TfwHPackETblIter *)tbl);
@@ -3754,15 +3754,20 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 
 		tbl->window = new_size;
 		tbl->wnd_changed = true;
+
+		T_DBG3("%s: New hpack encoder table size has been set to %u\n",
+		       __func__, tbl->window);
 	}
 }
 
 int
-tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream)
+tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *tbl, struct sk_buff *skb_head,
+			   unsigned int offset,
+			   unsigned int *acc_len)
 {
 	TfwMsgIter it = {
-		.skb = stream->xmit.skb_head,
-		.skb_head = stream->xmit.skb_head,
+		.skb = skb_head,
+		.skb_head = skb_head,
 		.frag = -1
 	};
 	TfwStr new_size = {};
@@ -3776,15 +3781,15 @@ tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream)
 	new_size.data = tmp.buf;
 	new_size.len = tmp.sz;
 
-	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
-					 FRAME_HEADER_SIZE);
+	data = ss_skb_data_ptr_by_offset(skb_head,
+					 offset + FRAME_HEADER_SIZE);
 	BUG_ON(!data);
 
 	r = tfw_http_msg_insert(&it, &data, &new_size);
 	if (unlikely(r))
 		return r;
 
-	stream->xmit.h_len += tmp.sz;
+	*acc_len += tmp.sz;
 	tbl->wnd_changed = false;
 
 	return 0;
