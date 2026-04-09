@@ -350,8 +350,7 @@ do {									\
 do {									\
 	if ((ctx->cur_##op##_headers					\
 	     && ((type == HTTP2_HEADERS && !is_send) ||			\
-		(type != HTTP2_HEADERS && type != HTTP2_CONTINUATION && \
-		 type != HTTP2_RST_STREAM)))				\
+		(type != HTTP2_HEADERS && type != HTTP2_CONTINUATION)))	\
 	    || (!ctx->cur_##op##_headers && type == HTTP2_CONTINUATION)) { \
 		*err = HTTP2_ECODE_PROTO;				\
 		res = STREAM_FSM_RES_TERM_CONN;				\
