@@ -224,6 +224,7 @@ __calculate_mean_and_std(struct stats *s)
 static inline bool
 __calculate_z_score(u64 val, struct stats *s, s64 *z_score)
 {
+
 	if (unlikely(!s->std))
 		return false;
 

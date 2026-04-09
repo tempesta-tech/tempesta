@@ -107,7 +107,7 @@ tfw_client_free(TdbRec *rec)
 	WARN_ON(!list_empty(&cli->list));
 	tfw_training_stat_destroy(&cli->req_stat);
 	tfw_training_stat_destroy(&cli->cpu_stat);
-	free_percpu(cli->cpu_ema);
+	free_percpu(cli->cpu_usage);
 }
 
 static void
@@ -206,9 +206,9 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	if (unlikely(r))
 		return r;
 
-	cli->cpu_ema =
-		tfw_alloc_percpu_gfp(TfwCpuEma, GFP_ATOMIC | __GFP_ZERO);
-	if (unlikely(!cli->cpu_ema))
+	cli->cpu_usage =
+		tfw_alloc_percpu_gfp(TfwCpuHistory, GFP_ATOMIC | __GFP_ZERO);
+	if (unlikely(!cli->cpu_usage))
 		return -ENOMEM;
 
 	assert_spin_locked(&client_db->ga_lock);
@@ -336,45 +336,45 @@ tfw_client_training_adjust_conn_num(TfwClient *cli, unsigned int conn_curr)
 	return true;
 }
 
-static void
-tfw_client_update_cpu_ema(TfwCpuEma *cpu_ema, u64 delta_cpu)
-{
-	u64 now = ktime_get_ns();
-	u64 dt = now - cpu_ema->last_ts;
-	u64 usage, decay, total_cpu = 0;
-	static const u64 time_to_forget_ns = 100000000;
-	static const u64 min_time_to_adjust = 1000;
-	static const unsigned int ema_alpha_shift = 4;
-
-	cpu_ema->pending_cpu += delta_cpu;
-	if (unlikely(dt < min_time_to_adjust))
-		return;
-
-	cpu_ema->last_ts = now;
-	swap(cpu_ema->pending_cpu, total_cpu);
-	usage = (total_cpu << SCALE_SHIFT) / dt;
-	decay = (dt << SCALE_SHIFT) / time_to_forget_ns;
-
-	if (decay > (1 << SCALE_SHIFT))
-		decay = 1 << SCALE_SHIFT;
-	cpu_ema->ema = cpu_ema->ema *
-		((1 << SCALE_SHIFT) - decay) >> SCALE_SHIFT;
-	cpu_ema->ema += ((s64)usage - (s64)cpu_ema->ema) >> ema_alpha_shift;
-}
-
 bool
 tfw_client_training_adjust_cpu_num(TfwClient *cli, u64 begin_time)
 {
-	TfwCpuEma *cpu_ema = this_cpu_ptr(cli->cpu_ema);
-	u64 delta_cpu = ktime_get_ns() - begin_time;
-	u64 prev_ema = cpu_ema->ema;
-	s64 delta_ema;
+	static const u64 min_time_to_adjust = 1000;
+	const unsigned short ticks = HZ / CPU_HISTORY_WINDOW;
+	const unsigned long ts = tfw_time_quantum(ticks);
+	unsigned int i = ts % CPU_HISTORY_WINDOW;
+	TfwCpuHistory *cpu_usage = this_cpu_ptr(cli->cpu_usage);
+	u64 now = ktime_get_ns();
+	u64 total_bucket_cpu = 0;
+	u64 delta_cpu = now - begin_time;
+	u64 dt, usage, total = 0;
 
-	tfw_client_update_cpu_ema(cpu_ema, delta_cpu);
-	delta_ema = (s64)cpu_ema->ema - (s64)prev_ema;
+	if (cpu_usage->buckets[i].slot_ts != ts) {
+		cpu_usage->buckets[i].usage = 0;
+		cpu_usage->buckets[i].pending_cpu = 0;
+		cpu_usage->buckets[i].slot_ts = ts;
+	}
 
-	return tfw_training_mode_update_cpu_num_stat(&cli->cpu_stat,
-						     delta_ema);
+	cpu_usage->buckets[i].pending_cpu += delta_cpu;
+	if (!cpu_usage->ts) {
+		cpu_usage->ts = now;
+		return true;
+	}
+
+	dt = now - cpu_usage->ts;
+	cpu_usage->ts = now;
+	if (dt < min_time_to_adjust)
+		return true;
+
+	swap(total_bucket_cpu, cpu_usage->buckets[i].pending_cpu);
+	usage = (total_bucket_cpu << SCALE_SHIFT) / dt;
+	cpu_usage->buckets[i].usage += usage;
+	
+	TFW_SUMM_IN_FRAME(ts, cpu_usage->buckets[iter].slot_ts, {
+		total += cpu_usage->buckets[iter].usage;
+	});
+
+	return tfw_training_mode_update_cpu_num_stat(&cli->cpu_stat, total);
 }
 
 void

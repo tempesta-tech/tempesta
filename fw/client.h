@@ -25,11 +25,24 @@
 #include "connection.h"
 #include "training.h"
 
+#define CPU_HISTORY_WINDOW	8
+
 typedef struct {
-	u64 last_ts;
-	u64 usage;
 	u64 pending_cpu;
-} TfwCpuUsage;
+	unsigned long slot_ts;
+	u32 usage;
+} TfwCpuHistoryBucket;
+
+/*
+ * @buckets	- Circular array of history buckets storing per-interval
+ *		  data;
+ * @total	- total number of released connections over the current
+ *		  sliding time window (sum of all buckets);
+ */
+typedef struct {
+	TfwCpuHistoryBucket buckets[CPU_HISTORY_WINDOW];
+	u64 ts;
+} TfwCpuHistory;
 
 /**
  * Client descriptor.
@@ -52,7 +65,7 @@ typedef struct {
 	unsigned int		conn_training_num;
 	TfwTrainingStat		req_stat;
 	TfwTrainingStat		cpu_stat;
-	TfwCpuUsage __percpu	*cpu_usage;
+	TfwCpuHistory __percpu	*cpu_usage;
 } TfwClient;
 
 int tfw_client_init(void);
