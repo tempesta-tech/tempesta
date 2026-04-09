@@ -348,8 +348,7 @@ do {									\
 
 #define TFW_H2_FSM_TYPE_CHECK(ctx, stream, op, type)			\
 do {									\
-	if ((ctx->cur_##op##_headers					\
-	     && (type != HTTP2_CONTINUATION && type != HTTP2_RST_STREAM)) \
+	if ((ctx->cur_##op##_headers && type != HTTP2_CONTINUATION)	\
 	    || (!ctx->cur_##op##_headers && type == HTTP2_CONTINUATION)) { \
 		*err = HTTP2_ECODE_PROTO;				\
 		res = STREAM_FSM_RES_TERM_CONN;				\
