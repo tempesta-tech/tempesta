@@ -30,6 +30,7 @@
 #include "sync_socket.h"
 #include "http2.h"
 #include "tls.h"
+#include "lib/sliding_window.h"
 
 /*
  * Flag bits definition for SsProto.type field.
@@ -175,7 +176,7 @@ typedef struct {
 	spinlock_t		seq_qlock;
 	spinlock_t		ret_qlock;
 	spinlock_t		timer_lock;
-	u64			js_histoty[FRANG_FREQ];
+	u64			js_histoty[TFW_SLIDING_WINDOW];
 } TfwCliConn;
 
 #define MAX_MISSES_MAX 0xffff

@@ -24,6 +24,7 @@
 
 #include "lib/fsm.h"
 #include "lib/str.h"
+#include "lib/sliding_window.h"
 #include "procfs.h"
 #include "http.h"
 #include "http2.h"
@@ -55,8 +56,8 @@
 static inline bool							\
 tfw_h2_##name##_frame_rate_limit(TfwH2Ctx *ctx)				\
 {									\
-	unsigned long ts = jiffies * FRANG_FREQ / HZ;			\
-	int i = ts % FRANG_FREQ;					\
+	unsigned long ts = jiffies * TFW_SLIDING_WINDOW / HZ;		\
+	int i = ts % TFW_SLIDING_WINDOW;				\
 	unsigned int sum = 0;						\
 									\
 	if (ctx->stat[i].ts != ts) {					\
@@ -65,9 +66,9 @@ tfw_h2_##name##_frame_rate_limit(TfwH2Ctx *ctx)				\
 	}								\
 	ctx->stat[i].name##_cnt++;					\
 									\
-	for (i = 0; i < FRANG_FREQ; i++)				\
-		if (frang_time_in_frame(ts, ctx->stat[i].ts))		\
-			sum += ctx->stat[i].name##_cnt;			\
+	TFW_SUMM_IN_FRAME(ts, ctx->stat[iter].ts, {			\
+		sum += ctx->stat[i].name##_cnt;				\
+	});								\
 	if (unlikely(sum > limit * ctrl_frame_rate_mul)) {		\
 		TFW_INC_STAT_BH(clnt.name##_frame_exceeded);		\
 		return false;						\

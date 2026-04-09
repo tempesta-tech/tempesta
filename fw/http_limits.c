@@ -28,6 +28,7 @@
 #include <linux/bitmap.h>
 
 #include "lib/fsm.h"
+#include "lib/sliding_window.h"
 #include "tdb.h"
 
 #include "tempesta_fw.h"
@@ -90,8 +91,8 @@ typedef struct {
 typedef struct {
 	unsigned int		conn_curr;
 	spinlock_t		lock;
-	FrangRates		history[FRANG_FREQ];
-	FrangRespCodeStat	resp_code_stat[FRANG_FREQ];
+	FrangRates		history[TFW_SLIDING_WINDOW];
+	FrangRespCodeStat	resp_code_stat[TFW_SLIDING_WINDOW];
 } FrangAcc;
 
 #define FRANG_CLI2ACC(c)	((FrangAcc *)(&(c)->class_prvt))
@@ -181,7 +182,7 @@ frang_req_is_whitelisted(TfwHttpReq *req)
 static void
 frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 {
-	int i = ts % FRANG_FREQ;
+	int i = ts % TFW_SLIDING_WINDOW;
 
 	if (ra->history[i].ts != ts) {
 		bzero_fast(&ra->history[i], sizeof(ra->history[i]));
@@ -201,23 +202,11 @@ frang_acc_history_init(FrangAcc *ra, unsigned long ts)
 		TFW_INC_STAT_BH(clnt.online);
 }
 
-/**
- * Monotonically increasing time quantums. The configured @tframe
- * is divided by FRANG_FREQ slots to get the quantums granularity.
- * To reduce calculations, tframe is already stored as result of multiplication
- * operation, see __tfw_cfgop_frang_rsp_code_block().
- */
-static inline unsigned int
-frang_time_quantum(unsigned short tframe)
-{
-	return jiffies / tframe;
-}
-
 static int
 frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 {
-	const unsigned long ts = frang_time_quantum(conf->conn_rate_tf);
-	const int i = ts % FRANG_FREQ;
+	const unsigned long ts = tfw_time_quantum(conf->conn_rate_tf);
+	const int i = ts % TFW_SLIDING_WINDOW;
 
 	spin_lock(&ra->lock);
 
@@ -249,10 +238,9 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	if (conf->conn_rate) {
 		unsigned int csum = 0;
 
-		/* Collect current connection sum. */
-		for (int j = 0; j < FRANG_FREQ; j++)
-			if (frang_time_in_frame(ts, ra->history[j].ts))
-				csum += ra->history[j].conn_new;
+		TFW_SUMM_IN_FRAME(ts, ra->history[iter].ts, {
+			csum += ra->history[iter].conn_new;
+		});
 
 		if (unlikely(csum > conf->conn_rate)) {
 			frang_limmsg("new connections rate",
@@ -327,7 +315,7 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 		frang_sk_mark_whitelisted(sk);
 
 		spin_lock(&ra->lock);
-		frang_acc_history_init(ra, (jiffies * FRANG_FREQ) / HZ);
+		frang_acc_history_init(ra, (jiffies * TFW_SLIDING_WINDOW) / HZ);
 		spin_unlock(&ra->lock);
 
 		goto finish;
@@ -391,8 +379,8 @@ static int
 frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate,
 		unsigned short tf)
 {
-	const unsigned int ts = frang_time_quantum(tf);
-	const int i = ts % FRANG_FREQ;
+	const unsigned int ts = tfw_time_quantum(tf);
+	const int i = ts % TFW_SLIDING_WINDOW;
 
 	if (!req_burst && !req_rate)
 		return T_OK;
@@ -416,9 +404,10 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate,
 		unsigned int rsum = 0;
 
 		/* Collect current request sum. */
-		for (int j = 0; j < FRANG_FREQ; j++)
-			if (frang_time_in_frame(ts, ra->history[j].ts))
-				rsum += ra->history[j].req;
+		TFW_SUMM_IN_FRAME(ts, ra->history[iter].ts, {
+			rsum += ra->history[iter].req;
+		});
+
 		if (unlikely(rsum > req_rate)) {
 			frang_limmsg("request rate", rsum, req_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
@@ -1364,20 +1353,21 @@ frang_resp_code_limit(FrangAcc *ra, FrangHttpRespCodeBlock *resp_cblk)
 {
 	FrangRespCodeStat *stat = ra->resp_code_stat;
 	unsigned long cnt = 0;
-	const unsigned int ts = frang_time_quantum(resp_cblk->tf);
+	const unsigned int ts = tfw_time_quantum(resp_cblk->tf);
 	int i = 0;
 
-	i = ts % FRANG_FREQ;
+	i = ts % TFW_SLIDING_WINDOW;
 	if (ts != stat[i].ts) {
 		stat[i].ts = ts;
 		stat[i].cnt = 1;
 	} else {
 		++stat[i].cnt;
 	}
-	for (i = 0; i < FRANG_FREQ; ++i) {
-		if (frang_time_in_frame(ts, stat[i].ts))
-			cnt += stat[i].cnt;
-	}
+
+	TFW_SUMM_IN_FRAME(ts, stat[iter].ts, {
+		cnt += stat[iter].cnt;
+	});
+
 	if (unlikely(cnt > resp_cblk->limit)) {
 		frang_limmsg("http_resp_code_block limit", cnt,
 			     resp_cblk->limit, &FRANG_ACC2CLI(ra)->addr);
@@ -1471,9 +1461,9 @@ frang_resp_handler(TfwConn *conn, TfwFsmData *data)
 static int
 frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 {
-	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
+	unsigned long ts = (jiffies * TFW_SLIDING_WINDOW) / HZ;
 	unsigned long sum_new = 0, sum_incomplete = 0;
-	int i = ts % FRANG_FREQ;
+	int i = ts % TFW_SLIDING_WINDOW;
 
 	if (ra->history[i].ts != ts) {
 		bzero_fast(&ra->history[i], sizeof(ra->history[i]));
@@ -1506,11 +1496,10 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 		break;
 	}
 
-	for (i = 0; i < FRANG_FREQ; i++)
-		if (frang_time_in_frame(ts, ra->history[i].ts)) {
-			sum_new += ra->history[i].tls_sess_new;
-			sum_incomplete += ra->history[i].tls_sess_incomplete;
-		}
+	TFW_SUMM_IN_FRAME(ts, ra->history[iter].ts, {
+		sum_new += ra->history[iter].tls_sess_new;
+		sum_incomplete += ra->history[iter].tls_sess_incomplete;
+	});
 
 	switch (hs_state) {
 	case TTLS_HS_CB_FINISHED_NEW:
@@ -1683,8 +1672,8 @@ static int
 frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn,
 			  unsigned int max_misses)
 {
-	unsigned long ts = jiffies * FRANG_FREQ / HZ;
-	int i = ts % FRANG_FREQ;
+	unsigned long ts = jiffies * TFW_SLIDING_WINDOW / HZ;
+	int i = ts % TFW_SLIDING_WINDOW;
 	unsigned int msum = 0;
 
 	if (!max_misses)
@@ -1699,10 +1688,9 @@ frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn,
 	WARN_ON_ONCE(!tfw_cli_conn_get_js_max_misses(conn, i));
 
 	/* Collect current max_misses sum. */
-	for (i = 0; i < FRANG_FREQ; i++) {
-		if (frang_time_in_frame(ts, tfw_cli_conn_get_js_ts(conn, i)))
-			msum += tfw_cli_conn_get_js_max_misses(conn, i);
-	}
+	TFW_SUMM_IN_FRAME(ts, tfw_cli_conn_get_js_ts(conn, iter), {
+		msum += tfw_cli_conn_get_js_max_misses(conn, iter);
+	});
 
 	if (unlikely(msum > max_misses)) {
 		frang_limmsg_lock(&ra->lock, "max rmisses", msum, max_misses,
