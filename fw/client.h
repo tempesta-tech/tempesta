@@ -28,6 +28,7 @@ typedef struct tfw_client_mem_t {
 	struct percpu_ref	refcnt;
 	struct work_struct	kill_work;
    	long __percpu		*mem;
+	struct list_head	in_free_list;
 } TfwClientMem;
 
 /**
