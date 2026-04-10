@@ -89,7 +89,7 @@ tfw_pool_alloc_pages(TfwClientMem *cli_mem, unsigned int order)
 
 	if (!pg_res) {
 		flags = order > 0 ? GFP_ATOMIC | __GFP_COMP : GFP_ATOMIC;
-		pg_res = __get_free_pages(flags, order);
+		pg_res = tfw__get_free_pages(flags, order);
 	}
 	if (likely(pg_res) && cli_mem)
 		tfw_client_adjust_mem(cli_mem, PAGE_SIZE << order);
