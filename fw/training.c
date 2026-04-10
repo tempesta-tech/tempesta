@@ -23,7 +23,7 @@
 #include "tempesta_fw.h"
 #include "lib/fault_injection_alloc.h"
 
-static const unsigned int req_num_batch = 64;
+static const unsigned int req_num_batch = 16;
 static const unsigned int cpu_num_batch = 1024;
 
 unsigned int tfw_training_mod_period = 0;
@@ -224,7 +224,7 @@ __calculate_mean_and_std(struct stats *s)
 static inline bool
 __calculate_z_score(u64 val, struct stats *s, s64 *z_score)
 {
-
+	printk(KERN_ALERT "__calculate_z_score %llu %lld\n", val, s->std);
 	if (unlikely(!s->std))
 		return false;
 
@@ -237,6 +237,7 @@ static inline void
 tfw_training_mode_adjust_new_el(struct stats *s, u64 delta1, u64 delta2,
 				bool new_client)
 {
+	printk(KERN_ALERT "delta %llu %llu", delta1, delta2);
 	if (new_client)
 		percpu_counter_add(&s->num, 1);
 	percpu_counter_add(&s->sum, delta1);
@@ -305,6 +306,9 @@ tfw_training_mode_defence##_##name(u64 val)			\
 								\
 	rcu_read_unlock();					\
 								\
+	printk(KERN_ALERT "Z_CHECK %lld %d %s\n",		\
+		z_score, tfw_training_mod_z_score##_##name,	\
+		#name);						\
 	if (z_score > tfw_training_mod_z_score##_##name)	\
 		return false;					\
 								\
@@ -382,6 +386,8 @@ tfw_training_mode_update##_##name##_##stat(TfwTrainingStat *stat,	\
 			tfw_training_mode_defence##_##name;		\
 									\
 		*inc += delta;						\
+		printk(KERN_ALERT "inc %lld %d %s\n",			\
+			*inc, smp_processor_id(), #name);		\
 		if (unlikely(*inc >= name##_##batch))			\
 			r = tfw_training_mode_flush_inc(stat, adjust,	\
 							defence);	\
