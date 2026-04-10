@@ -68,6 +68,8 @@ static TDB *client_db;
 static atomic_t shutdown_pending = ATOMIC_INIT(0);
 static DECLARE_WAIT_QUEUE_HEAD(shutdown_wq);
 
+static struct kmem_cache *client_mem_cache;
+
 /*
  * Called only under db->ga_lock.
  *
@@ -201,7 +203,7 @@ cli_mem_release(struct percpu_ref *ref)
 
 	percpu_ref_exit(&cli_mem->refcnt);
 	free_percpu(cli_mem->mem);
-	kfree(cli_mem);
+	kmem_cache_free(client_mem_cache, cli_mem);
 
 	if (atomic_dec_and_test(&shutdown_pending))
 		wake_up(&shutdown_wq);
@@ -221,7 +223,7 @@ tfw_client_mem_alloc(void)
 {
 	TfwClientMem *cli_mem;
 
-	cli_mem = tfw_kmalloc(sizeof(TfwClientMem), GFP_ATOMIC);
+	cli_mem = kmem_cache_alloc(client_mem_cache, GFP_ATOMIC);
 	if (unlikely(!cli_mem))
 		return NULL;
 
@@ -241,7 +243,7 @@ tfw_client_mem_alloc(void)
 free_per_cpu_mem:
 	free_percpu(cli_mem->mem);
 free_cli_mem:
-	kfree(cli_mem);
+	kmem_cache_free(client_mem_cache, cli_mem);
 
 	return NULL;
 }
@@ -253,9 +255,13 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
 
-	cli->cli_mem = tfw_client_mem_alloc();
-	if (unlikely(!cli->cli_mem))
-		return -ENOMEM;
+	if (tfw_cli_hard_mem_limit) {
+		cli->cli_mem = tfw_client_mem_alloc();
+		if (unlikely(!cli->cli_mem))
+			return -ENOMEM;
+	} else {
+		cli->cli_mem = NULL;
+	}
 
 	assert_spin_locked(&client_db->ga_lock);
 
@@ -442,6 +448,11 @@ TfwMod tfw_client_mod = {
 int __init
 tfw_client_init(void)
 {
+	client_mem_cache = kmem_cache_create("client_mem_cache",
+					     sizeof(TfwClientMem),
+					     0, 0, NULL);
+	if (!client_mem_cache)
+		return -ENOMEM;
 	tfw_mod_register(&tfw_client_mod);
 
 	return 0;
@@ -450,5 +461,6 @@ tfw_client_init(void)
 void
 tfw_client_exit(void)
 {
+	kmem_cache_destroy(client_mem_cache);
 	tfw_mod_unregister(&tfw_client_mod);
 }

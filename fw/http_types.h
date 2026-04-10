@@ -169,5 +169,6 @@ typedef struct frang_vhost_cfg_t	FrangVhostCfg;
 typedef struct tfw_http_cookie_t	TfwStickyCookie;
 typedef struct tfw_http_stream_t	TfwStream;
 typedef struct tfw_cli_conn_t		TfwCliConn;
+typedef struct tfw_client_mem_t		TfwClientMem;
 
 #endif /* __TFW_HTTP_TYPES_H__ */
