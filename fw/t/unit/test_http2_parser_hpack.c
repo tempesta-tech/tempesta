@@ -1698,9 +1698,8 @@ TEST(http2_parser_hpack, erased_indexes_not_come_back)
 
 TEST_SUITE(http2_parser_hpack)
 {
-	test_case_alloc_h2();
-
-	TEST_SETUP(test_case_parse_prepare_h2);
+	TEST_SETUP(test_http2_parser_setup_fn);
+	TEST_TEARDOWN(test_http2_parser_teardown_fn);
 
 	TEST_RUN(http2_parser_hpack, literal_header_field_with_incremental_indexing);
 	TEST_RUN(http2_parser_hpack, literal_header_field_without_indexing);
@@ -1714,6 +1713,4 @@ TEST_SUITE(http2_parser_hpack)
 	TEST_RUN(http2_parser_hpack, dup_with_equal_values_in_indexes);
 	TEST_RUN(http2_parser_hpack, dup_with_diff_values_in_indexes);
 	TEST_RUN(http2_parser_hpack, erased_indexes_not_come_back);
-
-	test_case_cleanup_h2();
 }

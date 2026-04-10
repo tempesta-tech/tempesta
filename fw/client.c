@@ -30,6 +30,7 @@
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
+#include "lib/fault_injection_alloc.h"
 #include "lib/str.h"
 #include "lib/common.h"
 
@@ -63,6 +64,12 @@ static struct {
 } client_lru;
 
 static TDB *client_db;
+
+static atomic_t shutdown_pending = ATOMIC_INIT(0);
+static DECLARE_WAIT_QUEUE_HEAD(shutdown_wq);
+
+static struct kmem_cache *client_mem_cache;
+static struct list_head cli_mem_free_list;
 
 /*
  * Called only under db->ga_lock.
@@ -103,6 +110,11 @@ tfw_client_free(TdbRec *rec)
 	 * Tempesta FW shut down from `tfw_client_free_lru`
 	 */
 	WARN_ON(!list_empty(&cli->list));
+	if (likely(cli->cli_mem)) {
+		atomic_inc(&shutdown_pending);
+		if (!schedule_work(&cli->cli_mem->kill_work))
+			atomic_dec(&shutdown_pending);
+	}
 }
 
 static void
@@ -186,11 +198,120 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 }
 
 static void
+__cli_mem_release(TfwClientMem *cli_mem)
+{
+	percpu_ref_exit(&cli_mem->refcnt);
+	free_percpu(cli_mem->mem);
+	kmem_cache_free(client_mem_cache, cli_mem);
+}
+
+static void
+cli_mem_release(struct percpu_ref *ref)
+{
+	TfwClientMem *cli_mem = container_of(ref, TfwClientMem, refcnt);
+
+	spin_lock_bh(&client_db->ga_lock);
+
+	WARN_ON_ONCE(!percpu_ref_is_zero(ref));
+	list_add_tail(&cli_mem->in_free_list, &cli_mem_free_list);
+
+	spin_unlock_bh(&client_db->ga_lock);
+
+	if (atomic_dec_and_test(&shutdown_pending))
+		wake_up(&shutdown_wq);
+}
+
+static void
+tfw_cli_mem_kill_work_fn(struct work_struct *work)
+{
+	TfwClientMem *cli_mem = container_of(work, TfwClientMem, kill_work);
+
+	percpu_ref_kill(&cli_mem->refcnt);
+	percpu_ref_put(&cli_mem->refcnt);
+}
+
+static inline TfwClientMem *
+tfw_client_mem_alloc_from_free_list(void)
+{
+	TfwClientMem *cli_mem;
+	int cpu;
+
+	assert_spin_locked(&client_db->ga_lock);
+
+	cli_mem = list_first_entry_or_null(&cli_mem_free_list, TfwClientMem,
+					   in_free_list);
+	if (!cli_mem)
+		return NULL;
+
+	list_del_init(&cli_mem->in_free_list);
+	for_each_online_cpu(cpu)
+		*per_cpu_ptr(cli_mem->mem, cpu) = 0;
+	percpu_ref_reinit(&cli_mem->refcnt);
+
+	return cli_mem;
+}
+
+static inline TfwClientMem *
+tfw_client_mem_alloc_from_cache(void)
+{
+	TfwClientMem *cli_mem;
+
+	cli_mem = kmem_cache_alloc(client_mem_cache, GFP_ATOMIC);
+	if (unlikely(!cli_mem))
+		return NULL;
+
+	cli_mem->mem = tfw_alloc_percpu_gfp(long, GFP_ATOMIC | __GFP_ZERO);
+	if (!cli_mem->mem)
+		goto free_cli_mem;
+
+	if (percpu_ref_init(&cli_mem->refcnt, cli_mem_release,
+			    PERCPU_REF_ALLOW_REINIT, GFP_ATOMIC))
+		goto free_per_cpu_mem;
+
+	INIT_LIST_HEAD(&cli_mem->in_free_list);
+
+	return cli_mem;
+
+free_per_cpu_mem:
+	free_percpu(cli_mem->mem);
+free_cli_mem:
+	kmem_cache_free(client_mem_cache, cli_mem);
+
+	return NULL;
+}
+
+static inline TfwClientMem *
+tfw_client_mem_alloc(void)
+{
+	TfwClientMem *cli_mem;
+
+	cli_mem = tfw_client_mem_alloc_from_free_list();
+	if (!cli_mem)
+		cli_mem = tfw_client_mem_alloc_from_cache();
+	if (unlikely(!cli_mem))
+		return NULL;
+
+	percpu_ref_get(&cli_mem->refcnt);
+
+	INIT_WORK(&cli_mem->kill_work, tfw_cli_mem_kill_work_fn);
+
+	return cli_mem;
+}
+
+static int
 tfw_client_ent_init(TdbRec *rec, void *data)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
+
+	if (tfw_cli_hard_mem_limit) {
+		cli->cli_mem = tfw_client_mem_alloc();
+		if (unlikely(!cli->cli_mem))
+			return -ENOMEM;
+	} else {
+		cli->cli_mem = NULL;
+	}
 
 	assert_spin_locked(&client_db->ga_lock);
 
@@ -210,6 +331,8 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	T_DBG("new client: cli=%p\n", cli);
 	T_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
 	T_DBG2("client %p, users=%d\n", cli, 1);
+
+	return 0;
 }
 
 /**
@@ -314,9 +437,25 @@ tfw_client_start(void)
 		return -EINVAL;
 
 	client_db->hdr->before_free = tfw_client_free;
+	INIT_LIST_HEAD(&cli_mem_free_list);
 	tfw_client_init_lru();
 
 	return 0;
+}
+
+static inline void
+tfw_client_free_cli_mem_free_list(void)
+{
+	TfwClientMem *curr, *tmp;
+
+	spin_lock_bh(&client_db->ga_lock);
+
+	list_for_each_entry_safe(curr, tmp, &cli_mem_free_list, in_free_list) {
+		list_del_init(&curr->in_free_list);
+		__cli_mem_release(curr);
+	}
+
+	spin_unlock_bh(&client_db->ga_lock);
 }
 
 static void
@@ -324,8 +463,11 @@ tfw_client_stop(void)
 {
 	if (tfw_runstate_is_reconfig())
 		return;
+
 	if (client_db) {
 		tfw_client_free_lru();
+		wait_event(shutdown_wq, !atomic_read(&shutdown_pending));
+		tfw_client_free_cli_mem_free_list();
 		tdb_close(client_db);
 		client_db = NULL;
 	}
@@ -373,6 +515,11 @@ TfwMod tfw_client_mod = {
 int __init
 tfw_client_init(void)
 {
+	client_mem_cache = kmem_cache_create("client_mem_cache",
+					     sizeof(TfwClientMem),
+					     0, 0, NULL);
+	if (!client_mem_cache)
+		return -ENOMEM;
 	tfw_mod_register(&tfw_client_mod);
 
 	return 0;
@@ -381,5 +528,6 @@ tfw_client_init(void)
 void
 tfw_client_exit(void)
 {
+	kmem_cache_destroy(client_mem_cache);
 	tfw_mod_unregister(&tfw_client_mod);
 }
