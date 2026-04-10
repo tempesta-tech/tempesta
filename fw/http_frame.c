@@ -2165,6 +2165,13 @@ do {									\
 	T_FSM_EXIT();							\
 } while(0)
 
+#define CALC_MAX_MIN_FRAME_LENGTH(len, out_max, out_min)		\
+do {									\
+	(out_max) = min(TLS_MAX_PAYLOAD_SIZE, *snd_wnd - TLS_MAX_OVERHEAD); \
+	(out_max) -= FRAME_HEADER_SIZE;					\
+	(out_min) = min(min_to_send, (unsigned int)(len));		\
+} while (0)
+
 #define CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(type, len)			\
 do {									\
 	unsigned int max_len;						\
@@ -2174,9 +2181,7 @@ do {									\
 		*stop = true;						\
 		T_FSM_EXIT();						\
 	}								\
-	max_len = min(TLS_MAX_PAYLOAD_SIZE, *snd_wnd - TLS_MAX_OVERHEAD); \
-	max_len -= FRAME_HEADER_SIZE;					\
-	min_len = min(min_to_send, (unsigned int)len);			\
+	CALC_MAX_MIN_FRAME_LENGTH(len, max_len, min_len);		\
 	frame_length = tfw_h2_calc_frame_length(ctx, stream, type, len,	\
 						max_len); 		\
 	/*								\
@@ -2194,9 +2199,16 @@ do {									\
 	T_FSM_JMP(state);						\
 } while(0)
 
+#define FRAME_XMIT_FSM_SET_NEXT_STATE(state)				\
+	__fsm_const_state = state
+
 	T_FSM_START(stream->xmit.state) {
 
 	T_FSM_STATE(HTTP2_ENCODE_HEADERS) {
+		if (*snd_wnd <= FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD) {
+			*stop = true;
+			T_FSM_EXIT();
+		}
 		r = tfw_h2_stream_xmit_prepare_resp(stream);
 		fallthrough;
 	}
@@ -2214,8 +2226,14 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
-		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_HEADERS,
-						     stream->xmit.h_len);
+		unsigned int min_len, max_len;
+
+		CALC_MAX_MIN_FRAME_LENGTH(stream->xmit.h_len, max_len, min_len);
+		frame_length = tfw_h2_calc_frame_length(ctx, stream,
+							HTTP2_HEADERS,
+							stream->xmit.h_len,
+							max_len);
+
 		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
 			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
 						       stream);
@@ -2231,6 +2249,12 @@ do {									\
 		if (unlikely(r)) {
 			T_WARN("Failed to make headers frame %d", r);
 			return r;
+		}
+
+		if (frame_length < min_len) {
+			FRAME_XMIT_FSM_SET_NEXT_STATE(HTTP2_SEND_FRAMES);
+			*stop = true;
+			T_FSM_EXIT();
 		}
 
 		FRAME_XMIT_FSM_NEXT(frame_length, HTTP2_SEND_FRAMES);
