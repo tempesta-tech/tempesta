@@ -116,6 +116,7 @@
 #include "websocket.h"
 #include "tf_filter.h"
 #include "tf_conf.h"
+#include "training.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -1359,10 +1360,17 @@ tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 static inline void
 tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
+
 	if (!list_empty(&req->nip_list)) {
 		list_del_init(&req->nip_list);
 		tfw_http_conn_nip_reset(srv_conn);
 	}
+
+	if (unlikely(!cli))
+		return;
+
+	WARN_ON(!tfw_training_mode_update_req_num_stat(&cli->req_stat, -1));
 }
 
 /*
@@ -1467,13 +1475,21 @@ tfw_http_fwdq_reset(TfwSrvConn *srv_conn, struct list_head *dst)
 /**
  * Add @req to the server connection's forwarding queue.
  */
-static inline void
+static inline bool
 tfw_http_req_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
+	bool is_nip = tfw_http_req_is_nip(req);
+
+	if (is_nip && cli &&
+	    !tfw_training_mode_update_req_num_stat(&cli->req_stat, 1))
+		return false;
+
 	list_add_tail(&req->fwd_list, &srv_conn->fwd_queue);
 	srv_conn->qsize++;
-	if (tfw_http_req_is_nip(req))
-		tfw_http_req_nip_enlist(srv_conn, req);
+	tfw_http_req_is_nip(req);
+
+	return true;
 }
 
 /**
@@ -2179,6 +2195,351 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 	return 0;
 }
 
+static void
+tfw_http_req_filter_block_ip(TfwHttpReq *req)
+{
+	TfwClient *cli;
+
+	cli = req->peer ? : (TfwClient *)(req->conn ? req->conn->peer : NULL);
+	if (!cli)
+		return;
+
+	tfw_client_filter_block_ip(cli);
+}
+
+/**
+ * Connection is to be closed after response for the request @req is forwarded
+ * to the client. Don't process new requests from the client and update
+ * message flags for proper "Connection: " header value.
+ */
+static inline void
+tfw_http_req_set_conn_close(TfwHttpReq *req)
+{
+	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
+	set_bit(TFW_HTTP_B_CONN_CLOSE, req->flags);
+}
+
+static inline int
+tfw_h2_choose_close_type(ErrorType type, bool reply)
+{
+	if (!reply)
+		return T_BLOCK_WITH_RST;
+	else if (type == TFW_ERROR_TYPE_ATTACK)
+		return T_BLOCK_WITH_FIN;
+	else if (type == TFW_ERROR_TYPE_BAD)
+		return T_BAD;
+	return T_DROP;
+}
+
+static int
+tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
+		  bool on_req_recv_event, TfwH2Err err_code)
+{
+	TfwStream *stream;
+	TfwConn *conn = READ_ONCE(req->conn);
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe(conn);
+	bool close_after_send = (type == TFW_ERROR_TYPE_ATTACK ||
+		type == TFW_ERROR_TYPE_BAD);
+
+	/*
+	 * block_action attack/error drop - Tempesta FW must block message
+	 * silently (response won't be generated) and reset (with TCP RST)
+	 * the client connection.
+	 */
+	if (!reply) {
+		if (!on_req_recv_event)
+			tfw_connection_abort(conn);
+		tfw_h2_req_unlink_and_close_stream(req);
+		if (type == TFW_ERROR_TYPE_ATTACK)
+			tfw_http_req_filter_block_ip(req);
+		goto free_req;
+	}
+
+	/*
+	 * If stream is already unlinked and removed (due to particular stream
+	 * closing from client side or the entire connection closing) we have
+	 * nothing to do with that stream/request, and can go straight to the
+	 * connection-specific logic.
+	 */
+	stream = req->stream;
+	if (!stream)
+		goto skip_stream;
+
+	/*
+	 * If reply should be sent and this is not the attack case - we
+	 * can just send error response, leave the connection alive and
+	 * drop request's corresponding stream; in this case stream either
+	 * is already in locally closed state (switched in
+	 * @tfw_h2_stream_id_send() during failed proxy/internal response
+	 * creation) or will be switched into locally closed state in
+	 * @tfw_h2_send_err_resp() (or in @tfw_h2_stream_id_send() if no error
+	 * response is needed) below; remotely (i.e. on client side) stream
+	 * will be closed - due to END_STREAM flag set in the last frame of
+	 * error response; in case of attack we must close entire connection,
+	 * and GOAWAY frame should be sent (RFC 7540 section 6.8) after
+	 * error response.
+	 */
+	tfw_connection_get(conn);
+	tfw_h2_send_err_resp(req, status, close_after_send);
+	if (close_after_send) {
+		tfw_h2_conn_terminate_close(ctx, err_code, !on_req_recv_event,
+					    type == TFW_ERROR_TYPE_ATTACK);
+	} else {
+		TfwStreamState stream_state = tfw_h2_get_stream_state(stream);
+		int r;
+
+		/*
+		 * Here we rely on the fact that we always drop connection
+		 * (close_after_send is true) if request is not fully parsed.
+		 * In this case we can not process RST_STREAM and can not
+		 * change stream state here, because in this state we
+		 * already don't expect to receive any frames other then
+		 * PRIORITY or WINDOW_UPDATE.
+		 * There is also a very small chance that stream is already
+		 * in HTTP2_STREAM_CLOSED state here in case when error
+		 * response was already sent. (This can occurs when we call
+		 * this function during processing invalid response and error
+		 * response is sent on other cpu).
+		 */
+		WARN_ON_ONCE(stream_state != HTTP2_STREAM_REM_HALF_CLOSED
+			     && stream_state != HTTP2_STREAM_CLOSED);
+		if ((r = tfw_h2_send_rst_stream(ctx, stream->id, err_code))) {
+			tfw_connection_put(conn);
+			return r;
+		}
+	}
+	tfw_connection_put(conn);
+	goto out;
+
+skip_stream:
+	if (close_after_send) {
+		tfw_h2_conn_terminate_close(ctx, err_code, !on_req_recv_event,
+					    type == TFW_ERROR_TYPE_ATTACK);
+	}
+
+free_req:
+	do_access_log_req(req, status, 0);
+	tfw_http_conn_msg_free((TfwHttpMsg *)req);
+out:
+	return tfw_h2_choose_close_type(type, reply);
+}
+
+static int
+tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
+		  bool on_req_recv_event)
+{
+	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+
+	/* The client connection is to be closed with the last resp sent. */
+	reply &= !test_bit(TFW_HTTP_B_REQ_DROP, req->flags);
+	/*
+	 * block_action attack/error drop - Tempesta FW must block message
+	 * silently (response won't be generated) and reset (with TCP RST)
+	 * the client connection.
+	 */
+	if (!reply) {
+		if (!on_req_recv_event)
+			tfw_connection_abort(req->conn);
+		if (type == TFW_ERROR_TYPE_ATTACK)
+			tfw_http_req_filter_block_ip(req);
+		do_access_log_req(req, status, 0);
+		tfw_http_conn_req_clean(req);
+		goto out;
+	}
+
+	if (on_req_recv_event) {
+		WARN_ONCE(!list_empty_careful(&req->msg.seq_list),
+			  "Request is already in seq_queue\n");
+		tfw_stream_unlink_msg(req->stream);
+		spin_lock(&cli_conn->seq_qlock);
+		list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
+		spin_unlock(&cli_conn->seq_qlock);
+	}
+
+	if (type != TFW_ERROR_TYPE_DROP)
+		tfw_http_req_set_conn_close(req);
+
+	if (type == TFW_ERROR_TYPE_ATTACK)
+		set_bit(TFW_HTTP_B_CONN_CLOSE_FORCE, req->flags);
+
+	tfw_h1_send_err_resp(req, status);
+
+out:
+	return tfw_h2_choose_close_type(type, reply);
+}
+
+/**
+ * Function define logging and response behaviour during detection of
+ * malformed or malicious messages. Mark client connection in special
+ * manner to delay its closing until transmission of error response
+ * will be finished.
+ *
+ * @req			- malicious or malformed request;
+ * @status		- response status code to use;
+ * @msg			- message to be logged. Can be NULL if the caller does
+ *			  logging on their side;
+ * @type		- TFW_ERROR_TYPE_ATTACK if the request was sent
+ *			  intentionally.
+ *			  TFW_ERROR_TYPE_DROP if the request should be
+ *			  dropped, but connection should be alive.
+ *			  TFW_ERROR_TYPE_BAD if the request should be
+ *			  dropped, but connection should be closed;
+ *			  internal errors or misconfigurations;
+ * @on_req_recv_event	- true if request is not fully parsed and the caller
+ *			  handles the connection closing on its own.
+ * @return		- T_BLOCK_WITH_RST if reply is not needed
+ *			  T_BLOCK_WITH_FIN if it is an attack case and we need
+ *			  to reply.
+ * 			  T_BAD if it is not attack case and we need to reply
+ *			  and shutdown gracefully.
+ *			  T_DROP if it is error case and we need to reply.
+ */
+static int
+tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
+				ErrorType type, bool on_req_recv_event,
+				TfwH2Err err_code)
+{
+	int r;
+	bool reply;
+	bool nolog;
+
+	/*
+	 * Error was happened and request should be dropped or blocked,
+	 * but other modules (e.g. sticky cookie module) may have a response
+	 * prepared for this request. A new error response is to be generated
+	 * for the request, drop any previous response paired with the request.
+	 */
+	tfw_http_conn_msg_free(req->pair);
+
+	if (type == TFW_ERROR_TYPE_ATTACK) {
+		reply = tfw_blk_flags & TFW_BLK_ATT_REPLY;
+		nolog = tfw_blk_flags & TFW_BLK_ATT_NOLOG;
+	}
+	else {
+		reply = tfw_blk_flags & TFW_BLK_ERR_REPLY;
+		nolog = tfw_blk_flags & TFW_BLK_ERR_NOLOG;
+	}
+
+	/* Do not log client port as it doesn't provide useful information
+	 * and could contain outdated cached data.
+	 */
+	if (!nolog && msg)
+		T_WARN_ADDR(msg, &req->conn->peer->addr, TFW_NO_PORT);
+
+	if (TFW_MSG_H2(req)) {
+		r = tfw_h2_error_resp(req, status, reply, type,
+				      on_req_recv_event,
+				      err_code ? err_code : HTTP2_ECODE_PROTO);
+	} else {
+		r = tfw_h1_error_resp(req, status, reply, type,
+				      on_req_recv_event);
+	}
+
+	return r;
+}
+
+/**
+ * Unintentional error happen during request parsing, connection should
+ * be alive.
+ */
+static inline int
+tfw_http_req_parse_drop(TfwHttpReq *req, int status, const char *msg,
+			TfwH2Err err_code, u64 begin_time)
+{
+	TfwConn *conn = (TfwConn *)req->conn;
+	TfwClient *cli = (TfwClient *)conn->peer;
+	int r;
+
+	r = tfw_http_cli_error_resp_and_log(req, status, msg,
+					    TFW_ERROR_TYPE_DROP, true,
+					    err_code);
+	if (!TFW_CONN_TLS(conn)
+	    && !tfw_client_training_adjust_cpu_num(cli, begin_time))
+	{
+		tfw_client_filter_block_ip(cli);
+		r = T_BLOCK_WITH_RST;
+	}
+
+	return r;
+}
+
+/**
+ * Unintentional error happen during request parsing, connection should
+ * be closed.
+ */
+static inline int
+tfw_http_req_parse_drop_with_fin(TfwHttpReq *req, int status, const char *msg,
+				 TfwH2Err err_code, u64 begin_time)
+{
+	TfwConn *conn = (TfwConn *)req->conn;
+	TfwClient *cli = (TfwClient *)conn->peer;
+	int r;
+
+	r = tfw_http_cli_error_resp_and_log(req, status, msg,
+					    TFW_ERROR_TYPE_BAD, true,
+					    err_code);
+	if (!TFW_CONN_TLS(conn)
+	    && !tfw_client_training_adjust_cpu_num(cli, begin_time))
+	{
+		tfw_client_filter_block_ip(cli);
+		r = T_BLOCK_WITH_RST;
+	}
+
+	return r;
+}
+
+/**
+ * Attack is detected during request parsing.
+ */
+static inline int
+tfw_http_req_parse_block(TfwHttpReq *req, int status, const char *msg,
+			 TfwH2Err err_code, u64 begin_time)
+{
+	TfwConn *conn = (TfwConn *)req->conn;
+	TfwClient *cli = (TfwClient *)conn->peer;
+	int r;
+
+	r = tfw_http_cli_error_resp_and_log(req, status, msg,
+					    TFW_ERROR_TYPE_ATTACK, true,
+					    err_code);
+	if (!TFW_CONN_TLS(conn)
+	    && !tfw_client_training_adjust_cpu_num(cli, begin_time))
+	{
+		tfw_client_filter_block_ip(cli);
+		r = T_BLOCK_WITH_RST;
+	}
+
+	return r;
+}
+
+/**
+ * Unintentional error happen during request or response processing. Caller
+ * function is not a part of ss_tcp_data_ready() function and manual connection
+ * close will be performed.
+ */
+static inline int
+tfw_http_req_drop(TfwHttpReq *req, int status, const char *msg,
+		  TfwH2Err err_code)
+{
+	return tfw_http_cli_error_resp_and_log(req, status, msg,
+					       TFW_ERROR_TYPE_DROP, false,
+					       err_code);
+}
+
+/**
+ * Attack is detected during request or response processing. Caller function is
+ * not a part of ss_tcp_data_ready() function and manual connection close
+ * will be performed.
+ */
+static inline int
+tfw_http_req_block(TfwHttpReq *req, int status, const char *msg,
+		   TfwH2Err err_code)
+{
+	return tfw_http_cli_error_resp_and_log(req, status, msg,
+					       TFW_ERROR_TYPE_ATTACK, false,
+					       err_code);
+}
+
 /*
  * Forward the request @req to server connection @srv_conn.
  *
@@ -2224,7 +2585,11 @@ tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req, struct list_head *eq,
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
-	tfw_http_req_enlist(srv_conn, req);
+	if (!tfw_http_req_enlist(srv_conn, req)) {
+		spin_unlock_bh(&srv_conn->fwd_qlock);
+		printk(KERN_ALERT "ZZZZZZZZZZZZ\n");
+		return T_BLOCK;
+	}
 	/*
 	 * If we are rescheduling request and connection is on hold or
 	 * forwarding procedure is failed (the case of busy hanged
@@ -2503,6 +2868,17 @@ tfw_http_req_resched(TfwHttpReq *req, TfwServer *srv, struct list_head *eq)
 				       req);
 	}
 	ret = tfw_http_req_fwd(sch_conn, req, eq, true);
+	if (unlikely(ret == T_BLOCK)) {
+		TfwClient *cli = cli = req->peer ? :
+			(TfwClient *)(req->conn ? req->conn->peer : NULL);
+
+		tfw_http_req_block(req, 403, "request blocked: count of "
+				   "non-idempotent requests exceeded",
+				   HTTP2_ECODE_INTERNAL);
+		if (cli)
+			tfw_client_filter_block_ip(cli);
+		ret = 0;
+	}
 	/*
 	 * Paired with tfw_srv_conn_get_if_live() via sched_srv_conn callback or
 	 * tfw_http_get_srv_conn() which increments the reference counter.
@@ -2549,7 +2925,7 @@ tfw_http_fwdq_resched(TfwSrvConn *srv_conn, struct list_head *resch_queue,
  * unfinished; in this case the connection's @fwd_queue will be reset
  * and all requests from it will be rescheduled to other connections.
  */
-static void
+static int
 tfw_http_req_fwd_resched(TfwSrvConn *srv_conn, TfwHttpReq *req,
 			 struct list_head *eq)
 {
@@ -2559,18 +2935,24 @@ tfw_http_req_fwd_resched(TfwSrvConn *srv_conn, TfwHttpReq *req,
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
-	tfw_http_req_enlist(srv_conn, req);
+	if (!tfw_http_req_enlist(srv_conn, req)) {
+		printk(KERN_ALERT "QQQQQQQQQQQQQQ\n");
+		spin_unlock_bh(&srv_conn->fwd_qlock);
+		return T_BLOCK;
+	}
 	if (tfw_http_conn_on_hold(srv_conn)
 	    || !tfw_http_conn_fwd_unsent(srv_conn, eq))
 	{
 		spin_unlock_bh(&srv_conn->fwd_qlock);
-		return;
+		return 0;
 	}
 	tfw_srv_set_busy_delay(srv_conn);
 	tfw_http_fwdq_reset(srv_conn, &reschq);
 	spin_unlock_bh(&srv_conn->fwd_qlock);
 
 	tfw_http_fwdq_resched(srv_conn, &reschq, eq);
+
+	return 0;
 }
 
 /**
@@ -3216,18 +3598,6 @@ tfw_http_add_hdr_upgrade(TfwHttpMsg *hm, bool is_resp)
 	}
 
 	return r;
-}
-
-/**
- * Connection is to be closed after response for the request @req is forwarded
- * to the client. Don't process new requests from the client and update
- * message flags for proper "Connection: " header value.
- */
-static inline void
-tfw_http_req_set_conn_close(TfwHttpReq *req)
-{
-	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
-	set_bit(TFW_HTTP_B_CONN_CLOSE, req->flags);
 }
 
 /**
@@ -5501,312 +5871,6 @@ tfw_http_conn_error_log(TfwConn *conn, const char *msg)
 		T_WARN_ADDR(msg, &conn->peer->addr, TFW_NO_PORT);
 }
 
-static inline int
-tfw_h2_choose_close_type(ErrorType type, bool reply)
-{
-	if (!reply)
-		return T_BLOCK_WITH_RST;
-	else if (type == TFW_ERROR_TYPE_ATTACK)
-		return T_BLOCK_WITH_FIN;
-	else if (type == TFW_ERROR_TYPE_BAD)
-		return T_BAD;
-	return T_DROP;
-}
-
-static void
-tfw_http_req_filter_block_ip(TfwHttpReq *req)
-{
-	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
-	TfwClient *cli;
-
-	if (WARN_ON_ONCE(!dflt_vh))
-		return;
-
-	cli = req->peer ? : (TfwClient *)(req->conn ? req->conn->peer : NULL);
-	if (!cli)
-		goto out;
-
-	if (dflt_vh->frang_gconf->ip_block)
-		tfw_filter_block_ip(cli,
-				    dflt_vh->frang_gconf->ip_block_duration);
-
-out:
-	tfw_vhost_put(dflt_vh);
-}
-
-static int
-tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
-		  bool on_req_recv_event, TfwH2Err err_code)
-{
-	TfwStream *stream;
-	TfwConn *conn = READ_ONCE(req->conn);
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe(conn);
-	bool close_after_send = (type == TFW_ERROR_TYPE_ATTACK ||
-		type == TFW_ERROR_TYPE_BAD);
-
-	/*
-	 * block_action attack/error drop - Tempesta FW must block message
-	 * silently (response won't be generated) and reset (with TCP RST)
-	 * the client connection.
-	 */
-	if (!reply) {
-		if (!on_req_recv_event)
-			tfw_connection_abort(conn);
-		tfw_h2_req_unlink_and_close_stream(req);
-		if (type == TFW_ERROR_TYPE_ATTACK)
-			tfw_http_req_filter_block_ip(req);
-		goto free_req;
-	}
-
-	/*
-	 * If stream is already unlinked and removed (due to particular stream
-	 * closing from client side or the entire connection closing) we have
-	 * nothing to do with that stream/request, and can go straight to the
-	 * connection-specific logic.
-	 */
-	stream = req->stream;
-	if (!stream)
-		goto skip_stream;
-
-	/*
-	 * If reply should be sent and this is not the attack case - we
-	 * can just send error response, leave the connection alive and
-	 * drop request's corresponding stream; in this case stream either
-	 * is already in locally closed state (switched in
-	 * @tfw_h2_stream_id_send() during failed proxy/internal response
-	 * creation) or will be switched into locally closed state in
-	 * @tfw_h2_send_err_resp() (or in @tfw_h2_stream_id_send() if no error
-	 * response is needed) below; remotely (i.e. on client side) stream
-	 * will be closed - due to END_STREAM flag set in the last frame of
-	 * error response; in case of attack we must close entire connection,
-	 * and GOAWAY frame should be sent (RFC 7540 section 6.8) after
-	 * error response.
-	 */
-	tfw_connection_get(conn);
-	tfw_h2_send_err_resp(req, status, close_after_send);
-	if (close_after_send) {
-		tfw_h2_conn_terminate_close(ctx, err_code, !on_req_recv_event,
-					    type == TFW_ERROR_TYPE_ATTACK);
-	} else {
-		TfwStreamState stream_state = tfw_h2_get_stream_state(stream);
-		int r;
-
-		/*
-		 * Here we rely on the fact that we always drop connection
-		 * (close_after_send is true) if request is not fully parsed.
-		 * In this case we can not process RST_STREAM and can not
-		 * change stream state here, because in this state we
-		 * already don't expect to receive any frames other then
-		 * PRIORITY or WINDOW_UPDATE.
-		 * There is also a very small chance that stream is already
-		 * in HTTP2_STREAM_CLOSED state here in case when error
-		 * response was already sent. (This can occurs when we call
-		 * this function during processing invalid response and error
-		 * response is sent on other cpu).
-		 */
-		WARN_ON_ONCE(stream_state != HTTP2_STREAM_REM_HALF_CLOSED
-			     && stream_state != HTTP2_STREAM_CLOSED);
-		if ((r = tfw_h2_send_rst_stream(ctx, stream->id, err_code))) {
-			tfw_connection_put(conn);
-			return r;
-		}
-	}
-	tfw_connection_put(conn);
-	goto out;
-
-skip_stream:
-	if (close_after_send) {
-		tfw_h2_conn_terminate_close(ctx, err_code, !on_req_recv_event,
-					    type == TFW_ERROR_TYPE_ATTACK);
-	}
-
-free_req:
-	do_access_log_req(req, status, 0);
-	tfw_http_conn_msg_free((TfwHttpMsg *)req);
-out:
-	return tfw_h2_choose_close_type(type, reply);
-}
-
-static int
-tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, ErrorType type,
-		  bool on_req_recv_event)
-{
-	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
-
-	/* The client connection is to be closed with the last resp sent. */
-	reply &= !test_bit(TFW_HTTP_B_REQ_DROP, req->flags);
-	/*
-	 * block_action attack/error drop - Tempesta FW must block message
-	 * silently (response won't be generated) and reset (with TCP RST)
-	 * the client connection.
-	 */
-	if (!reply) {
-		if (!on_req_recv_event)
-			tfw_connection_abort(req->conn);
-		if (type == TFW_ERROR_TYPE_ATTACK)
-			tfw_http_req_filter_block_ip(req);
-		do_access_log_req(req, status, 0);
-		tfw_http_conn_req_clean(req);
-		goto out;
-	}
-
-	if (on_req_recv_event) {
-		WARN_ONCE(!list_empty_careful(&req->msg.seq_list),
-			  "Request is already in seq_queue\n");
-		tfw_stream_unlink_msg(req->stream);
-		spin_lock(&cli_conn->seq_qlock);
-		list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
-		spin_unlock(&cli_conn->seq_qlock);
-	}
-
-	if (type != TFW_ERROR_TYPE_DROP)
-		tfw_http_req_set_conn_close(req);
-
-	if (type == TFW_ERROR_TYPE_ATTACK)
-		set_bit(TFW_HTTP_B_CONN_CLOSE_FORCE, req->flags);
-
-	tfw_h1_send_err_resp(req, status);
-
-out:
-	return tfw_h2_choose_close_type(type, reply);
-}
-
-/**
- * Function define logging and response behaviour during detection of
- * malformed or malicious messages. Mark client connection in special
- * manner to delay its closing until transmission of error response
- * will be finished.
- *
- * @req			- malicious or malformed request;
- * @status		- response status code to use;
- * @msg			- message to be logged. Can be NULL if the caller does
- *			  logging on their side;
- * @type		- TFW_ERROR_TYPE_ATTACK if the request was sent
- *			  intentionally.
- *			  TFW_ERROR_TYPE_DROP if the request should be
- *			  dropped, but connection should be alive.
- *			  TFW_ERROR_TYPE_BAD if the request should be
- *			  dropped, but connection should be closed;
- *			  internal errors or misconfigurations;
- * @on_req_recv_event	- true if request is not fully parsed and the caller
- *			  handles the connection closing on its own.
- * @return		- T_BLOCK_WITH_RST if reply is not needed
- *			  T_BLOCK_WITH_FIN if it is an attack case and we need
- *			  to reply.
- * 			  T_BAD if it is not attack case and we need to reply
- *			  and shutdown gracefully.
- *			  T_DROP if it is error case and we need to reply.
- */
-static int
-tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
-				ErrorType type, bool on_req_recv_event,
-				TfwH2Err err_code)
-{
-	int r;
-	bool reply;
-	bool nolog;
-
-	/*
-	 * Error was happened and request should be dropped or blocked,
-	 * but other modules (e.g. sticky cookie module) may have a response
-	 * prepared for this request. A new error response is to be generated
-	 * for the request, drop any previous response paired with the request.
-	 */
-	tfw_http_conn_msg_free(req->pair);
-
-	if (type == TFW_ERROR_TYPE_ATTACK) {
-		reply = tfw_blk_flags & TFW_BLK_ATT_REPLY;
-		nolog = tfw_blk_flags & TFW_BLK_ATT_NOLOG;
-	}
-	else {
-		reply = tfw_blk_flags & TFW_BLK_ERR_REPLY;
-		nolog = tfw_blk_flags & TFW_BLK_ERR_NOLOG;
-	}
-
-	/* Do not log client port as it doesn't provide useful information
-	 * and could contain outdated cached data.
-	 */
-	if (!nolog && msg)
-		T_WARN_ADDR(msg, &req->conn->peer->addr, TFW_NO_PORT);
-
-	if (TFW_MSG_H2(req)) {
-		r = tfw_h2_error_resp(req, status, reply, type,
-				      on_req_recv_event,
-				      err_code ? err_code : HTTP2_ECODE_PROTO);
-	} else {
-		r = tfw_h1_error_resp(req, status, reply, type,
-				      on_req_recv_event);
-	}
-
-	return r;
-}
-
-/**
- * Unintentional error happen during request parsing, connection should
- * be alive.
- */
-static inline int
-tfw_http_req_parse_drop(TfwHttpReq *req, int status, const char *msg,
-			TfwH2Err err_code)
-{
-	return tfw_http_cli_error_resp_and_log(req, status, msg,
-					       TFW_ERROR_TYPE_DROP, true,
-					       err_code);
-}
-
-/**
- * Unintentional error happen during request parsing, connection should
- * be closed.
- */
-static inline int
-tfw_http_req_parse_drop_with_fin(TfwHttpReq *req, int status, const char *msg,
-				 TfwH2Err err_code)
-{
-	return tfw_http_cli_error_resp_and_log(req, status, msg,
-					       TFW_ERROR_TYPE_BAD, true,
-					       err_code);
-}
-
-/**
- * Attack is detected during request parsing.
- */
-static inline int
-tfw_http_req_parse_block(TfwHttpReq *req, int status, const char *msg,
-			 TfwH2Err err_code)
-{
-	return tfw_http_cli_error_resp_and_log(req, status, msg,
-					       TFW_ERROR_TYPE_ATTACK, true,
-					       err_code);
-}
-
-/**
- * Unintentional error happen during request or response processing. Caller
- * function is not a part of ss_tcp_data_ready() function and manual connection
- * close will be performed.
- */
-static inline int
-tfw_http_req_drop(TfwHttpReq *req, int status, const char *msg,
-		  TfwH2Err err_code)
-{
-	return tfw_http_cli_error_resp_and_log(req, status, msg,
-					       TFW_ERROR_TYPE_DROP, false,
-					       err_code);
-}
-
-/**
- * Attack is detected during request or response processing. Caller function is
- * not a part of ss_tcp_data_ready() function and manual connection close
- * will be performed.
- */
-static inline int
-tfw_http_req_block(TfwHttpReq *req, int status, const char *msg,
-		   TfwH2Err err_code)
-{
-	return tfw_http_cli_error_resp_and_log(req, status, msg,
-					       TFW_ERROR_TYPE_ATTACK, false,
-					       err_code);
-}
-
 /*
  * TODO: RFC 7540 8.1.2
  *    However, header field names MUST be converted to lowercase prior to
@@ -5957,6 +6021,8 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 {
 	int r;
 	TfwHttpReq *req = (TfwHttpReq *)msg;
+	TfwClient *cli =
+		req->peer ? : (TfwClient *)(req->conn ? req->conn->peer : NULL);
 	TfwSrvConn *srv_conn = NULL;
 	LIST_HEAD(eq);
 
@@ -6001,7 +6067,10 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	tfw_http_hm_srv_update((TfwServer *)srv_conn->peer, req);
 
 	/* Forward request to the server. */
-	tfw_http_req_fwd_resched(srv_conn, req, &eq);
+	r = tfw_http_req_fwd_resched(srv_conn, req, &eq);
+	if (unlikely(r))
+		goto send_403;
+
 	tfw_http_req_zap_error(&eq);
 	goto conn_put;
 
@@ -6013,6 +6082,15 @@ send_502:
 send_500:
 	T_DBG("request dropped: processing error, status 500");
 	tfw_http_send_err_resp_nolog(req, 500);
+	TFW_INC_STAT_BH(clnt.msgs_otherr);
+	goto conn_put;
+send_403:
+	T_DBG("request dropped: processing error, status 403");
+	tfw_http_req_block(req, 403, "request blocked: count of "
+			   "non-idempotent requests exceeded",
+			   HTTP2_ECODE_INTERNAL);
+	if (cli)
+		tfw_client_filter_block_ip(cli);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
 	/*
@@ -6519,6 +6597,9 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 	TfwFsmData data_up;
 	int r;
 	TfwHttpActionResult res;
+	u64 begin_time = ktime_get_ns();
+	bool conn_is_tls = TFW_CONN_TLS(conn);
+	TfwClient *cli = (TfwClient *)conn->peer;
 
 	BUG_ON(!stream->msg);
 
@@ -6573,12 +6654,14 @@ next_msg:
 		return tfw_http_req_parse_drop_with_fin(req, 400, NULL,
 							r == T_COMPRESSION
 							? HTTP2_ECODE_COMPRESSION
-							: HTTP2_ECODE_PROTO);
+							: HTTP2_ECODE_PROTO,
+							begin_time);
 	case T_BLOCK:
 		T_DBG2("Block invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
 		return tfw_http_req_parse_block(req, 403, NULL,
-						HTTP2_ECODE_PROTO);
+						HTTP2_ECODE_PROTO,
+						begin_time);
 	case T_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
 			/*
@@ -6588,7 +6671,8 @@ next_msg:
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return tfw_http_req_parse_block(req, 500,
 					"Request parsing inconsistency",
-					HTTP2_ECODE_PROTO);
+					HTTP2_ECODE_PROTO,
+					begin_time);
 		}
 		if (TFW_MSG_H2(req)) {
 			TfwH2Ctx *ctx = tfw_h2_context_unsafe(conn);
@@ -6596,8 +6680,10 @@ next_msg:
 			/* Do not check the request validity until
 			 * it has been fully parsed.
 			 */
-			if (unlikely(ctx->to_read))
-				return T_OK;
+			if (unlikely(ctx->to_read)) {
+				r = T_OK;
+				goto finish;
+			}
 
 			/* If the parser met END_HEADERS flag we can be sure
 			 * that we get and processed all headers.
@@ -6617,7 +6703,8 @@ next_msg:
 							"Request contains Content-Length"
 							" or Content-Type field"
 							" for bodyless method",
-							HTTP2_ECODE_PROTO);
+							HTTP2_ECODE_PROTO,
+							begin_time);
 				}
 
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
@@ -6630,7 +6717,8 @@ next_msg:
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
 				return	tfw_http_req_parse_drop_with_fin(req, 400,
 						"Request parsing inconsistency",
-						HTTP2_ECODE_PROTO);
+						HTTP2_ECODE_PROTO,
+						begin_time);
 			}
 		}
 
@@ -6640,14 +6728,15 @@ next_msg:
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
 			return tfw_http_req_parse_block(req, 403,
 					"postponed request has been filtered out",
-					HTTP2_ECODE_PROTO);
+					HTTP2_ECODE_PROTO,
+					begin_time);
 		}
 
 		if (tfw_http_should_handle_expect(req)) {
 			r = tfw_http_handle_expect_request((TfwCliConn *)conn,
 							   req);
 			if (unlikely(r))
-				return r;
+				goto finish;
 		}
 
 		/*
@@ -6656,7 +6745,8 @@ next_msg:
 		 * just supply data for parsing. They only want to know
 		 * if processing of a message should continue or not.
 		 */
-		return T_OK;
+		r = T_OK;
+		goto finish;
 
 	case T_OK:
 		/*
@@ -6667,7 +6757,8 @@ next_msg:
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return tfw_http_req_parse_drop_with_fin(req, 500,
 				"Request parsing inconsistency",
-				HTTP2_ECODE_PROTO);
+				HTTP2_ECODE_PROTO,
+				begin_time);
 		}
 	}
 
@@ -6681,7 +6772,8 @@ next_msg:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		return tfw_http_req_parse_block(req, 403,
 				"parsed request exceeded tfh limit",
-				HTTP2_ECODE_PROTO);
+				HTTP2_ECODE_PROTO,
+				begin_time);
 	}
 
 
@@ -6701,14 +6793,16 @@ next_msg:
 					"Request dropped: "
 					"Pipelined request received "
 					"after UPGRADE request",
-					HTTP2_ECODE_PROTO);
+					HTTP2_ECODE_PROTO,
+					begin_time);
 		}
 		skb = ss_skb_split(skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return tfw_http_req_parse_drop(req, 500,
 					"Can't split pipelined requests",
-					HTTP2_ECODE_PROTO);
+					HTTP2_ECODE_PROTO,
+					begin_time);
 		}
 		*split = skb;
 	} else {
@@ -6723,13 +6817,15 @@ next_msg:
 	 */
 	if (!__check_authority_correctness(req)) {
 		return tfw_http_req_parse_drop(req, 400, "Invalid authority",
-					       HTTP2_ECODE_PROTO);
+					       HTTP2_ECODE_PROTO,
+					       begin_time);
 	}
 
 	if ((r = tfw_http_req_client_link(conn, req))) {
 		return tfw_http_req_parse_drop(req, 400, "request dropped: "
 				"incorrect X-Forwarded-For header",
-				HTTP2_ECODE_PROTO);
+				HTTP2_ECODE_PROTO,
+				begin_time);
 	}
 
 	/*
@@ -6757,7 +6853,8 @@ next_msg:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		return tfw_http_req_parse_block(req, 403,
 				"request has been filtered out via http table",
-				HTTP2_ECODE_PROTO);
+				HTTP2_ECODE_PROTO,
+				begin_time);
 	}
 	if (res.type == TFW_HTTP_RES_VHOST) {
 		req->vhost = res.vhost;
@@ -6807,12 +6904,14 @@ next_msg:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		return tfw_http_req_parse_block(req, 403,
 				"parsed request has been filtered out",
-				HTTP2_ECODE_PROTO);
+				HTTP2_ECODE_PROTO,
+				begin_time);
 	}
 
 	if (res.type == TFW_HTTP_RES_REDIR) {
 		tfw_http_req_redir(req, res.redir.resp_code, &res.redir);
-		return T_OK;
+		r = T_OK;
+		goto finish;
 	}
 
 	if (unlikely(req->method == TFW_HTTP_METH_PURGE)) {
@@ -6845,7 +6944,8 @@ next_msg:
 			return tfw_http_req_parse_block(req, 400,
 					"request dropped: unsafe"
 					" method override",
-					HTTP2_ECODE_PROTO);
+					HTTP2_ECODE_PROTO,
+					begin_time);
 		}
 		req->method = req->method_override;
 	}
@@ -6874,7 +6974,8 @@ next_msg:
 	case TFW_HTTP_SESS_VIOLATE:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		return tfw_http_req_parse_block(req, 403, NULL,
-						HTTP2_ECODE_PROTO);
+						HTTP2_ECODE_PROTO,
+						begin_time);
 
 	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
 		/*
@@ -6891,7 +6992,8 @@ next_msg:
 		return tfw_http_req_parse_drop_with_fin(req, 500,
 				"request dropped: internal error"
 				" in Sticky module",
-				HTTP2_ECODE_PROTO);
+				HTTP2_ECODE_PROTO,
+				begin_time);
 	default:
 		BUG();
 	}
@@ -6961,6 +7063,14 @@ next_msg:
 		 */
 		stream->msg = (TfwMsg *)hmsib;
 		goto next_msg;
+	}
+
+finish:
+	if (!conn_is_tls
+	    && !tfw_client_training_adjust_cpu_num(cli, begin_time))
+	{
+		tfw_client_filter_block_ip(cli);
+		r = T_BLOCK_WITH_RST;
 	}
 
 	return r;
@@ -7346,8 +7456,10 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, struct sk_buff *skb,
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
 	TfwCliConn *cli_conn;
+	TfwClient *cli;
 	TfwFsmData data_up;
 	bool conn_stop, filtout = false, websocket = false;
+	u64 begin_time = ktime_get_ns();
 
 	BUG_ON(!stream->msg);
 	/*
@@ -7374,8 +7486,10 @@ next_msg:
 			conn_stop = !hmresp->req->stream;
 		else
 			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP, hmresp->req->flags);
+		cli = (TfwClient *)cli_conn->peer;
 	} else {
 		conn_stop = false;
+		cli = NULL;
 	}
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
@@ -7443,7 +7557,8 @@ next_msg:
 		 * just supply data for parsing. They only want to know
 		 * if processing of a message should continue or not.
 		 */
-		return likely(!conn_stop) ? T_OK : T_BAD;
+		r = likely(!conn_stop) ? T_OK : T_BAD;
+		goto err_finish;
 	case T_OK:
 		/*
 		 * The response is fully parsed, fall through and
@@ -7501,7 +7616,7 @@ next_msg:
 	 */
 	r = tfw_http_resp_gfsm(hmresp, &data_up);
 	if (unlikely(r))
-		return r;
+		goto err_finish;
 
 	/*
 	 * We need to know if connection will be upgraded after response
@@ -7558,7 +7673,7 @@ next_msg:
 	if (websocket) {
 		r = tfw_http_websocket_upgrade((TfwSrvConn *)conn, cli_conn);
 		if (unlikely(r != T_OK))
-			return r;
+			goto err_finish;
 	}
 
 	/* Respond with stale cached response. */
@@ -7576,12 +7691,12 @@ next_msg:
 	if (unlikely(r != T_OK)) {
 		if (hmsib)
 			tfw_http_conn_msg_free(hmsib);
-		return r;
+		goto err_finish;
 	}
 
 	*split = NULL;
 	if (skb && websocket)
-		return tfw_ws_msg_process(cli_conn->pair, skb);
+		r = tfw_ws_msg_process(cli_conn->pair, skb);
 	if (hmsib) {
 		/*
 		 * Switch the connection to the sibling message.
@@ -7595,10 +7710,16 @@ next_msg:
 		 * Creation of sibling response has failed, close
 		 * the connection to recover.
 		 */
-		return T_BAD;
+		r = T_BAD;
 	}
 
-	return T_OK;
+	if (cli && !tfw_client_training_adjust_cpu_num(cli, begin_time))
+	{
+		tfw_client_filter_block_ip(cli);
+		r = T_BAD;
+	}
+
+	return r;
 bad_msg:
 	/*
 	 * Response can't be parsed or processed. This is abnormal situation,
@@ -7662,6 +7783,9 @@ bad_msg:
 		}
 	}
 
+err_finish:
+	if (cli && !tfw_client_training_adjust_cpu_num(cli, begin_time))
+		tfw_client_filter_block_ip(cli);
 	return r;
 }
 

@@ -23,6 +23,26 @@
 
 #include "http_limits.h"
 #include "connection.h"
+#include "training.h"
+
+#define CPU_HISTORY_WINDOW	8
+
+typedef struct {
+	u64 pending_cpu;
+	unsigned long slot_ts;
+	u32 usage;
+} TfwCpuHistoryBucket;
+
+/*
+ * @buckets	- Circular array of history buckets storing per-interval
+ *		  data;
+ * @total	- total number of released connections over the current
+ *		  sliding time window (sum of all buckets);
+ */
+typedef struct {
+	TfwCpuHistoryBucket buckets[CPU_HISTORY_WINDOW];
+	u64 ts;
+} TfwCpuHistory;
 
 /**
  * Client descriptor.
@@ -31,11 +51,21 @@
  *			  Typically it's large and wastes memory in vain if
  *			  no any classification logic is used;
  * list_head		- entry in the lru list;
+ * @conn_max		- maximum count of simultaneously opened connections
+ *			  during training period. Not atomic, because it is
+ *			  changed under `ra->lock`;
+ * @conn_training_num	- number of trainging, used to zero conn_max when the
+ *			  new trainging start;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
 	struct list_head	list;
+	unsigned int		conn_max;
+	unsigned int		conn_training_num;
+	TfwTrainingStat		req_stat;
+	TfwTrainingStat		cpu_stat;
+	TfwCpuHistory __percpu	*cpu_usage;
 } TfwClient;
 
 int tfw_client_init(void);
@@ -48,7 +78,10 @@ void tfw_cli_conn_release(TfwCliConn *cli_conn);
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg);
 int tfw_cli_conn_abort_all(void *data);
 void tfw_cli_abort_all(void);
-
+bool tfw_client_training_adjust_conn_num(TfwClient *cli,
+					 unsigned int conn_curr);
+bool tfw_client_training_adjust_cpu_num(TfwClient *cli, u64 begin_time);
 void tfw_tls_connection_lost(TfwConn *conn);
+void tfw_client_filter_block_ip(TfwClient *cli);
 
 #endif /* __TFW_CLIENT_H__ */

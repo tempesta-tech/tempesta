@@ -42,10 +42,12 @@
 #include "access_log.h"
 #include "tf_conf.h"
 #include "tf_filter.h"
+#include "training.h"
 
 static TfwConn conn_req, conn_resp;
 
 unsigned int tfw_cli_max_concurrent_streams;
+unsigned int tfw_training_mod_state;
 
 TfwHttpReq *
 test_req_alloc(size_t data_len)
@@ -253,6 +255,11 @@ tfw_gfsm_register_fsm(int fsm_id, tfw_gfsm_handler_t handler)
 
 void
 tfw_filter_block_ip(const TfwClient *cli, long duration)
+{
+}
+
+void
+tfw_client_filter_block_ip(TfwClient *cli)
 {
 }
 
@@ -506,6 +513,18 @@ u32
 tfh_get_records_rate(HttpTfh fingerprint)
 {
 	return 0;
+}
+
+bool
+tfw_training_mode_update_req_num_stat(TfwTrainingStat *stat, int delta)
+{
+	return true;
+}
+
+bool
+tfw_client_training_adjust_cpu_num(TfwClient *cli, u64 begin_time)
+{
+	return true;
 }
 
 TfwCfgSpec tf_hash_specs[0];

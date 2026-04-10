@@ -27,9 +27,11 @@
 #include "hash.h"
 #include "client.h"
 #include "connection.h"
+#include "filter.h"
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
+#include "training.h"
 #include "lib/str.h"
 #include "lib/common.h"
 
@@ -103,6 +105,9 @@ tfw_client_free(TdbRec *rec)
 	 * Tempesta FW shut down from `tfw_client_free_lru`
 	 */
 	WARN_ON(!list_empty(&cli->list));
+	tfw_training_stat_destroy(&cli->req_stat);
+	tfw_training_stat_destroy(&cli->cpu_stat);
+	free_percpu(cli->cpu_usage);
 }
 
 static void
@@ -185,12 +190,26 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 	return true;
 }
 
-static void
+static int
 tfw_client_ent_init(TdbRec *rec, void *data)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
+	int r;
+
+	r = tfw_training_stat_init(&cli->req_stat);
+	if (unlikely(r))
+		return r;
+
+	r = tfw_training_stat_init(&cli->cpu_stat);
+	if (unlikely(r))
+		return r;
+
+	cli->cpu_usage =
+		tfw_alloc_percpu_gfp(TfwCpuHistory, GFP_ATOMIC | __GFP_ZERO);
+	if (unlikely(!cli->cpu_usage))
+		return -ENOMEM;
 
 	assert_spin_locked(&client_db->ga_lock);
 
@@ -201,6 +220,8 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	if (ctx->init)
 		ctx->init(cli);
 
+	cli->conn_max = 0;
+
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
 	ent->xff_addr = ctx->xff_addr;
 	tfw_str_to_cstr(&ctx->user_agent, ent->user_agent,
@@ -210,6 +231,8 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	T_DBG("new client: cli=%p\n", cli);
 	T_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
 	T_DBG2("client %p, users=%d\n", cli, 1);
+
+	return 0;
 }
 
 /**
@@ -277,6 +300,97 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 }
 EXPORT_SYMBOL(tfw_client_obtain);
 ALLOW_ERROR_INJECTION(tfw_client_obtain, NULL);
+
+bool
+tfw_client_training_adjust_conn_num(TfwClient *cli, unsigned int conn_curr)
+{
+	u64 delta1, delta2;
+	unsigned int old_max;
+	bool new_client = false;
+
+	if (tfw_mode_is_disabled())
+		return true;
+
+	if (tfw_mode_is_defence())
+		return tfw_training_mode_defence_conn_num(conn_curr);
+
+	/*
+	 * This function same as all `*_conn_num` functions are called
+	 * under ra->lock (private lock inside client), so we don't need
+	 * any synchronization here.
+	 */
+	if (cli->conn_training_num < g_training_num) {
+		cli->conn_training_num = g_training_num;
+		cli->conn_max = 0;
+		new_client = true;
+	}
+
+	old_max = cli->conn_max;
+	if (conn_curr <= old_max)
+		return true;
+	cli->conn_max = conn_curr;
+	delta1 = conn_curr - old_max;
+	delta2 = (u64)conn_curr * conn_curr - (u64)old_max * old_max;
+	tfw_training_mode_adjust_conn_num(delta1, delta2, new_client);
+
+	return true;
+}
+
+bool
+tfw_client_training_adjust_cpu_num(TfwClient *cli, u64 begin_time)
+{
+	static const u64 min_time_to_adjust = 1000;
+	const unsigned short ticks = HZ / CPU_HISTORY_WINDOW;
+	const unsigned long ts = tfw_time_quantum(ticks);
+	unsigned int i = ts % CPU_HISTORY_WINDOW;
+	TfwCpuHistory *cpu_usage = this_cpu_ptr(cli->cpu_usage);
+	u64 now = ktime_get_ns();
+	u64 total_bucket_cpu = 0;
+	u64 delta_cpu = now - begin_time;
+	u64 dt, usage, total = 0;
+
+	if (cpu_usage->buckets[i].slot_ts != ts) {
+		cpu_usage->buckets[i].usage = 0;
+		cpu_usage->buckets[i].pending_cpu = 0;
+		cpu_usage->buckets[i].slot_ts = ts;
+	}
+
+	cpu_usage->buckets[i].pending_cpu += delta_cpu;
+	if (!cpu_usage->ts) {
+		cpu_usage->ts = now;
+		return true;
+	}
+
+	dt = now - cpu_usage->ts;
+	cpu_usage->ts = now;
+	if (dt < min_time_to_adjust)
+		return true;
+
+	swap(total_bucket_cpu, cpu_usage->buckets[i].pending_cpu);
+	usage = (total_bucket_cpu << SCALE_SHIFT) / dt;
+	cpu_usage->buckets[i].usage += usage;
+	
+	TFW_SUMM_IN_FRAME(ts, cpu_usage->buckets[iter].slot_ts, {
+		total += cpu_usage->buckets[iter].usage;
+	});
+
+	return tfw_training_mode_update_cpu_num_stat(&cli->cpu_stat, total);
+}
+
+void
+tfw_client_filter_block_ip(TfwClient *cli)
+{
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return;
+
+	if (dflt_vh->frang_gconf->ip_block)
+		tfw_filter_block_ip(cli,
+				    dflt_vh->frang_gconf->ip_block_duration);
+
+	tfw_vhost_put(dflt_vh);
+}
 
 /**
  * Beware: @fn is called under client hash bucket spin lock.

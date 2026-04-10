@@ -64,6 +64,12 @@ enum {
 	T_OK		 = 0,
 };
 
+static inline bool
+t_error_code_is_critical(int r)
+{
+	return r && r != T_POSTPONE && r != T_DROP;
+}
+
 /*
  * BANNER variable must be defined before including the file!
  *

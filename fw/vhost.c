@@ -2217,7 +2217,7 @@ __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
 		return -EINVAL;
 
 	/* Update time frame value to reduce calculations in hot-path. */
-	cb->tf = (cb->tf * HZ) / FRANG_FREQ;
+	cb->tf = (cb->tf * HZ) / TFW_SLIDING_WINDOW;
 
 	return 0;
 }
@@ -2496,7 +2496,7 @@ __tfw_cfgop_frang_rates(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *rate,
 	 * How many ticks in signle timeframe. Update the
 	 * value to reduce calculations in hot-path.
 	 */
-	*tf = (*tf * HZ) / FRANG_FREQ;
+	*tf = (*tf * HZ) / TFW_SLIDING_WINDOW;
 
 	return 0;
 }

@@ -44,10 +44,6 @@
 
 typedef struct { char _[TFW_CLASSIFIER_ACCSZ]; } TfwClassifierPrvt;
 
-
-/* We account users with FRANG_FREQ frequency per second. */
-#define FRANG_FREQ	8
-
 int tfw_http_limits_init(void);
 void tfw_http_limits_exit(void);
 void tfw_classifier_add_inport(__be16 port);
@@ -204,12 +200,6 @@ int frang_tls_handler(TlsCtx *tls, int state);
 int frang_sticky_cookie_handler(TfwHttpReq *req);
 bool frang_req_is_whitelisted(TfwHttpReq *req);
 int frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len);
-
-static inline int
-frang_time_in_frame(const unsigned long tcur, const unsigned long tprev)
-{
-	return tprev + FRANG_FREQ > tcur;
-}
 
 static inline void *
 frang_ptr_from_sk(struct sock *sk)

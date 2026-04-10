@@ -22,6 +22,7 @@
 
 #include "http_frame.h"
 #include "http_limits.h"
+#include "lib/sliding_window.h"
 
 /**
  * Representation of SETTINGS parameters for HTTP/2 connection (RFC 7540
@@ -150,7 +151,7 @@ typedef struct tfw_h2_ctx_t {
 	unsigned int    new_settings[_HTTP2_SETTINGS_MAX - 1];
 	DECLARE_BITMAP  (settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
 	TfwH2Conn	*conn;
-	CtrlFrameStat	stat[FRANG_FREQ];
+	CtrlFrameStat	stat[TFW_SLIDING_WINDOW];
 	unsigned long	wnd_update_cnt;
 	unsigned long	data_frames_sent;
 	unsigned long	data_bytes_sent;
