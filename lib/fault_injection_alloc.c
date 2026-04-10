@@ -79,4 +79,21 @@ tfw__alloc_percpu_gfp(size_t size, size_t align, gfp_t gfp)
 ALLOW_ERROR_INJECTION(tfw__alloc_percpu_gfp, NULL);
 EXPORT_SYMBOL(tfw__alloc_percpu_gfp);
 
+unsigned long
+tfw__get_free_pages(gfp_t gfp_mask, unsigned int order)
+{
+	return __get_free_pages(gfp_mask, order);
+}
+ALLOW_ERROR_INJECTION(tfw__get_free_pages, NULL);
+EXPORT_SYMBOL(tfw__get_free_pages);
+
+int 
+tfw_percpu_ref_init(struct percpu_ref *ref, percpu_ref_func_t *release,
+		    unsigned int flags, gfp_t gfp)
+{
+	return percpu_ref_init(ref, release, flags, gfp);
+}
+ALLOW_ERROR_INJECTION(tfw_percpu_ref_init, ERRNO);
+EXPORT_SYMBOL(tfw_percpu_ref_init);
+
 #endif
