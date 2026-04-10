@@ -45,6 +45,7 @@
 #include "dhm.h"
 #include "ecp.h"
 #include "mpool.h"
+#include "lib/fault_injection_alloc.h"
 
 #define MPI_POOL_DATA(mp)	((void *)((char *)(mp) + sizeof(TlsMpiPool)))
 #define MPI_POOL_FREE_PTR(mp)	((void *)((char *)(mp) + (mp)->curr))
@@ -208,7 +209,7 @@ ttls_mpi_pool_create(size_t order, gfp_t gfp_mask)
 	TlsMpiPool *mp;
 	unsigned long addr;
 
-	if (!(addr = __get_free_pages(gfp_mask | __GFP_ZERO, order)))
+	if (!(addr = tfw__get_free_pages(gfp_mask | __GFP_ZERO, order)))
 		return NULL;
 	WARN_ON_ONCE(addr & ((PAGE_SIZE << order) - 1));
 
@@ -336,7 +337,7 @@ __mpi_profile_clone(TlsCtx *tls, int ec)
 		return -ENOMEM;
 	}
 
-	ptr = (char *)__get_free_pages(GFP_ATOMIC, __MPOOL_HS_ORDER);
+	ptr = (char *)tfw__get_free_pages(GFP_ATOMIC, __MPOOL_HS_ORDER);
 	if (unlikely(!ptr))
 		return -ENOMEM;
 

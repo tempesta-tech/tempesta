@@ -910,8 +910,9 @@ ttls_x509_crt_parse(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 	 * to the multi-byte structures inside the raw data.
 	 */
 	crt->raw.order = get_order(buflen + crt_len_len);
-	crt->raw.pages = (unsigned char *)__get_free_pages(GFP_KERNEL | __GFP_COMP,
-							   crt->raw.order);
+	crt->raw.pages =
+		(unsigned char *)tfw__get_free_pages(GFP_KERNEL | __GFP_COMP,
+						     crt->raw.order);
 	if (!crt->raw.pages)
 		return -ENOMEM;
 	crt->raw.tot_len = 0;

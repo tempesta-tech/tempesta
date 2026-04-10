@@ -8208,7 +8208,8 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len, size_t *len,
 	}
 
 	t_sz += b_sz;
-	b_start = res = (char *)__get_free_pages(GFP_KERNEL, get_order(t_sz));
+	b_start = res = (char *)tfw__get_free_pages(GFP_KERNEL,
+						    get_order(t_sz));
 	if (!res) {
 		T_ERR_NL("Can't allocate memory storing file %s as response "
 			 "body\n", filename);
