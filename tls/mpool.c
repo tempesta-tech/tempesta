@@ -400,8 +400,11 @@ ttls_mpool_exit(void)
 
 	for_each_online_cpu(i) {
 		mp = per_cpu(g_tmp_mpool, i);
-		ttls_bzero_safe(MPI_POOL_DATA(mp), mp->curr - sizeof(*mp));
-		free_pages((unsigned long)mp, mp->order);
+		if (mp) {
+			ttls_bzero_safe(MPI_POOL_DATA(mp),
+					mp->curr - sizeof(*mp));
+			free_pages((unsigned long)mp, mp->order);
+		}
 	}
 }
 
