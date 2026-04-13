@@ -23,7 +23,6 @@
 #include <linux/net.h>
 #include <linux/wait.h>
 #include <linux/freezer.h>
-#include <linux/random.h>
 #include <net/inet_sock.h>
 
 #include "apm.h"
@@ -143,15 +142,21 @@ static DEFINE_PER_CPU(RecnsHistory, recns_history);
  * Thresholds for connection release rate (e.g., per sliding time window),
  * used to classify load into levels (L1, L2, L3) and to increase the
  * timeout between reconnections.
+ * Calculate what `tfw_srv_tmo_vals` array should be used,
+ * depending on total reconnection rate:
+ * < 500 - commonly used case (array number 0)
+ * 500 – 2000
+ * 2000 – 5000
+ * >= 5000
  */
 enum {
-	TFW_SRV_RECNT_RATE_L1 = 1000,
-	TFW_SRV_RECNT_RATE_L2 = 5000,
-	TFW_SRV_RECNT_RATE_L3 = 15000,
+	TFW_SRV_RECNT_RATE_L1 = 500,
+	TFW_SRV_RECNT_RATE_L2 = 2000,
+	TFW_SRV_RECNT_RATE_L3 = 5000,
 };
 
 static inline void
-tfw_srv_conn_adjust_inc_recns(TfwSrvConn *srv_conn)
+tfw_srv_inc_recns_in_progress(TfwSrvConn *srv_conn)
 {
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	unsigned int rc = 0;
@@ -163,7 +168,7 @@ tfw_srv_conn_adjust_inc_recns(TfwSrvConn *srv_conn)
 	 * reestablishing failed from `tfw_srv_conn_mod_timer`.
 	 */
 	WARN_ON(test_and_set_bit(__TFW_CONN_B_RECONNECT, &srv_conn->flags));
-	atomic_inc_return(&srv->ctrl.recns_in_progress);
+	rc = atomic_inc_return(&srv->ctrl.recns_in_progress);
 	WARN_ON(rc > srv->conn_n + 1);
 }
 
@@ -182,7 +187,7 @@ tfw_srv_conn_adjust_inc_recns(TfwSrvConn *srv_conn)
  * The return value is used to distinguish between these cases.
  */
 static inline int
-tfw_srv_conn_adjust_dec_recns(TfwSrvConn *srv_conn)
+tfw_srv_dec_recns_in_progress(TfwSrvConn *srv_conn)
 {
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	int rc = -1;
@@ -195,7 +200,7 @@ tfw_srv_conn_adjust_dec_recns(TfwSrvConn *srv_conn)
 static inline void
 tfw_srv_conn_stop(TfwSrvConn *srv_conn)
 {
-	tfw_srv_conn_adjust_dec_recns(srv_conn);
+	tfw_srv_dec_recns_in_progress(srv_conn);
 	set_bit(TFW_CONN_B_STOPPED, &srv_conn->flags);
 	tfw_server_put((TfwServer *)srv_conn->peer);
 }
@@ -204,8 +209,7 @@ static inline unsigned int
 tfw_srv_conn_total_recns_to_idx(unsigned int sum, unsigned int l1,
 				unsigned int l2, unsigned int l3)
 {
-	return (sum >= l1) + (sum >= l2) +
-		(sum >= l3);
+	return (sum >= l1) + (sum >= l2) + (sum >= l3);
 }
 
 /*
@@ -215,9 +219,9 @@ tfw_srv_conn_total_recns_to_idx(unsigned int sum, unsigned int l1,
  * and maintains total reconnection count.
  */
 static inline void
-tfw_srv_update_total_reconnection_count(void)
+tfw_srv_update_total_recns_count(void)
 {
-	const unsigned short ticks = (HZ << 3) / FRANG_FREQ;
+	const unsigned short ticks = HZ / FRANG_FREQ;
 	const unsigned long ts = jiffies / ticks;
 	unsigned int i = ts % FRANG_FREQ;
 	RecnsHistory *h = this_cpu_ptr(&recns_history);
@@ -233,7 +237,7 @@ tfw_srv_update_total_reconnection_count(void)
 }
 
 static inline u64
-tfw_srv_total_reconnection_count(void)
+tfw_srv_total_recns_count(void)
 {
 	int cpu;
 	u64 sum = 0;
@@ -247,14 +251,14 @@ tfw_srv_total_reconnection_count(void)
 }
 
 static inline bool
-tfw_server_has_reconnections(TfwServer *srv)
+tfw_server_has_recns(TfwServer *srv)
 {
 	return !list_empty(&srv->ctrl.recns_list)
 	       || !list_empty(&srv->ctrl.failed_recns_list);
 }
 
 static inline unsigned int
-tfw_server_reconnect_timeout(TfwServer *srv)
+tfw_server_recns_timeout(TfwServer *srv)
 {
 	static const unsigned long tfw_srv_tmo_vals[][TFW_SRV_TMO_NR] = {
 		{ 1,    10,    100,   250,   500,   1000 },
@@ -263,33 +267,29 @@ tfw_server_reconnect_timeout(TfwServer *srv)
 		{ 5000,  10000, 20000, 30000, 45000, 60000 }
 	};
 	unsigned int idx, tmo_arr_idx;
-	unsigned int timeout;
 	u64 rate;
 
 	assert_spin_locked(&srv->ctrl.recns_lock);
 
-	rate = tfw_srv_total_reconnection_count() >> 3;
+	rate = tfw_srv_total_recns_count();
 	tmo_arr_idx = tfw_srv_conn_total_recns_to_idx(rate,
 						      TFW_SRV_RECNT_RATE_L1,
 						      TFW_SRV_RECNT_RATE_L2,
 						      TFW_SRV_RECNT_RATE_L3);
 	idx = min(srv->ctrl.recns, TFW_SRV_TMO_NR - 1);
 
-	timeout = msecs_to_jiffies(tfw_srv_tmo_vals[tmo_arr_idx][idx]);
-	/*
-	 * Introduce random jitter to the timeout (0 .. timeout/4) to spread
-	 * reconnect attempts and prevent servers from retrying simultaneously.
-	 */
-	timeout += get_random_u32_below(max(timeout >> 2, 1));
-
-	return	timeout;
+	return msecs_to_jiffies(tfw_srv_tmo_vals[tmo_arr_idx][idx]);
 }
 
 static inline void
 tfw_server_mod_timer(TfwServer *srv)
 {
-        unsigned int timeout = tfw_server_reconnect_timeout(srv);
+        unsigned int timeout;
 
+        if (unlikely(test_bit(TFW_SRV_B_REMOVED, &srv->flags)))
+        	return;
+
+        timeout = tfw_server_recns_timeout(srv);
         mod_timer(&srv->rc_timer, jiffies + timeout);
 }
 
@@ -300,17 +300,18 @@ tfw_srv_conn_mod_timer(TfwSrvConn *srv_conn)
 	bool modify = false;
 	int r;
 
-	BUG_ON(!list_empty(&srv_conn->in_reconn_list));
+	if (WARN_ON(!list_empty(&srv_conn->in_recns_list)))
+		return;
 
-	tfw_srv_update_total_reconnection_count();
+	tfw_srv_update_total_recns_count();
 
 	spin_lock_bh(&srv->ctrl.recns_lock);
 
-	r = tfw_srv_conn_adjust_dec_recns(srv_conn);
+	r = tfw_srv_dec_recns_in_progress(srv_conn);
 	switch (r) {
 	case 0:
 		/*
-		 * Last connection being reestablished from the timer callback.
+		 * Last connection is being reestablished from the timer callback.
 		 * Move it to the tail of the failed reconnection list and
 		 * restart reconnection with a new timeout.
 		 */
@@ -326,7 +327,7 @@ tfw_srv_conn_mod_timer(TfwSrvConn *srv_conn)
 		 * reestablished or failed to reconnect.
 		 */
 		WARN_ON(r < 0);
-		list_add_tail(&srv_conn->in_reconn_list,
+		list_add_tail(&srv_conn->in_recns_list,
 			      &srv->ctrl.failed_recns_list);
 		break;
 	case -1:
@@ -335,9 +336,9 @@ tfw_srv_conn_mod_timer(TfwSrvConn *srv_conn)
 		 * reconnection list. Update the reconnection timer
 		 * only if there are no reconnections in progress.
 		 */
-		modify = !tfw_server_has_reconnections(srv) &&
+		modify = !tfw_server_has_recns(srv) &&
 			!atomic_read(&srv->ctrl.recns_in_progress);
-		list_add_tail(&srv_conn->in_reconn_list,
+		list_add_tail(&srv_conn->in_recns_list,
 			      &srv->ctrl.recns_list);
 		break;
 	}
@@ -364,11 +365,11 @@ tfw_srv_conn_del_timer_sync(TfwSrvConn *srv_conn)
 
 	spin_lock_bh(&srv->ctrl.recns_lock);
 
-	if (likely(list_empty(&srv_conn->in_reconn_list))) {
+	if (likely(list_empty(&srv_conn->in_recns_list))) {
 		spin_unlock_bh(&srv->ctrl.recns_lock);
 		return false;
 	}
-	list_del_init(&srv_conn->in_reconn_list);
+	list_del_init(&srv_conn->in_recns_list);
 
 	spin_unlock_bh(&srv->ctrl.recns_lock);
 
@@ -540,9 +541,6 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
  * The limit is selected from a predefined set of thresholds based on
  * srv->ctrl.recns_batch_idx (which reflects current reconnect intensity).
  * The index is clamped to the array bounds.
- *
- * A small random reduction (up to ~20%) is applied to introduce jitter
- * and avoid synchronized reconnection bursts across servers.
  */
 static inline unsigned int
 tfw_sock_srv_calc_max_recns_per_time(TfwServer *srv)
@@ -552,12 +550,8 @@ tfw_sock_srv_calc_max_recns_per_time(TfwServer *srv)
 	};
 	unsigned int idx = min(srv->ctrl.recns_batch_idx,
 			       ARRAY_SIZE(max_recns_per_time) - 1);
-	unsigned max_recns;
 
-	max_recns = max_recns_per_time[idx];
-	max_recns -= get_random_u32_below(max_recns / 5 + 1);
-
-	return max_recns;
+	return max_recns_per_time[idx];
 }
 
 void
@@ -565,15 +559,15 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 {
 	TfwServer *srv = from_timer(srv, t, rc_timer);
 	TfwSrvConn *srv_conn, *tmp;
-	LIST_HEAD(reconnect_list);
+	LIST_HEAD(recns_list);
 	unsigned int count, max;
 
 	spin_lock(&srv->ctrl.recns_lock);
 
 	count = 0;
 	max = tfw_sock_srv_calc_max_recns_per_time(srv);
-	list_splice_tail_init(&srv->ctrl.recns_list, &reconnect_list);
-	list_splice_tail_init(&srv->ctrl.failed_recns_list, &reconnect_list);
+	list_splice_tail_init(&srv->ctrl.recns_list, &recns_list);
+	list_splice_tail_init(&srv->ctrl.failed_recns_list, &recns_list);
 	/*
 	 * Prevent `recns_in_progress` from reaching 0 while this timer
 	 * callback is running.
@@ -583,11 +577,9 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 
 	spin_unlock(&srv->ctrl.recns_lock);
 
-	list_for_each_entry_safe(srv_conn, tmp, &reconnect_list,
-				 in_reconn_list)
-	{
-		list_del_init(&srv_conn->in_reconn_list);
-		tfw_srv_conn_adjust_inc_recns(srv_conn);
+	list_for_each_entry_safe(srv_conn, tmp, &recns_list, in_recns_list) {
+		list_del_init(&srv_conn->in_recns_list);
+		tfw_srv_inc_recns_in_progress(srv_conn);
 		tfw_sock_srv_connect_try(srv_conn);
 		if (++count >= max)
 			break;
@@ -599,7 +591,7 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 	 * Connections can be reestablished and released on other cpu.
 	 * Add remaning connections to the end of the reconnection list.
 	 */
-	list_splice_tail_init(&reconnect_list, &srv->ctrl.recns_list);
+	list_splice_tail_init(&recns_list, &srv->ctrl.recns_list);
 
 	/*
 	 * If @recns_in_progress != 0, then not all connections, that
@@ -610,7 +602,7 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 	if (atomic_dec_return(&srv->ctrl.recns_in_progress))
 		goto out_unlock;
 
-	if (tfw_server_has_reconnections(srv))
+	if (tfw_server_has_recns(srv))
 		tfw_server_mod_timer(srv);
 
 out_unlock:
@@ -626,7 +618,7 @@ __reset_retry_timer(TfwSrvConn *srv_conn)
 
 	spin_lock(&srv->ctrl.recns_lock);
 
-	if (unlikely(!tfw_srv_conn_adjust_dec_recns(srv_conn))) {
+	if (unlikely(!tfw_srv_dec_recns_in_progress(srv_conn))) {
 		/*
 		 * If all connections processed by the reconnection timer
 		 * callback were successfully reestablished (i.e., no
@@ -638,7 +630,7 @@ __reset_retry_timer(TfwSrvConn *srv_conn)
 			srv->ctrl.recns = 0;
 		}
 
-		if (tfw_server_has_reconnections(srv))
+		if (tfw_server_has_recns(srv))
 			tfw_server_mod_timer(srv);
 	}
 
@@ -788,7 +780,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	/*
 	 * Exit if connection has never been activated (due to some error
 	 * in @sock_srv start procedure; so, consequently, it will never
-	 * gets to its destructor and will never reach the stopped state).
+	 * get to its destructor and will never reach the stopped state).
 	 */
 	if (!test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
 		return 0;
@@ -900,7 +892,7 @@ tfw_sock_srv_connect_one(TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	tfw_server_get(srv);
 	set_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags);
-	list_add_tail(&srv_conn->in_reconn_list, &srv->ctrl.recns_list);
+	list_add_tail(&srv_conn->in_recns_list, &srv->ctrl.recns_list);
 	srv_conn->recns = 1;
 }
 
@@ -982,7 +974,7 @@ tfw_srv_conn_alloc(void)
 	tfw_connection_init((TfwConn *)srv_conn);
 	memset((char *)srv_conn + sizeof(TfwConn), 0,
 	       sizeof(TfwSrvConn) - sizeof(TfwConn));
-	INIT_LIST_HEAD(&srv_conn->in_reconn_list);
+	INIT_LIST_HEAD(&srv_conn->in_recns_list);
 	INIT_LIST_HEAD(&srv_conn->fwd_queue);
 	INIT_LIST_HEAD(&srv_conn->nip_queue);
 	spin_lock_init(&srv_conn->fwd_qlock);
@@ -1003,7 +995,7 @@ ALLOW_ERROR_INJECTION(tfw_srv_conn_alloc, NULL);
 static void
 tfw_srv_conn_free(TfwSrvConn *srv_conn)
 {
-	BUG_ON(!list_empty(&srv_conn->in_reconn_list));
+	BUG_ON(!list_empty(&srv_conn->in_recns_list));
 
 	tfw_connection_unlink_from_peer((TfwConn *)srv_conn);
 
@@ -1036,7 +1028,7 @@ tfw_sock_srv_append_conns_n(TfwServer *srv, size_t conn_n)
 
 	spin_lock_bh(&srv->ctrl.recns_lock);
 
-	modify = !tfw_server_has_reconnections(srv)
+	modify = !tfw_server_has_recns(srv)
 		&& !atomic_read(&srv->ctrl.recns_in_progress);
 
 	for (i = 0; i < conn_n; ++i) {

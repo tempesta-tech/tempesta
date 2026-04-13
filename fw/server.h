@@ -39,9 +39,11 @@ typedef struct tfw_srv_group_t TfwSrvGroup;
 typedef struct tfw_scheduler_t TfwScheduler;
 
 /*
- * The number of  reconnection attempts during increasing timeout (quick
- * reconnect) stage.
- * This number is not included in the total count of reconnection attempts.
+ * Reconnection timeout calculated using two different strategies.
+ * We have several arrays, each array contains TFW_SRV_TMO_NR
+ * values. We choose array according to total count of reconnections
+ * per second in system and we use the number of server reconnection
+ * attempts to choose timeout from current array.
  */
 #define TFW_SRV_TMO_NR		6
 /*

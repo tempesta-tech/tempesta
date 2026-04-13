@@ -90,6 +90,11 @@ tfw_server_destroy(TfwServer *srv)
 	BUG_ON(!list_empty(&srv->ctrl.failed_recns_list));
 	BUG_ON(!list_empty(&srv->conn_list));
 	BUG_ON(timer_pending(&srv->gs_timer));
+	/*
+	 * If timer is pending here, timer callback can be
+	 * called after server will be destroyed. This lead
+	 * to mempry corruption.
+	 */
 	BUG_ON(timer_pending(&srv->rc_timer));
 
 	tfw_apm_del_srv(srv);
