@@ -36,6 +36,8 @@
 #define TFW_POOL_ALIGN_SZ(n)	(((n) + 7) & ~7UL)
 #define TFW_POOL_ALIGN_PTR(p)	((void *)TFW_POOL_ALIGN_SZ((unsigned long)p))
 
+typedef struct tfw_client_mem_t TfwClientMem;
+
 /**
  * Memory pool chunk descriptor.
  *
@@ -58,7 +60,7 @@ typedef struct tfw_pool_chunk_t {
  */
 typedef struct {
 	TfwPoolChunk	*curr;
-	void		*owner;
+	TfwClientMem	*owner;
 	unsigned int	order;
 	unsigned int	off;
 } TfwPool;
@@ -81,7 +83,7 @@ typedef struct {
 
 int tfw_pool_init(void);
 void tfw_pool_exit(void);
-TfwPool *__tfw_pool_new(size_t n, void *owner);
+TfwPool *__tfw_pool_new(size_t n, TfwClientMem *owner);
 void *__tfw_pool_alloc_page(TfwPool *p, size_t n, bool align);
 void tfw_pool_free(TfwPool *p, void *ptr, size_t n);
 void tfw_pool_clean(TfwPool *p);
