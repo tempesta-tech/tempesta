@@ -1155,7 +1155,8 @@ tfw_huffman_init(TfwHPack *__restrict hp)
 }
 
 int
-tfw_hpack_init(TfwHPack *__restrict hp, void *owner, unsigned int htbl_sz)
+tfw_hpack_init(TfwHPack *__restrict hp, TfwClientMem *owner,
+	       unsigned int htbl_sz)
 {
 	bool np;
 	TfwHPackETbl *et = &hp->enc_tbl;

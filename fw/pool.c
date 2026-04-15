@@ -257,7 +257,7 @@ tfw_pool_clean(TfwPool *pool)
  * Allocate bit more pages than we need.
  */
 TfwPool *
-__tfw_pool_new(size_t n, void *owner)
+__tfw_pool_new(size_t n, TfwClientMem *owner)
 {
 	TfwClientMem *cli_mem = (TfwClientMem *)owner;
 	TfwPool *p;

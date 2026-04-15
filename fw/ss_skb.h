@@ -55,6 +55,7 @@ enum {
 typedef int (*on_send_cb_t)(void *conn, struct sk_buff **skb_head);
 typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
 typedef void (*on_send_fail_cb_t)(void *conn, struct sk_buff *skb_head);
+typedef struct tfw_client_mem_t TfwClientMem;
 
 /*
  * Tempesta FW sk_buff private data.
@@ -84,7 +85,7 @@ struct tfw_skb_cb {
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
 
 void ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
-		      void *owner, unsigned int delta);
+		      TfwClientMem *owner, unsigned int delta);
 void ss_skb_adjust_client_mem(struct sk_buff *skb, int delta);
 void ss_skb_dflt_destructor(struct sk_buff *skb);
 void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
@@ -481,10 +482,12 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
-int ss_skb_alloc_data(struct sk_buff **skb_head, void *owner, size_t len);
+int ss_skb_alloc_data(struct sk_buff **skb_head, TfwClientMem *owner,
+		      size_t len);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
 int ss_skb_get_room_w_frag(struct sk_buff *skb_head, struct sk_buff *skb,
-			   char *pspt, unsigned int len, TfwStr *it, int *fragn);
+			   char *pspt, unsigned int len, TfwStr *it,
+			   int *fragn);
 int ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			    size_t head, size_t tail);
 int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
