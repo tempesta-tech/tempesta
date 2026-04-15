@@ -875,7 +875,7 @@ tfw_http_msg_free(TfwHttpMsg *m)
  * for parsing and subsequent adjustment.
  */
 TfwHttpMsg *
-__tfw_http_msg_alloc(void *owner, int type, bool full)
+__tfw_http_msg_alloc(TfwClientMem *owner, int type, bool full)
 {
 	TfwHttpMsg *hm = (type & Conn_Clnt)
 			 ? (TfwHttpMsg *)tfw_pool_new(TfwHttpReq, owner,

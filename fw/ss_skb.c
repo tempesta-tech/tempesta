@@ -109,7 +109,7 @@ ss_skb_alloc_pages(size_t len)
  * segmentation. The allocated payload space will be filled with data.
  */
 int
-ss_skb_alloc_data(struct sk_buff **skb_head, void *owner, size_t len)
+ss_skb_alloc_data(struct sk_buff **skb_head, TfwClientMem *owner, size_t len)
 {
 	int i_skb, nr_skbs = len ? DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN) : 1;
 	size_t n = 0;
@@ -1759,7 +1759,7 @@ ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head)
 
 void
 ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
-		 void *owner, unsigned int mem)
+		 TfwClientMem *owner, unsigned int mem)
 {
 	TfwClientMem *cli_mem = (TfwClientMem *)owner;
 
@@ -1784,7 +1784,7 @@ ss_skb_adjust_client_mem(struct sk_buff *skb, int delta)
 	cli_mem = (TfwClientMem *)TFW_SKB_CB(skb)->opaque_data;
 	if (cli_mem) {
 		TFW_SKB_CB(skb)->mem += delta;
-		BUG_ON(TFW_SKB_CB(skb)->mem < 0);
+		WARN_ON(TFW_SKB_CB(skb)->mem < 0);
 		tfw_client_adjust_mem(cli_mem, delta);
 	}
 }

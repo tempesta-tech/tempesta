@@ -985,12 +985,12 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 	},
 	{
 		.name = "client_mem",
-		.deflt = NULL,
+		.deflt = "0 0",
 		.handler = tfw_cfgop_client_mem,
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
 		.allow_none = true,
 		.allow_repeat = false,
-		.allow_reconfig = false,
+		.allow_reconfig = true,
 	},
 	{ 0 }
 };

@@ -28,8 +28,8 @@
  * iterator, since its current state is to be rewritten.
  */
 int
-tfw_msg_iter_setup(TfwMsgIter *it, void *owner, struct sk_buff **skb_head,
-		   size_t data_len)
+tfw_msg_iter_setup(TfwMsgIter *it, TfwClientMem *owner,
+		   struct sk_buff **skb_head, size_t data_len)
 {
 	int r;
 

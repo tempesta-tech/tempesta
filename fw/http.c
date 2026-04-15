@@ -1162,9 +1162,10 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	 * skb destructor).
 	 */
 	if (resp_in_xmit) {
-		void *owner = TFW_SKB_CB(resp->msg.skb_head)->opaque_data;
+		TfwClientMem *owner =
+			TFW_SKB_CB(resp->msg.skb_head)->opaque_data;
 
-		BUG_ON(owner != CLIENT_MEM_FROM_CONN(resp->req->conn));
+		WARN_ON(owner != CLIENT_MEM_FROM_CONN(resp->req->conn));
 		TFW_SKB_CB(resp->msg.skb_head)->opaque_data = resp;
 		TFW_SKB_CB(resp->msg.skb_head)->destructor =
 			tfw_h2_stream_skb_destructor;
@@ -2864,7 +2865,8 @@ static TfwMsg *
 tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 {
 	int type = TFW_CONN_TYPE(conn);
-	void *owner = type & Conn_Clnt ? CLIENT_MEM_FROM_CONN(conn) : NULL;
+	TfwClientMem *owner = type & Conn_Clnt ?
+		CLIENT_MEM_FROM_CONN(conn) : NULL;
 	TfwHttpMsg *hm;
 
 	hm = __tfw_http_msg_alloc(owner, type, true);
@@ -2902,11 +2904,11 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 		if (likely(hm->req->conn)) {
 			TfwClient *cli = (TfwClient *)hm->req->conn->peer;
 			TfwClientMem *cli_mem = cli->cli_mem;
+			int delta = PAGE_SIZE << hm->pool->order;
 
 			hm->pool->owner = cli_mem;
 			BUG_ON(!tfw_client_mem_get(cli_mem));
-			tfw_client_adjust_mem(cli_mem,
-					      PAGE_SIZE << hm->pool->order);
+			tfw_client_adjust_mem(cli_mem, delta);
 		}
 
 		if (TFW_MSG_H2(hm->req)) {
