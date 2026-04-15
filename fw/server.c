@@ -4,7 +4,7 @@
  * Servers handling.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -82,11 +82,20 @@ static DECLARE_RWSEM(sg_sem);
 void
 tfw_server_destroy(TfwServer *srv)
 {
+	WARN_ON(atomic_read(&srv->ctrl.recns_in_progress));
 	if (srv->cleanup)
 		srv->cleanup(srv);
 	/* Close all connections before freeing the server! */
+	BUG_ON(!list_empty(&srv->ctrl.recns_list));
+	BUG_ON(!list_empty(&srv->ctrl.failed_recns_list));
 	BUG_ON(!list_empty(&srv->conn_list));
 	BUG_ON(timer_pending(&srv->gs_timer));
+	/*
+	 * If timer is pending here, timer callback can be
+	 * called after server will be destroyed. This lead
+	 * to mempry corruption.
+	 */
+	BUG_ON(timer_pending(&srv->rc_timer));
 
 	tfw_apm_del_srv(srv);
 	if (srv->sg)
@@ -340,6 +349,13 @@ tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 	tfw_server_get(srv);
 	tfw_sg_get(sg);
 	srv->sg = sg;
+	timer_setup(&srv->rc_timer, tfw_sock_srv_connect_retry_timer_cb, 0);
+	INIT_LIST_HEAD(&srv->ctrl.recns_list);
+	INIT_LIST_HEAD(&srv->ctrl.failed_recns_list);
+	atomic_set(&srv->ctrl.recns_in_progress, 0);
+	srv->ctrl.recns_batch_idx = 0;
+	srv->ctrl.recns = 0;
+	spin_lock_init(&srv->ctrl.recns_lock);
 
 	T_DBG2("Add new backend server to group '%s'\n", sg->name);
 	down_write(&sg_sem);
