@@ -35,6 +35,7 @@
 #include "server.h"
 #include "procfs.h"
 #include "lib/fault_injection_alloc.h"
+#include "lib/sliding_window.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -113,31 +114,11 @@
 	T_WARN_MOD_ADDR(sock_srv, check, addr, TFW_WITH_PORT, fmt,	\
 			##__VA_ARGS__)
 /*
- * @ts		- timestamp of the bucket (e.g., last update time);
- * @count	- number of connections released within the current
- *		  bucket interval;
- */
-typedef struct {
-	u32 ts;
-	u32 count;
-} RecnsHistoryBucket;
-
-/*
- * @buckets	- Circular array of history buckets storing per-interval
- *		  data;
- * @total	- total number of released connections over the current
- *		  sliding time window (sum of all buckets);
- */
-typedef struct {
-	RecnsHistoryBucket buckets[FRANG_FREQ];
-	u64 total;
-} RecnsHistory;
-
-/*
  * Per-CPU storage of connection release history aggregated
  * across all servers.
  */
-static DEFINE_PER_CPU(RecnsHistory, recns_history);
+static DEFINE_PER_CPU(TfwSlidingWindow, recns_history);
+static unsigned int recns_history_window = 5;
 
 /*
  * Thresholds for connection release rate (e.g., per sliding time window),
@@ -220,21 +201,11 @@ tfw_srv_conn_total_recns_to_idx(unsigned int sum, unsigned int l1,
  * and maintains total reconnection count.
  */
 static inline void
-tfw_srv_update_total_recns_count(void)
+tfw_srv_inc_total_recns_count(void)
 {
-	const unsigned short ticks = HZ / FRANG_FREQ;
-	const unsigned long ts = jiffies / ticks;
-	unsigned int i = ts % FRANG_FREQ;
-	RecnsHistory *h = this_cpu_ptr(&recns_history);
+	TfwSlidingWindow *h = this_cpu_ptr(&recns_history);
 
-	if (h->buckets[i].ts != ts) {
-		h->total -= h->buckets[i].count;
-		h->buckets[i].count = 0;
-		h->buckets[i].ts = ts;
-	}
-
-	h->buckets[i].count++;
-	h->total++;
+	tfw_sliding_window_update(h, recns_history_window, 1);
 }
 
 static inline u64
@@ -244,8 +215,9 @@ tfw_srv_total_recns_count(void)
 	u64 sum = 0;
 
 	for_each_possible_cpu(cpu) {
-		RecnsHistory *h = per_cpu_ptr(&recns_history, cpu);
-		sum += h->total;
+		TfwSlidingWindow *h =
+			per_cpu_ptr(&recns_history, cpu);
+		sum += tfw_sliding_window_get_total(h, recns_history_window);
 	}
 
 	return sum;
@@ -304,7 +276,7 @@ tfw_srv_conn_mod_timer(TfwSrvConn *srv_conn)
 	if (WARN_ON(!list_empty(&srv_conn->in_recns_list)))
 		return;
 
-	tfw_srv_update_total_recns_count();
+	tfw_srv_inc_total_recns_count();
 
 	spin_lock_bh(&srv->ctrl.recns_lock);
 
