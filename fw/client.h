@@ -24,7 +24,7 @@
 #include "http_limits.h"
 #include "connection.h"
 
-typedef struct {
+typedef struct tfw_client_mem_t {
 	struct percpu_ref	refcnt;
 	struct work_struct	kill_work;
    	long __percpu		*mem;

@@ -76,10 +76,10 @@ tfw_http_msg_srvhdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 
 void tfw_http_msg_pair(TfwHttpResp *resp, TfwHttpReq *req);
 void tfw_http_msg_unpair(TfwHttpMsg *msg);
-TfwHttpMsg *__tfw_http_msg_alloc(void *owner, int type, bool full);
+TfwHttpMsg *__tfw_http_msg_alloc(TfwClientMem *owner, int type, bool full);
 
 static inline TfwHttpReq *
-tfw_http_msg_alloc_req_light(void *owner)
+tfw_http_msg_alloc_req_light(TfwClientMem *owner)
 {
 	return (TfwHttpReq *)__tfw_http_msg_alloc(owner, Conn_Clnt, false);
 }
