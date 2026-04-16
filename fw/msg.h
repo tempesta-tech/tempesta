@@ -4,7 +4,7 @@
  * Generic protocol message.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -97,29 +97,9 @@ typedef struct {
 	TfwStr		hdr;
 } TfwMsgParseIter;
 
-int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
-int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,
-		       size_t data_len);
-int tfw_msg_iter_append_skb(TfwMsgIter *it);
-int tfw_http_iter_set_at(TfwMsgIter *it, char *off);
+int tfw_msg_iter_write(TfwMsgIter *it, const TfwStr *data);
+int tfw_msg_iter_setup(TfwMsgIter *it, TfwClientMem *owner,
+		       struct sk_buff **skb_head, size_t data_len);
 int tfw_msg_iter_move(TfwMsgIter *it, unsigned char **data, unsigned long sz);
-
-static inline int
-tfw_msg_iter_next_data_frag(TfwMsgIter *it)
-{
-	if (skb_shinfo(it->skb)->nr_frags > it->frag + 1) {
-		++it->frag;
-		return 0;
-	}
-
-	it->skb = it->skb->next;
-	if (it->skb == it->skb_head || !skb_shinfo(it->skb)->nr_frags) {
-		it->frag = MAX_SKB_FRAGS;
-		return -EINVAL;
-	}
-	it->frag = -1;
-
-	return 0;
-}
 
 #endif /* __TFW_MSG_H__ */

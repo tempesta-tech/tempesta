@@ -1,7 +1,7 @@
 /**
  *		TCP Socket API.
  *
- * Copyright (C) 2015-2023 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -43,12 +43,6 @@ tfw_tcp_calc_snd_wnd(struct sock *sk, unsigned int mss_now)
 	unsigned int in_flight = tcp_packets_in_flight(tp);
 	unsigned int qlen =  skb_queue_len(&sk->sk_write_queue);
 	unsigned int send_win, cong_win;
-
-	/*
-	 * Update snd_cwnd if nedeed, to correct caclulation
-	 * of count of bytes to send.
-	 */
-	tcp_slow_start_after_idle_check(sk);
 
 	if (in_flight + qlen >= tp->snd_cwnd)
 		return 0;

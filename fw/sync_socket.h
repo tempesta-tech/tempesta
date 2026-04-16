@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -65,7 +65,7 @@ enum {
 	 * Connection is in special state: it socket is DEAD
 	 * and wait until ACK to our FIN is come.
 	 */
-	Conn_Closing		= (0x3 << __Flag_Bits),
+	Conn_Closing		= (0x4 << __Flag_Bits),
 };
 
 typedef struct tfw_conn_t TfwConn;
@@ -91,7 +91,7 @@ typedef struct ss_hooks {
 	int (*connection_recv)(TfwConn *conn, struct sk_buff *skb);
 
 	/* Callback to make some job after processing received data. */
-	void (*connection_recv_finish)(TfwConn *conn);
+	int (*connection_recv_finish)(TfwConn *conn);
 
 	/* Callback to make some job on connection shutdown. */
 	void (*connection_on_shutdown)(TfwConn *conn);
@@ -193,8 +193,9 @@ void ss_stop(void);
 bool ss_active(void);
 void ss_get_stat(SsStat *stat);
 void ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
-		       unsigned char tls_type);
-int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head);
+		      unsigned char tls_type);
+int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
+			   unsigned int mss_now, unsigned long *snd_wnd);
 
 /*
  * We should all linux kernel functions like `tcp_push` or

@@ -35,7 +35,6 @@
 #include "server.h"
 #include "sync_socket.h"
 #include "tls.h"
-#include "tcp.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -49,6 +48,8 @@ static struct kmem_cache *tfw_h2_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
 unsigned int tfw_cli_max_concurrent_streams;
+u64 tfw_cli_soft_mem_limit;
+u64 tfw_cli_hard_mem_limit;
 
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
@@ -84,7 +85,7 @@ tfw_sock_cli_keepalive_timer_cb(struct timer_list *t)
 
 	T_DBG("Client timeout end\n");
 
-	if (TFW_CONN_TYPE(conn) & Conn_Closing) {
+	if (TFW_CONN_TYPE(conn) & Conn_Shutdown) {
 		/*
 		 * If socket was shut down it is in TCP_FIN_WAIT1 or
 		 * TCP_FIN_WAIT2 state depends on receiving ack from
@@ -110,6 +111,7 @@ tfw_cli_conn_alloc(int type)
 		return NULL;
 
 	tfw_connection_init((TfwConn *)cli_conn);
+	cli_conn->write_queue = NULL;
 	INIT_LIST_HEAD(&cli_conn->seq_queue);
 	spin_lock_init(&cli_conn->seq_qlock);
 	spin_lock_init(&cli_conn->ret_qlock);
@@ -147,6 +149,7 @@ tfw_cli_conn_free(TfwCliConn *cli_conn)
 void
 tfw_cli_conn_release(TfwCliConn *cli_conn)
 {
+	ss_skb_queue_purge(&cli_conn->write_queue);
 	/* Paired with @frang_conn_new client obtain. */
 	if (likely(cli_conn->sk))
 		tfw_connection_unlink_to_sk((TfwConn *)cli_conn);
@@ -194,40 +197,9 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 }
 
 static int
-tfw_sk_fill_write_queue(struct sock *sk, unsigned int mss_now)
+tfw_sock_clnt_fill_write_queue(struct sock *sk, unsigned int mss_now)
 {
-	TfwConn *conn = sk->sk_user_data;
-	TfwH2Ctx *h2;
-	int r;
-
-	assert_spin_locked(&sk->sk_lock.slock);
-	/*
-	 * This function is called under the socket lock, same as dropping a
-	 * connection. Moreover this function is never called when socket
-	 * state is TCP_CLOSE. When client closes the connection, we drop it
-	 * from tcp_done() -> ss_conn_drop_guard_exit(), and socket state is
-	 * set to TCP_CLOSE, so this function will never be called after it.
-         */
-	BUG_ON(!conn);
-
-	/*
-	 * This function can be called both for HTTP1 and HTTP2 connections.
-	 * Moreover this function can be called when HTTP2 connection is
-	 * shut down before TLS hadshake was finished.
-	 */
-	h2 = TFW_CONN_PROTO(conn) == TFW_FSM_H2 ?
-		tfw_h2_context_safe(conn) : NULL;
-	if (!h2)
-		return 0;
-
-	r = tfw_h2_make_frames(sk, h2, mss_now);
-	if (unlikely(r < 0))
-		return r;
-
-	if (!tfw_h2_is_ready_to_send(h2))
-		sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);
-
-	return r;
+	return tfw_connection_fill_sk_write_queue(sk->sk_user_data, mss_now);
 }
 
 /**
@@ -289,8 +261,8 @@ tfw_sock_clnt_new(struct sock *sk)
 		 * find a simple and better solution.
 		 */
 		sk->sk_write_xmit = tfw_tls_encrypt;
-		sk->sk_fill_write_queue = tfw_sk_fill_write_queue;
 	}
+	sk->sk_fill_write_queue = tfw_sock_clnt_fill_write_queue;
 
 	/* Activate keepalive timer. */
 	mod_timer(&conn->timer,
@@ -387,6 +359,7 @@ static const SsHooks tfw_sock_http_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
 	.connection_recv	= tfw_connection_recv,
+	.connection_recv_finish = tfw_connection_recv_finish,
 	.connection_on_shutdown	= tfw_cli_conn_on_shutdown,
 };
 
@@ -724,6 +697,57 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static int
+tfw_parse_client_mem(const char *val, unsigned long long *mem)
+{
+	size_t len = strlen(val);
+	char *p;
+
+	*mem = memparse(val, &p);
+	if (p != val + len)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int
+tfw_cfgop_client_mem(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+
+	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
+	TFW_CFG_CHECK_VAL_N(>=, 1, cs, ce);
+	TFW_CFG_CHECK_VAL_N(<, 3, cs, ce);
+
+	r = tfw_parse_client_mem(ce->vals[0], &tfw_cli_soft_mem_limit);
+	if (unlikely(r)) {
+		T_ERR_NL("Invalid 'client_mem' value: '%s'",
+			 ce->vals[0]);
+		return r;
+	}
+
+	if (ce->val_n > 1) {
+		r = tfw_parse_client_mem(ce->vals[1], &tfw_cli_hard_mem_limit);
+		if (unlikely(r)) {
+			T_ERR_NL("Invalid 'client_mem' value: '%s'",
+				 ce->vals[1]);
+			return r;
+		}
+	} else {
+		tfw_cli_hard_mem_limit = (tfw_cli_soft_mem_limit < U64_MAX / 2) ?
+			tfw_cli_soft_mem_limit * 2 : U64_MAX;
+	}
+
+	if (tfw_cli_hard_mem_limit < tfw_cli_soft_mem_limit) {
+		T_ERR_NL("Invalid 'client_mem' value: hard limit (%llu) is"
+			 " less then soft (%llu)", tfw_cli_hard_mem_limit,
+			 tfw_cli_soft_mem_limit);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static void
 tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 {
@@ -961,6 +985,15 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 1, 65536 },
 		},
+		.cleanup = tfw_cfgop_cleanup_sock_clnt,
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "client_mem",
+		.deflt = "0 0",
+		.handler = tfw_cfgop_client_mem,
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
 		.allow_none = true,
 		.allow_repeat = false,

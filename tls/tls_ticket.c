@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,6 +30,7 @@
 #include "tls_ticket.h"
 #include "tls_internal.h"
 #include "lib/common.h"
+#include "lib/fault_injection_alloc.h"
 
 ttls_cli_id_t *ttls_cli_id_cb;
 
@@ -583,7 +584,8 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 		 * address it.
 		 */
 		sess->peer_cert->raw.order = get_order(state->cert_len + TTLS_CERT_LEN_LEN);
-		pg = __get_free_pages(GFP_ATOMIC | __GFP_COMP, sess->peer_cert->raw.order);
+		pg = tfw__get_free_pages(GFP_ATOMIC | __GFP_COMP,
+					 sess->peer_cert->raw.order);
 		if (!pg) {
 			ttls_x509_crt_destroy(&sess->peer_cert);
 			return TTLS_ERR_ALLOC_FAILED;

@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -220,6 +220,7 @@ void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle);
 void tfw_h2_stream_purge_send_queue(TfwStream *stream);
 void tfw_h2_stream_purge_all_and_free_response(TfwStream *stream);
+void tfw_h2_stream_skb_destructor(struct sk_buff *skb);
 
 static inline TfwStreamState
 tfw_h2_get_stream_state(TfwStream *stream)

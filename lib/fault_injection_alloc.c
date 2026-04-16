@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -70,5 +70,30 @@ tfw__alloc_percpu(size_t size, size_t align)
 }
 ALLOW_ERROR_INJECTION(tfw__alloc_percpu, NULL);
 EXPORT_SYMBOL(tfw__alloc_percpu);
+
+void *
+tfw__alloc_percpu_gfp(size_t size, size_t align, gfp_t gfp)
+{
+	return __alloc_percpu_gfp(size, align, gfp);
+}
+ALLOW_ERROR_INJECTION(tfw__alloc_percpu_gfp, NULL);
+EXPORT_SYMBOL(tfw__alloc_percpu_gfp);
+
+unsigned long
+tfw__get_free_pages(gfp_t gfp_mask, unsigned int order)
+{
+	return __get_free_pages(gfp_mask, order);
+}
+ALLOW_ERROR_INJECTION(tfw__get_free_pages, NULL);
+EXPORT_SYMBOL(tfw__get_free_pages);
+
+int 
+tfw_percpu_ref_init(struct percpu_ref *ref, percpu_ref_func_t *release,
+		    unsigned int flags, gfp_t gfp)
+{
+	return percpu_ref_init(ref, release, flags, gfp);
+}
+ALLOW_ERROR_INJECTION(tfw_percpu_ref_init, ERRNO);
+EXPORT_SYMBOL(tfw_percpu_ref_init);
 
 #endif

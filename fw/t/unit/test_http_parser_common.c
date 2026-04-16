@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -391,7 +391,7 @@ complete:
 	 * See comments for @do_split_and_parse()/__TRY_PARSE_EXPECT_*
 	 */
 	*fchunks = chunks;
-	return r <= T_BAD || r == T_OK ? r : T_BAD;
+	return (r == T_OK || is_tfw_error_code(r)) ? r : T_BAD;
 }
 
 /**
@@ -424,6 +424,8 @@ test_case_alloc_h2(void)
 {
 	conn.h2 = tfw_h2_context_alloc();
 	BUG_ON(!conn.h2);
+	((TfwConn *)&conn)->peer = (TfwPeer *)&client;
+	((TfwConn *)&conn)->proto.type = Conn_H2Clnt;
 }
 
 void
@@ -431,6 +433,7 @@ test_case_cleanup_h2(void)
 {
 	BUG_ON(!conn.h2);
 
+	tfw_h2_context_clear(conn.h2);
 	tfw_h2_context_free(conn.h2);
 	conn.h2 = NULL;
 }
@@ -494,6 +497,7 @@ do_split_and_parse(int type, int chunk_mode)
 
 		req = test_req_alloc(frames_total_sz);
 	} else if (type == FUZZ_REQ_H2) {
+		TfwHttpMsg *hmreq;
 		/*
 		 * During the processing of a request, the HPACK dynamic table
 		 * is modified. The same query is used for each chunk size.
@@ -520,15 +524,16 @@ do_split_and_parse(int type, int chunk_mode)
 		req->stream = &stream;
 		tfw_http_init_parser_req(req);
 		stream.msg = (TfwMsg*)req;
-		req->pit.pool = __tfw_pool_new(0);
+		hmreq = (TfwHttpMsg *)req;
+		req->pit.pool =
+			__tfw_pool_new(0, tfw_http_msg_client_mem(hmreq));
 		BUG_ON(!req->pit.pool);
 		__set_bit(TFW_HTTP_B_H2, req->flags);
 	} else if (type == FUZZ_RESP) {
 		if (resp)
 			test_resp_free(resp);
 
-		resp = test_resp_alloc(frames_total_sz);
-		tfw_http_msg_pair(resp, sample_req);
+		resp = test_resp_alloc(frames_total_sz, sample_req);
 	} else {
 		BUG();
 	}
@@ -687,4 +692,23 @@ get_next_str_val(TfwStr *str)
 	v.nchunks = nchunks;
 
 	return v;
+}
+
+void
+test_req_resp_cleanup(void)
+{
+	if (sample_req) {
+		test_req_free(sample_req);
+		sample_req = NULL;
+	}
+
+	if (req) {
+		test_req_free(req);
+		req = NULL;
+	}
+
+	if (resp) {
+		test_resp_free(resp);
+		resp = NULL;
+	}
 }

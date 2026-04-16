@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -299,7 +299,8 @@ typedef struct {
 
 void write_int(unsigned long index, unsigned short max, unsigned short mask,
 	       TfwHPackInt *__restrict res_idx);
-int tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz);
+int tfw_hpack_init(TfwHPack *__restrict hp, TfwClientMem *owner,
+		   unsigned int htbl_sz);
 void tfw_hpack_clean(TfwHPack *__restrict hp);
 int tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr);
 int tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,

@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,9 +28,15 @@
 #define tfw_kzalloc(size, flags)		kzalloc(size, flags)
 #define	tfw_kcalloc(n, size, flags)		kcalloc(n, size, flags)
 #define tfw_kmalloc_node(size, flags, node)	kmalloc_node(size, flags, node)
-#define tfw_kvmalloc_node(size, flags, node)	kvmalloc_node(size, flags, node)
+#define tfw_kvmalloc_node(size, flags, node)	\
+	kvmalloc_node(size, flags, node)
 #define tfw__alloc_percpu(size, align)		__alloc_percpu(size, align)
 #define tfw_alloc_percpu(t)			alloc_percpu(t)
+#define tfw_alloc_percpu_gfp(t, gfp)		alloc_percpu_gfp(t, gfp)
+#define tfw__get_free_pages(gfp_mask, order)	\
+	__get_free_pages(gfp_mask, order)
+#define tfw_percpu_ref_init(ref, release, flags, gfp)	\
+	percpu_ref_init(ref, release, flags, gfp)
 
 #else
 
@@ -40,8 +46,17 @@ void *tfw_kcalloc(size_t n, size_t size, gfp_t flags);
 void *tfw_kmalloc_node(size_t size, gfp_t flags, int node);
 void *tfw_kvmalloc_node(size_t size, gfp_t flags, int node);
 void *tfw__alloc_percpu(size_t size, size_t align);
+void *tfw__alloc_percpu_gfp(size_t size, size_t align, gfp_t gfp);
+int __must_check tfw_percpu_ref_init(struct percpu_ref *ref,
+				     percpu_ref_func_t *release,
+				     unsigned int flags,
+				     gfp_t gfp);
+unsigned long tfw__get_free_pages(gfp_t gfp_mask, unsigned int order);
 #define tfw_alloc_percpu(t)					\
 	(typeof(t) __percpu *) tfw__alloc_percpu(sizeof(t), __alignof__(t))
+#define tfw_alloc_percpu_gfp(t, gfp)				\
+	(typeof(t) __percpu *) tfw__alloc_percpu_gfp(sizeof(t),	\
+						     __alignof__(t), gfp)
 
 #endif
 

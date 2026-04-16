@@ -3,7 +3,7 @@
  *
  * Synchronous Sockets API for Linux socket buffers manipulation.
  *
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -26,34 +26,11 @@
 #include <net/tcp.h>
 
 #include "str.h"
-#include "lib/log.h"
-
-/**
- * Responses from socket hook functions.
- */
-enum {
-	/* Generic socket error. */
-	SS_BAD		  = T_BAD,
-	/* The packet must be dropped, but connection should be alive. */
-	SS_DROP		  = T_DROP,
-	/*
-	 * The packet must be blocked with TCP FIN (typically on a
-	 * security event, when we reply to client).
-	 */
-	SS_BLOCK_WITH_FIN = T_BLOCK_WITH_FIN,
-	/*
-	 * The packet must be blocked with TCP RST (typically on a
-	 * security event).
-	 */
-	SS_BLOCK_WITH_RST = T_BLOCK_WITH_RST,
-	/* The packet should be stashed (made by callback). */
-	SS_POSTPONE	  = T_POSTPONE,
-	/* The packet looks good and we can safely pass it. */
-	SS_OK		  = T_OK,
-};
 
 typedef int (*on_send_cb_t)(void *conn, struct sk_buff **skb_head);
 typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
+typedef void (*on_send_fail_cb_t)(void *conn, struct sk_buff *skb_head);
+typedef struct tfw_client_mem_t TfwClientMem;
 
 /*
  * Tempesta FW sk_buff private data.
@@ -63,19 +40,30 @@ typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
  * @on_send		- callback to special handling this skb before sending;
  * @on_tcp_entail 	- callback to special handling this skb before pushing
  *                        to socket write queue;
+ * @mem			- memory used for this skb, used to account appropriate
+ *			  client memory;
  * @stream_id		- id of sender stream;
+ * @tls_type		- tls type of current skb, if it's data should be
+ *			  encrypted;
  * @is_head		- flag indicates that this is a head of skb list;
  */
 struct tfw_skb_cb {
 	void 		*opaque_data;
-	void 		(*destructor)(void *opaque_data);
+	void 		(*destructor)(struct sk_buff *);
 	on_send_cb_t	on_send;
 	on_tcp_entail_t on_tcp_entail;
+	long int	mem;
 	unsigned int 	stream_id;
 	bool		is_head;
 };
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
+
+void ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
+		      TfwClientMem *owner, unsigned int delta);
+void ss_skb_adjust_client_mem(struct sk_buff *skb, int delta);
+void ss_skb_dflt_destructor(struct sk_buff *skb);
+void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
 
 static inline bool
 ss_skb_is_within_fragment(char *begin_fragment, char *position,
@@ -88,33 +76,13 @@ static inline void
 ss_skb_setup_head_of_list(struct sk_buff *skb_head, unsigned int mark,
 			  unsigned char tls_type)
 {
+	BUILD_BUG_ON(sizeof(struct tfw_skb_cb) >
+		     sizeof(((struct sk_buff *)(0))->cb));
+
 	if (tls_type)
 		skb_set_tfw_tls_type(skb_head, tls_type);
 	skb_head->mark = mark;
 	TFW_SKB_CB(skb_head)->is_head = true;
-}
-
-static inline void
-ss_skb_setup_opaque_data(struct sk_buff *skb_head, void *opaque_data,
-			 void (*destructor)(void *))
-{
-	TFW_SKB_CB(skb_head)->opaque_data = opaque_data;
-	TFW_SKB_CB(skb_head)->destructor = destructor;
-}
-
-static inline void
-ss_skb_destroy_opaque_data(struct sk_buff *skb_head)
-{
-	void *opaque_data = TFW_SKB_CB(skb_head)->opaque_data;
-	void (*destructor)(void *) = TFW_SKB_CB(skb_head)->destructor;
-
-	BUILD_BUG_ON(sizeof(struct tfw_skb_cb) >
-		     sizeof(((struct sk_buff *)(0))->cb));
-
-	if (opaque_data) {
-		BUG_ON(!destructor);
-		destructor(opaque_data);
-	}
 }
 
 static inline int
@@ -125,6 +93,8 @@ ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 
 	if (on_send)
 		r = on_send(conn, skb_head);
+	if (!r && *skb_head)
+		ss_skb_on_send_dflt(conn, skb_head);
 
 	return r;
 }
@@ -196,6 +166,43 @@ ss_skb_queue_splice(struct sk_buff **skb_head, struct sk_buff **skb)
 	(*skb)->prev = tail;
 
 	*skb = NULL;
+}
+
+static inline void
+ss_skb_orphan(struct sk_buff *skb)
+{
+	void (*destructor)(struct sk_buff *);
+
+	if (skb_tfw_is_in_socket_write_queue(skb))
+		return;
+
+	destructor = TFW_SKB_CB(skb)->destructor;
+	if (destructor) {
+		BUG_ON(!TFW_SKB_CB(skb)->opaque_data);
+		destructor(skb);
+		TFW_SKB_CB(skb)->destructor = NULL;
+		TFW_SKB_CB(skb)->opaque_data = NULL;
+	} else {
+		BUG_ON(TFW_SKB_CB(skb)->opaque_data);
+	}
+}
+
+static inline void
+__ss_kfree_skb(struct sk_buff *skb)
+{
+	if (!skb)
+		return;
+	ss_skb_orphan(skb);
+	__kfree_skb(skb);
+}
+
+static inline void
+ss_kfree_skb(struct sk_buff *skb)
+{
+	if (!skb)
+		return;
+	ss_skb_orphan(skb);
+	kfree_skb(skb);
 }
 
 static inline void
@@ -307,7 +314,7 @@ ss_skb_queue_purge(struct sk_buff **skb_head)
 {
 	struct sk_buff *skb;
 	while ((skb = ss_skb_dequeue(skb_head)) != NULL)
-		kfree_skb(skb);
+		ss_kfree_skb(skb);
 }
 
 static inline void
@@ -316,6 +323,7 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 	skb->len += delta;
 	skb->data_len += delta;
 	skb->truesize += delta;
+	ss_skb_adjust_client_mem(skb, delta);
 }
 
 /*
@@ -359,6 +367,7 @@ ss_skb_alloc(size_t n)
 	if (!skb)
 		return NULL;
 	skb_reserve(skb, MAX_TCP_HEADER);
+	memset(skb->cb, 0, sizeof(skb->cb));
 
 	return skb;
 }
@@ -448,17 +457,18 @@ ss_skb_data_ptr_by_offset(struct sk_buff *skb, unsigned int off)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
-int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len);
+int ss_skb_alloc_data(struct sk_buff **skb_head, TfwClientMem *owner,
+		      size_t len);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
 int ss_skb_get_room_w_frag(struct sk_buff *skb_head, struct sk_buff *skb,
-			   char *pspt, unsigned int len, TfwStr *it, int *fragn);
+			   char *pspt, unsigned int len, TfwStr *it,
+			   int *fragn);
 int ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			    size_t head, size_t tail);
 int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			  size_t head, size_t tail);
-int
-ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
-			   size_t head, size_t trail);
+int ss_skb_list_chop_head_tail(struct sk_buff **skb_list_head,
+			       size_t head, size_t trail);
 int ss_skb_cutoff_data(struct sk_buff *skb_head, TfwStr *hdr,
 		       int skip, int tail);
 int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
@@ -473,9 +483,8 @@ int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 				   struct page ***old_pages);
 int ss_skb_add_frag(struct sk_buff *skb_head, struct sk_buff **skb, char* addr,
 		    int *frag_idx, size_t frag_sz);
-int
-ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
-			unsigned char *split_point);
+int ss_skb_linear_transform(struct sk_buff *skb_head, struct sk_buff *skb,
+			    unsigned char *split_point);
 int ss_skb_realloc_headroom(struct sk_buff *skb);
 
 #if defined(DEBUG) && (DEBUG >= 4)

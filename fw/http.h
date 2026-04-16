@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -588,6 +588,25 @@ void tfw_http_exit(void);
 			  T_WARN("%s, status %d: %s\n",			\
 				 msg, status, addr_str))
 
+static inline bool
+tfw_http_msg_is_req(TfwHttpMsg *msg)
+{
+	/*
+	 * msg->conn can be equal to zero only for response
+	 * which is served from cache or error response.
+	 */
+	return msg->conn && TFW_CONN_TYPE(msg->conn) & Conn_Clnt;
+}
+
+static inline TfwClientMem *
+tfw_http_msg_client_mem(TfwHttpMsg *msg)
+{
+	TfwCliConn *conn = (TfwCliConn *)(tfw_http_msg_is_req(msg) ?
+		msg->conn : msg->pair->conn);
+
+	return ((TfwClient *)conn->peer)->cli_mem;
+}
+
 static inline int
 tfw_http_resp_code_range(const int n)
 {
@@ -777,7 +796,7 @@ int tfw_h2_resp_encode_headers(TfwHttpResp *resp);
 int tfw_http_prep_redir(TfwHttpResp *resp, unsigned short status,
 			TfwStr *cookie, TfwStr *body);
 int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
-		      TfwMsgIter *it);
+		      TfwHttpMsg *hm);
 void tfw_http_conn_msg_free(TfwHttpMsg *hm);
 void tfw_http_resp_pair_free_and_put_conn(void *opaque_data);
 void tfw_http_send_err_resp(TfwHttpReq *req, int status, const char *reason);
@@ -795,6 +814,6 @@ int tfw_http_resp_copy_encodings(TfwHttpResp *resp, TfwStr* dst,
 void tfw_http_extract_request_authority(TfwHttpReq *req);
 bool tfw_http_mark_is_in_whitlist(unsigned int mark);
 char *tfw_http_resp_status_line(int status, size_t *len);
-int tfw_http_on_send_resp(void *conn, struct sk_buff **skb_head);
+int tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head);
 
 #endif /* __TFW_HTTP_H__ */

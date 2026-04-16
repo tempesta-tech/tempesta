@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -96,9 +96,14 @@ http_match_suite_rule_release(TfwHttpMatchRule *rule)
 static void
 http_match_suite_setup(void)
 {
-	test_req = test_req_alloc(1);
+	TfwHttpMsg *hm;
 
-	test_table = tfw_pool_new(TfwHttpTable, TFW_POOL_ZERO);
+	test_req = test_req_alloc(1);
+	hm = (TfwHttpMsg *)test_req;
+
+	test_table = tfw_pool_new(TfwHttpTable,
+				  tfw_http_msg_client_mem(hm),
+				  TFW_POOL_ZERO);
 	BUG_ON(!test_table);
 	INIT_LIST_HEAD(&test_table->head);
 

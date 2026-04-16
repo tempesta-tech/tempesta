@@ -19,7 +19,7 @@
  * implicitly for MPI math. Dynamically allocated pages are used instead of
  * static per-cpu ones.
  *
- * Copyright (C) 2019-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,6 +45,7 @@
 #include "dhm.h"
 #include "ecp.h"
 #include "mpool.h"
+#include "lib/fault_injection_alloc.h"
 
 #define MPI_POOL_DATA(mp)	((void *)((char *)(mp) + sizeof(TlsMpiPool)))
 #define MPI_POOL_FREE_PTR(mp)	((void *)((char *)(mp) + (mp)->curr))
@@ -208,7 +209,7 @@ ttls_mpi_pool_create(size_t order, gfp_t gfp_mask)
 	TlsMpiPool *mp;
 	unsigned long addr;
 
-	if (!(addr = __get_free_pages(gfp_mask | __GFP_ZERO, order)))
+	if (!(addr = tfw__get_free_pages(gfp_mask | __GFP_ZERO, order)))
 		return NULL;
 	WARN_ON_ONCE(addr & ((PAGE_SIZE << order) - 1));
 
@@ -336,7 +337,7 @@ __mpi_profile_clone(TlsCtx *tls, int ec)
 		return -ENOMEM;
 	}
 
-	ptr = (char *)__get_free_pages(GFP_ATOMIC, __MPOOL_HS_ORDER);
+	ptr = (char *)tfw__get_free_pages(GFP_ATOMIC, __MPOOL_HS_ORDER);
 	if (unlikely(!ptr))
 		return -ENOMEM;
 
@@ -399,8 +400,11 @@ ttls_mpool_exit(void)
 
 	for_each_online_cpu(i) {
 		mp = per_cpu(g_tmp_mpool, i);
-		ttls_bzero_safe(MPI_POOL_DATA(mp), mp->curr - sizeof(*mp));
-		free_pages((unsigned long)mp, mp->order);
+		if (mp) {
+			ttls_bzero_safe(MPI_POOL_DATA(mp),
+					mp->curr - sizeof(*mp));
+			free_pages((unsigned long)mp, mp->order);
+		}
 	}
 }
 

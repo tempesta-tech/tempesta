@@ -4,7 +4,7 @@
  * Interface to classification modules.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1670,6 +1670,35 @@ frang_http_hdr_limit(TfwHttpReq *req, unsigned int new_hdr_len)
 	return r;
 
 }
+
+int
+frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
+{
+	TfwClient *cli = (TfwClient *)conn->peer;
+
+	if (tfw_cli_hard_mem_limit
+	    && tfw_client_mem(cli) > tfw_cli_hard_mem_limit)
+	{
+		if (block_if_exceeded) {
+			TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+
+			if (WARN_ON_ONCE(!dflt_vh))
+				return T_BLOCK;
+
+			if (dflt_vh->frang_gconf->ip_block) {
+				unsigned int duration =
+					dflt_vh->frang_gconf->ip_block_duration;
+
+				tfw_filter_block_ip(cli, duration);
+			}
+			tfw_vhost_put(dflt_vh);
+		}
+		return T_BLOCK;
+	}
+
+	return 0;
+}
+
 
 static int
 frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn,

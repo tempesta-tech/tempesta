@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -202,6 +202,12 @@ static inline bool
 tfw_h2_is_ready_to_send(TfwH2Ctx *ctx)
 {
 	return ctx->sched.root.active_cnt && ctx->rem_wnd;
+}
+
+static inline bool
+tfw_h2_conn_or_stream_wnd_is_exceeded(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	return ctx->rem_wnd <= 0 || stream->rem_wnd <= 0;
 }
 
 #endif /* __HTTP2__ */

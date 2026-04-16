@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -41,6 +41,7 @@
 #include "tempesta_fw.h"
 #include "work_queue.h"
 #include "http_limits.h"
+#include "tcp.h"
 
 typedef struct {
 	struct sock	*sk;
@@ -170,7 +171,7 @@ ss_sk_incoming_cpu_update(struct sock *sk)
  * to shutdown. The only exception is closing activity - this is the only
  * activity allowed in progress of shutdown process.
  *
- * Returns zero (SS_OK) if we're in critical section and SS_BAD if shutdown
+ * Returns zero (T_OK) if we're in critical section and T_BAD if shutdown
  * process in progress and we can't enter the section.
  */
 static int
@@ -183,7 +184,7 @@ ss_active_guard_enter(unsigned long val)
 	 * if we commited to shutdown.
 	 */
 	if (unlikely(!READ_ONCE(__ss_active)))
-		return SS_BAD;
+		return T_BAD;
 
 	atomic64_add(val, acnt);
 
@@ -194,10 +195,10 @@ ss_active_guard_enter(unsigned long val)
 	 */
 	if (unlikely(!READ_ONCE(__ss_active))) {
 		atomic64_sub(val, acnt);
-		return SS_BAD;
+		return T_BAD;
 	}
 
-	return SS_OK;
+	return T_OK;
 }
 ALLOW_ERROR_INJECTION(ss_active_guard_enter, ERRNO);
 
@@ -224,7 +225,7 @@ ss_conn_drop_guard_exit(struct sock *sk)
 	if (!sk->sk_user_data)
 		return;
 
-	SS_CONN_TYPE(sk) &= ~Conn_Closing;
+	SS_CONN_TYPE(sk) &= ~(Conn_Closing | Conn_Shutdown | Conn_Stop);
 	SS_CALL(connection_drop, sk);
 	ss_active_guard_exit(SS_V_ACT_LIVECONN);
 }
@@ -425,7 +426,7 @@ ss_skb_try_collapse(struct sock *sk, struct sk_buff *skb,
 	int delta, size, mss;
 	u32 max_segs;
 	bool stolen;
-
+	
 	if (!tail)
 		return false;
 
@@ -454,6 +455,7 @@ ss_skb_try_collapse(struct sock *sk, struct sk_buff *skb,
 	tp->write_seq += skb->len;
 	sk_wmem_queued_add(sk, delta);
 	sk_mem_charge(sk, delta);
+	ss_skb_orphan(skb);
 	kfree_skb_partial(skb, stolen);
 
 	return true;
@@ -476,6 +478,7 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 		skb->mark = mark;
 		if (tls_type)
 			skb_set_tfw_tls_type(skb, tls_type);
+		skb_tfw_set_in_socket_write_queue(skb);
 		ss_forced_mem_schedule(sk, skb->truesize);
 		tcp_skb_entail(sk, skb);
 		tp->write_seq += skb->len;
@@ -484,16 +487,19 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 }
 
 int
-ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
+ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
+		       unsigned int mss_now, unsigned long *snd_wnd)
 {
-	struct sk_buff *skb, *tail, *next, *to_destroy;
+	struct sk_buff *tail, *next, *to_destroy;
 	unsigned char tls_type = 0;
 	unsigned int mark = 0;
-	void *opaque_data = NULL;
-	void (*destructor)(void *) = NULL;
 	int r;
 
-	while ((skb = ss_skb_dequeue(skb_head))) {
+	while ((*snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now))) {
+		struct sk_buff *skb = ss_skb_dequeue(skb_head);
+		
+		if (!skb)
+			break;
 		/*
 		 * @skb_head can be the head of several different skb
 		 * lists. We set tls type for the head of each new
@@ -504,8 +510,6 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 		if (TFW_SKB_CB(skb)->is_head) {
 			tls_type = skb_tfw_tls_type(skb);
 			mark = skb->mark;
-			opaque_data = TFW_SKB_CB(skb)->opaque_data;
-			destructor = TFW_SKB_CB(skb)->destructor;
 			tail = tcp_write_queue_tail(sk);
 		}
 		/*
@@ -517,7 +521,7 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 			T_DBG3("[%d]: %s: drop skb=%pK data_len=%u len=%u\n",
 			       smp_processor_id(), __func__,
 			       skb, skb->data_len, skb->len);
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 			continue;
 		}
 
@@ -530,6 +534,9 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head)
 		ss_skb_tcp_entail(sk, skb, mark, tls_type);
 	}
 
+	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head)
+		ss_skb_setup_head_of_list(*skb_head, mark, tls_type);
+
 	return 0;
 
 restore_sk_write_queue:
@@ -540,8 +547,10 @@ restore_sk_write_queue:
 			tcp_wmem_free_skb(sk, to_destroy);
 		}
 	}
-	ss_skb_setup_opaque_data(*skb_head, opaque_data, destructor);
-	return r;
+	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head)
+		ss_skb_setup_head_of_list(*skb_head, mark, tls_type);
+
+	return r;	
 }
 
 /**
@@ -550,16 +559,15 @@ restore_sk_write_queue:
 static void
 ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 {
-	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	void *conn = sk->sk_user_data;
 	unsigned char tls_type = flags & SS_F_ENCRYPT ?
 		SS_SKB_F2TYPE(flags) : 0;
 
 	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
-	       " sk_state=%d mss=%d size=%d\n",
+	       " sk_state=%d\n",
 	       smp_processor_id(), __func__,
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
-	       sk->sk_state, mss, size);
+	       sk->sk_state);
 
 	/* If the socket is inactive, there's no recourse. Drop the data. */
 	if (unlikely(!conn || !ss_sock_active(sk)))
@@ -570,50 +578,30 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	if (ss_skb_on_send(conn, skb_head))
 		goto cleanup;
 
-	/*
-	 * If skbs were pushed to scheuler tree, @skb_head is
-	 * empty and `ss_skb_tcp_entail_list` doesn't make
-	 * any job.
-	 */
-	if (ss_skb_tcp_entail_list(sk, skb_head)) {
-		ss_linkerror(sk, SS_F_ABORT);
-		goto cleanup;
-	}
-
-	T_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
-	       smp_processor_id(), __func__,
-	       sk, tcp_send_head(sk), sk->sk_state, flags);
-
-	/*
-	 * If connection close flag is specified, then @ss_do_close is used to
-	 * set FIN on final SKB and push all pending frames to the stack.
-	 */
 	if (flags & SS_F_CONN_CLOSE)
 		return;
 
 	/*
 	 * We set SOCK_TEMPESTA_HAS_DATA when we add some skb in our
-	 * scheduler tree.
-	 * So there are two cases here:
-	 * - packets out is equal to zero and sock flag is set,
-	 *   this means that we should call `tcp_push_pending_frames`.
-	 *   In this function our scheduler choose the most priority
-	 *   stream, make frames for this stream and push them to the
-	 *   socket write queue.
-	 * - socket flag is not set, this means that we push skb directly
-	 *   to the socket write queue so we call `tcp_push` and don't
-	 *   run scheduler.
-	 * If packets_out is not equal to zero `tcp_push_pending_frames`
-	 * will be called later from `tcp_data_snd_check` when we receive
-	 * ack from the peer.
+	 * scheduler tree or connection write queue.
+	 * So there are three cases here:
+	 * - TCP window is not equal to zero. In this case Tempesta FW pushes
+	 *   skbs from connection write queue to socket write queue according
+	 *   TCP window and then (if there is a still available TCP window and
+	 *   this is http2 client connection) calls our scheduler to choose the
+	 *   most priority stream, make frames for this stream and push them to
+	 *   the socket write queue.
+	 * - TCP window is equal to zero. In this case `tcp_push_pending_frames`
+	 *   doesn't do anything. It will be called later, when we receive ack
+	 *   from the peer.
+	 * - SOCK_TEMPESTA_HAS_DATA flag is not set. This is a rare case, when
+	 *   we send goaway/tls alert after error response, but this error
+	 *   response exceeded http2 window. In this case SOCK_TEMPESTA_HAS_DATA
+	 *   will be set during WINDOW_UPDATE processing and this function
+	 *   (`tcp_push_pending_frames`) will be called again.
 	 */
 	SS_IN_USE_PROTECT({
-		if (sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
-			tcp_push_pending_frames(sk);
-		} else {
-			tcp_push(sk, MSG_DONTWAIT, mss,
-				 TCP_NAGLE_OFF | TCP_NAGLE_PUSH, size);
-		}
+		tcp_push_pending_frames(sk);
 	});
 
 	SS_STATE_PROCESS_RETURN(sk);
@@ -621,7 +609,6 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	return;
 
 cleanup:
-	ss_skb_destroy_opaque_data(*skb_head);
 	ss_skb_queue_purge(skb_head);
 }
 
@@ -671,6 +658,8 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * and after the transmission.
 	 */
 	if (flags & SS_F_KEEP_SKB) {
+		unsigned int head_data, copied_truesize;
+
 		skb = *skb_head;
 		do {
 			/* tcp_transmit_skb() will clone the skb. */
@@ -681,6 +670,15 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 				r = -ENOMEM;
 				goto err;
 			}
+			memset(twin_skb->cb, 0, sizeof(twin_skb->cb));
+			head_data = MAX_TCP_HEADER + skb_headlen(twin_skb);
+			copied_truesize  =
+				SKB_DATA_ALIGN(sizeof(struct sk_buff)) +
+				SKB_DATA_ALIGN(head_data +
+					       sizeof(struct skb_shared_info));
+			ss_skb_set_owner(twin_skb, ss_skb_dflt_destructor,
+					 TFW_SKB_CB(skb)->opaque_data,
+					 copied_truesize);
 			ss_skb_queue_tail(&sw.skb_head, twin_skb);
 			skb = skb->next;
 		} while (skb != *skb_head);
@@ -900,7 +898,7 @@ ss_close(struct sock *sk, int flags)
 	};
 
 	if (unlikely(!sk))
-		return SS_OK;
+		return T_OK;
 
 	ss_sk_incoming_cpu_update(sk);
 	cpu = sk->sk_incoming_cpu;
@@ -908,7 +906,7 @@ ss_close(struct sock *sk, int flags)
 	sock_hold(sk);
 	ticket = ss_wq_push(&sw, cpu);
 	if (!ticket)
-		return SS_OK;
+		return T_OK;
 	if (!(flags & SS_F_SYNC))
 		goto err;
 
@@ -921,10 +919,10 @@ ss_close(struct sock *sk, int flags)
 		goto err;
 	}
 
-	return SS_OK;
+	return T_OK;
 err:
 	sock_put(sk);
-	return SS_BAD;
+	return T_BAD;
 }
 
 /*
@@ -958,7 +956,7 @@ do {									\
 		tp->copied_seq += tcp_fin;
 		ADJUST_PROCESSED_SKB(skb, tp, count, offset, processed);
 		__kfree_skb(skb);
-		return SS_BAD;
+		return T_BAD;
 	}
 
 	while ((skb = ss_skb_dequeue(&skb_head))) {
@@ -988,7 +986,7 @@ do {									\
 			     ss_skb_chop_head_tail(NULL, skb, offset, 0) != 0))
 		{
 			 __kfree_skb(skb);
-			r = SS_BAD;
+			r = T_BAD;
 			goto out;
 		}
 		offset = 0;
@@ -1022,7 +1020,7 @@ out:
 		       sk, smp_processor_id());
 		++tp->copied_seq;
 		if (!r)
-			r = SS_BAD;
+			r = T_BAD;
 	}
 	while ((skb = ss_skb_dequeue(&skb_head))) {
 		if (unlikely(offset >= skb->len)) {
@@ -1061,7 +1059,7 @@ out:
 static int
 ss_tcp_process_data(struct sock *sk)
 {
-	int r = 0, count, processed = 0;
+	int tmp_r, r = 0, count, processed = 0;
 	unsigned int skb_len, skb_seq;
 	struct sk_buff *skb, *tmp;
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -1096,7 +1094,9 @@ ss_tcp_process_data(struct sock *sk)
 				 skb_len);
 	}
 out:
-	SS_CALL(connection_recv_finish, sk->sk_user_data);
+	tmp_r = SS_CALL(connection_recv_finish, sk->sk_user_data);
+	if (unlikely(tfw_error_code_more_crusial(tmp_r, r)))
+		r = tmp_r;
 
 	/*
 	 * Recalculate an appropriate TCP receive buffer space
@@ -1156,16 +1156,16 @@ ss_tcp_data_ready(struct sock *sk)
 	}
 
 	switch (ss_tcp_process_data(sk)) {
-	case SS_OK:
-	case SS_POSTPONE:
-	case SS_DROP:
+	case T_OK:
+	case T_POSTPONE:
+	case T_DROP:
 		SS_STATE_PROCESS_RETURN(sk);
 		return;
-	case SS_BAD:
-	case SS_BLOCK_WITH_FIN:
+	case T_BAD:
+	case T_BLOCK_WITH_FIN:
 		flags = SS_F_SYNC;
 		break;
-	case SS_BLOCK_WITH_RST:
+	case T_BLOCK_WITH_RST:
 		flags = SS_F_ABORT_FORCE;
 		break;
 	default:
@@ -1622,12 +1622,24 @@ EXPORT_SYMBOL(ss_getpeername);
 static void
 __sk_close_locked(struct sock *sk, int flags)
 {
+	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
+
+	if (sk->sk_fill_write_queue(sk, mss_now)) {
+		ss_linkerror(sk, 0);
+		bh_unlock_sock(sk);
+		return;
+	}
 	ss_do_close(sk, flags);
 	if (!sk_stream_closing(sk)) {
 		ss_conn_drop_guard_exit(sk);
 	} else {
 		BUG_ON(!sock_flag(sk, SOCK_DEAD)
 		       || ((flags & SS_F_ABORT) == SS_F_ABORT));
+		/*
+		 * Tempesta FW sends all pending data in socket
+		 * write queue and doesn't push anymore.
+		 */
+		sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);
 		SS_CONN_TYPE(sk) |= Conn_Closing;
 	}
 	bh_unlock_sock(sk);
@@ -1637,16 +1649,16 @@ __sk_close_locked(struct sock *sk, int flags)
 static inline void
 ss_do_shutdown(struct sock *sk)
 {
+	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	/*
-	 * Prevent calling `tcp_done` from `tcp_shutdown` if error
-	 * occurs to prevent double free.
+	 * `tcp_shutdown` will ne called from `sk->sk_fill_write_queue`
+	 * after sending all pending data.
 	 */
-	SS_IN_USE_PROTECT({
-		tcp_shutdown(sk, SEND_SHUTDOWN);
-	});
-	SS_STATE_PROCESS_RETURN(sk);
 	SS_CONN_TYPE(sk) |= Conn_Shutdown;
-	SS_CALL(connection_on_shutdown, sk->sk_user_data);
+	if (sk->sk_fill_write_queue(sk, mss_now))
+		ss_linkerror(sk, 0);
+	else
+		SS_CALL(connection_on_shutdown, sk->sk_user_data);
 }
 
 static inline bool
@@ -1765,11 +1777,9 @@ ss_tx_action(void)
 		}
 dead_sock:
 		sock_put(sk); /* paired with push() calls */
-		if (sw.skb_head)
-			ss_skb_destroy_opaque_data(sw.skb_head);
 
 		while ((skb = ss_skb_dequeue(&sw.skb_head)))
-			kfree_skb(skb);
+			ss_kfree_skb(skb);
 	}
 
 	/*

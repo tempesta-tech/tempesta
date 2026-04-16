@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -4638,8 +4638,7 @@ do {									\
 	test_case_parse_prepare_http(str);				\
 	if (resp)							\
 		test_resp_free(resp);					\
-	resp = test_resp_alloc(sizeof(str) - 1);			\
-	tfw_http_msg_pair(resp, sample_req);				\
+	resp = test_resp_alloc(sizeof(str) - 1, req);			\
 	tfw_http_parse_resp(resp, str, sizeof(str) - 1, &parsed);	\
 } while (0)
 

@@ -1,7 +1,7 @@
 /*
  *		Tempesta FW
  *
- * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1659,8 +1659,8 @@ tfw_cfgop_apm_add_hm_req(const char *req_cstr, TfwApmHM *hm_entry)
 	unsigned long size;
 
 	size = strlen(req_cstr);
-	hm_entry->req = (char *)__get_free_pages(GFP_KERNEL,
-						     get_order(size));
+	hm_entry->req = (char *)tfw__get_free_pages(GFP_KERNEL,
+						    get_order(size));
 	if (!hm_entry->req) {
 		T_ERR_NL("Can't allocate memory for health monitoring request"
 			 "\n");
