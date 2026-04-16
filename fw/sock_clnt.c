@@ -710,6 +710,19 @@ tfw_parse_client_mem(const char *val, unsigned long long *mem)
 }
 
 static int
+tfw_parse_client_mem(const char *val, unsigned long long *mem)
+{
+	size_t len = strlen(val);
+	char *p;
+
+	*mem = memparse(val, &p);
+	if (p != val + len)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int
 tfw_cfgop_client_mem(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
