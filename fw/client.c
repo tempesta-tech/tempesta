@@ -390,13 +390,14 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
 
+	INIT_LIST_HEAD(&cli->list);
+
 	cli->cli_mem = tfw_cli_mem_alloc();
 	if (unlikely(!cli->cli_mem))
 		return -ENOMEM;
 
 	assert_spin_locked(&client_db->ga_lock);
 
-	INIT_LIST_HEAD(&cli->list);
 	tfw_client_update_lru(cli);
 
 	bzero_fast(&cli->class_prvt, sizeof(cli->class_prvt));
