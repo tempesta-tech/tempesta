@@ -171,7 +171,7 @@ ss_sk_incoming_cpu_update(struct sock *sk)
  * to shutdown. The only exception is closing activity - this is the only
  * activity allowed in progress of shutdown process.
  *
- * Returns zero (SS_OK) if we're in critical section and SS_BAD if shutdown
+ * Returns zero (T_OK) if we're in critical section and T_BAD if shutdown
  * process in progress and we can't enter the section.
  */
 static int
@@ -184,7 +184,7 @@ ss_active_guard_enter(unsigned long val)
 	 * if we commited to shutdown.
 	 */
 	if (unlikely(!READ_ONCE(__ss_active)))
-		return SS_BAD;
+		return T_BAD;
 
 	atomic64_add(val, acnt);
 
@@ -195,10 +195,10 @@ ss_active_guard_enter(unsigned long val)
 	 */
 	if (unlikely(!READ_ONCE(__ss_active))) {
 		atomic64_sub(val, acnt);
-		return SS_BAD;
+		return T_BAD;
 	}
 
-	return SS_OK;
+	return T_OK;
 }
 ALLOW_ERROR_INJECTION(ss_active_guard_enter, ERRNO);
 
@@ -898,7 +898,7 @@ ss_close(struct sock *sk, int flags)
 	};
 
 	if (unlikely(!sk))
-		return SS_OK;
+		return T_OK;
 
 	ss_sk_incoming_cpu_update(sk);
 	cpu = sk->sk_incoming_cpu;
@@ -906,7 +906,7 @@ ss_close(struct sock *sk, int flags)
 	sock_hold(sk);
 	ticket = ss_wq_push(&sw, cpu);
 	if (!ticket)
-		return SS_OK;
+		return T_OK;
 	if (!(flags & SS_F_SYNC))
 		goto err;
 
@@ -919,10 +919,10 @@ ss_close(struct sock *sk, int flags)
 		goto err;
 	}
 
-	return SS_OK;
+	return T_OK;
 err:
 	sock_put(sk);
-	return SS_BAD;
+	return T_BAD;
 }
 
 /*
@@ -956,7 +956,7 @@ do {									\
 		tp->copied_seq += tcp_fin;
 		ADJUST_PROCESSED_SKB(skb, tp, count, offset, processed);
 		__kfree_skb(skb);
-		return SS_BAD;
+		return T_BAD;
 	}
 
 	while ((skb = ss_skb_dequeue(&skb_head))) {
@@ -986,7 +986,7 @@ do {									\
 			     ss_skb_chop_head_tail(NULL, skb, offset, 0) != 0))
 		{
 			 __kfree_skb(skb);
-			r = SS_BAD;
+			r = T_BAD;
 			goto out;
 		}
 		offset = 0;
@@ -1020,7 +1020,7 @@ out:
 		       sk, smp_processor_id());
 		++tp->copied_seq;
 		if (!r)
-			r = SS_BAD;
+			r = T_BAD;
 	}
 	while ((skb = ss_skb_dequeue(&skb_head))) {
 		if (unlikely(offset >= skb->len)) {
@@ -1154,16 +1154,16 @@ ss_tcp_data_ready(struct sock *sk)
 	}
 
 	switch (ss_tcp_process_data(sk)) {
-	case SS_OK:
-	case SS_POSTPONE:
-	case SS_DROP:
+	case T_OK:
+	case T_POSTPONE:
+	case T_DROP:
 		SS_STATE_PROCESS_RETURN(sk);
 		return;
-	case SS_BAD:
-	case SS_BLOCK_WITH_FIN:
+	case T_BAD:
+	case T_BLOCK_WITH_FIN:
 		flags = SS_F_SYNC;
 		break;
-	case SS_BLOCK_WITH_RST:
+	case T_BLOCK_WITH_RST:
 		flags = SS_F_ABORT_FORCE;
 		break;
 	default:

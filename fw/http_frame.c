@@ -1958,9 +1958,7 @@ next_msg:
 		h2->data_off = 0;
 		h2->skb_head = pskb->next = pskb->prev = NULL;
 		r = tfw_http_msg_process_generic(c, h2->cur_stream, pskb, next);
-		/* TODO #1490: Check this place, when working on the task. */
-		if (r && r != T_DROP) {
-			WARN_ON_ONCE(r == T_POSTPONE);
+		if (tfw_error_code_is_crucial(r)) {
 			ss_kfree_skb(nskb);
 			goto out;
 		}
@@ -1986,9 +1984,7 @@ next_msg:
 		h2->data_off = 0;
 		/* The skb will not be parsed, just flags will be checked. */
 		r = tfw_http_msg_process_generic(c, h2->cur_stream, pskb, next);
-		/* TODO #1490: Check this place, when working on the task. */
-		if (r && r != T_DROP) {
-			WARN_ON_ONCE(r == T_POSTPONE);
+		if (tfw_error_code_is_crucial(r)) {
 			ss_kfree_skb(nskb);
 			goto out;
 		}
@@ -2009,7 +2005,7 @@ purge:
 
 out:
 	ss_skb_queue_purge(&h2->skb_head);
-	if (r && r != T_POSTPONE && r != T_DROP)
+	if (tfw_error_code_is_crucial(r))
 		tfw_h2_context_reinit(h2, false);
 	return r;
 

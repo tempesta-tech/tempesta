@@ -26,31 +26,6 @@
 #include <net/tcp.h>
 
 #include "str.h"
-#include "lib/log.h"
-
-/**
- * Responses from socket hook functions.
- */
-enum {
-	/* Generic socket error. */
-	SS_BAD		  = T_BAD,
-	/* The packet must be dropped, but connection should be alive. */
-	SS_DROP		  = T_DROP,
-	/*
-	 * The packet must be blocked with TCP FIN (typically on a
-	 * security event, when we reply to client).
-	 */
-	SS_BLOCK_WITH_FIN = T_BLOCK_WITH_FIN,
-	/*
-	 * The packet must be blocked with TCP RST (typically on a
-	 * security event).
-	 */
-	SS_BLOCK_WITH_RST = T_BLOCK_WITH_RST,
-	/* The packet should be stashed (made by callback). */
-	SS_POSTPONE	  = T_POSTPONE,
-	/* The packet looks good and we can safely pass it. */
-	SS_OK		  = T_OK,
-};
 
 typedef int (*on_send_cb_t)(void *conn, struct sk_buff **skb_head);
 typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);

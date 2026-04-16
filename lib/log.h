@@ -22,47 +22,112 @@
 
 #ifdef __KERNEL__
 #include <linux/err.h>
+#include <linux/bug.h>
 #else
 #define MAX_ERRNO 4095
 #endif
 
 /*
- * Return codes.
+ * Tempesta FW common return codes.
  */
-enum {
-	/* Compression error during hpack decoding. */
-	T_COMPRESSION	= -MAX_ERRNO + 7,
+typedef enum {
+	/* The message looks good and we can safely pass it. */
+	T_OK		 = 0,
+
+	/*
+	 * Common error codes boundary. All common error codes should be
+	 * greater then this boundary. Error codes should be listed in this
+	 * enum from the most crucial to the least crucial.
+	 */
+	__T_COMMON_ERROR_CODE_START = -MAX_ERRNO,
+
+	/*
+	 * The message must be blocked (typically on a security event).
+	 * Tempesta send TCP RST in this case.
+	 */
+	T_BLOCK_WITH_RST = __T_COMMON_ERROR_CODE_START + 1,
+
+	/*
+	 * The message must be blocked (typically on a security event).
+	 * Tempesta send TCP FIN in this case.
+	 */
+	T_BLOCK_WITH_FIN = __T_COMMON_ERROR_CODE_START + 2,
+
 	/*
 	 * Generic error. Connection should be shutdown gracefully
 	 * with TCP_FIN.
 	 */
-	T_BAD		 = -MAX_ERRNO + 6,
+	T_BAD		 = __T_COMMON_ERROR_CODE_START + 3,
+
 	/*
 	 * The message must be dropped. Connection should be alive or closed
 	 * with TCP FIN depending on whether we can communicate with this
 	 * client or not.
 	 */
-	T_DROP		 = -MAX_ERRNO + 5,
-	/*
-	 * The message must be blocked (typically on a security event).
-	 * Tempesta send TCP FIN in this case.
-	 */
-	T_BLOCK_WITH_FIN = -MAX_ERRNO + 4,
-	/*
-	 * The message must be blocked (typically on a security event).
-	 * Tempesta send TCP RST in this case.
-	 */
-	T_BLOCK_WITH_RST = -MAX_ERRNO + 3,
+	T_DROP		 = __T_COMMON_ERROR_CODE_START + 4,
+
+	/* The message should be stashed (made by callback). */
+	T_POSTPONE	 = __T_COMMON_ERROR_CODE_START + 5,
+
+	/* Last common error code + 1 */
+	__T_COMMON_ERROR_CODE_END,
+} TfwRcCommon;
+
+/*
+ * Tempesta FW internal error codes. Can be returned from different
+ * modules (e.g. hpack, frang). Should be converted to common return
+ * code before use on low level (connection, socket) layer.
+ */
+typedef enum {
+	__T_INTERNAL_ERROR_CODE_START = __T_COMMON_ERROR_CODE_END + 1,
+
+	/* Compression error during hpack decoding. */
+	T_COMPRESSION	= __T_INTERNAL_ERROR_CODE_START + 1,
+
 	/*
 	 * The message must be blocked (typically on a security event).
 	 * Sending TCP RST or TCP FIN depends on block action setting.
 	 */
-	T_BLOCK		 = -MAX_ERRNO + 2,
-	/* The message should be stashed (made by callback). */
-	T_POSTPONE	 = -MAX_ERRNO + 1,
-	/* The message looks good and we can safely pass it. */
-	T_OK		 = 0,
-};
+	T_BLOCK		 = __T_INTERNAL_ERROR_CODE_START + 2,
+
+	/* Last internal error code + 1 */
+	__T_INTERNAL_ERROR_CODE_END,
+} TfwInternalErrCodes;
+
+static inline bool
+is_tfw_common_error_code(int err_code)
+{
+	return err_code > __T_COMMON_ERROR_CODE_START
+		&& err_code < __T_COMMON_ERROR_CODE_END;
+}
+
+static inline bool
+is_tfw_internal_error_code(int err_code)
+{
+	return err_code > __T_INTERNAL_ERROR_CODE_START
+		&& err_code < __T_INTERNAL_ERROR_CODE_END;
+}
+
+static inline bool
+tfw_error_code_more_crucial(int err_code1, int err_code2)
+{
+	WARN_ON_ONCE(err_code1 && !is_tfw_common_error_code(err_code1)
+		     && !is_tfw_internal_error_code(err_code1));
+	WARN_ON_ONCE(err_code2 && !is_tfw_common_error_code(err_code2)
+		     && is_tfw_internal_error_code(err_code2));
+
+	return err_code1 < err_code2;
+}
+
+static inline bool
+tfw_error_code_is_crucial(int err_code)
+{
+	/*
+	 * Also works with system error codes, not only Tempesta FW
+	 * error codes.
+	 */
+	return err_code && err_code != T_POSTPONE && err_code != T_DROP;
+}
 
 /*
  * BANNER variable must be defined before including the file!
