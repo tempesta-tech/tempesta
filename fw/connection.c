@@ -202,7 +202,7 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	 */
 	BUG_ON(r == T_BLOCK ||
 	       (r == T_DROP && TFW_CONN_TYPE(conn) & Conn_Srv));
-	return r <= T_BAD || r == T_OK ? r : T_BAD;
+	return (r == T_OK || is_tfw_error_code(r)) ? r : T_BAD;
 }
 
 void

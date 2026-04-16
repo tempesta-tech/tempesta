@@ -697,43 +697,49 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
+tfw_parse_client_mem(const char *val, unsigned long long *mem)
+{
+	size_t len = strlen(val);
+	char *p;
+
+	*mem = memparse(val, &p);
+	if (p != val + len)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int
 tfw_cfgop_client_mem(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	unsigned int i;
+	int r;
 
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 	TFW_CFG_CHECK_VAL_N(>=, 1, cs, ce);
 	TFW_CFG_CHECK_VAL_N(<, 3, cs, ce);
 
-	for (i = 0; i < ce->val_n; i++) {
-		char *p;
-		size_t len = strlen(ce->vals[i]);
-		unsigned long long mem = memparse(ce->vals[i], &p);
-
-		if (p != ce->vals[i] + len) {
-			T_ERR_NL("Invalid 'client_mem' value: '%s'",
-				 ce->vals[0]);
-			return -EINVAL;
-		}
-		switch (i) {
-		case 0:
-			tfw_cli_soft_mem_limit = mem;
-			break;
-		case 1:
-			tfw_cli_hard_mem_limit = mem;
-			break;
-		default:
-			/* Should be checked early. */
-			BUG();
-		}
+	r = tfw_parse_client_mem(ce->vals[0], &tfw_cli_soft_mem_limit);
+	if (unlikely(r)) {
+		T_ERR_NL("Invalid 'client_mem' value: '%s'",
+			 ce->vals[0]);
+		return r;
 	}
 
-	if (!tfw_cli_hard_mem_limit) {
+	if (ce->val_n > 1) {
+		r = tfw_parse_client_mem(ce->vals[1], &tfw_cli_hard_mem_limit);
+		if (unlikely(r)) {
+			T_ERR_NL("Invalid 'client_mem' value: '%s'",
+				 ce->vals[1]);
+			return r;
+		}
+	} else {
 		tfw_cli_hard_mem_limit = (tfw_cli_soft_mem_limit < U64_MAX / 2) ?
 			tfw_cli_soft_mem_limit * 2 : U64_MAX;
-	} else if (tfw_cli_hard_mem_limit < tfw_cli_soft_mem_limit) {
+	}
+
+	if (tfw_cli_hard_mem_limit < tfw_cli_soft_mem_limit) {
 		T_ERR_NL("Invalid 'client_mem' value: hard limit (%llu) is"
-			 " greater then soft (%llu)", tfw_cli_hard_mem_limit,
+			 " less then soft (%llu)", tfw_cli_hard_mem_limit,
 			 tfw_cli_soft_mem_limit);
 		return -EINVAL;
 	}
