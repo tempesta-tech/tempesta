@@ -184,7 +184,7 @@ next_msg:
 
 		/* Do upcall to http or websocket */
 		r = tfw_connection_recv(conn, data_up.skb);
-		if (r && r != T_POSTPONE && r != T_DROP) {
+		if (tfw_error_code_is_crucial(r)) {
 			kfree_skb(nskb);
 			return r;
 		}

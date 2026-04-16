@@ -191,17 +191,16 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	}
 
 	/*
-	 * T_BLOCK is error code for high level modules (like frang),
-	 * here we should deal with error code, which accurately
+	 * Here we should deal with error code, which accurately
 	 * determine further closing behavior.
 	 * When error occurs during response processing
 	 * we should close connection with backend immediatly
 	 * and try to reastablish it later, so we should not
 	 * return T_DROP for server connections.
 	 */
-	BUG_ON(r == T_BLOCK ||
+	BUG_ON(is_tfw_internal_error_code(r) ||
 	       (r == T_DROP && TFW_CONN_TYPE(conn) & Conn_Srv));
-	return r <= T_BAD || r == T_OK ? r : T_BAD;
+	return (r == T_OK || is_tfw_common_error_code(r)) ? r : T_BAD;
 }
 
 void
