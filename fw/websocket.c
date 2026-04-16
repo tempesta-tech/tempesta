@@ -357,18 +357,27 @@ tfw_ws_conn_send(TfwConn *conn, TfwMsg *msg)
 	return r;
 }
 
+static int
+tfw_ws_conn_recv_finish(TfwConn *conn)
+{
+	return tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn,
+				  conn_recv_finish);
+}
+
 static TfwConnHooks ws_conn_hooks = {
-	.conn_close	= tfw_ws_conn_close,
-	.conn_abort	= tfw_ws_conn_abort,
-	.conn_drop	= tfw_ws_conn_drop,
-	.conn_send	= tfw_ws_conn_send,
+	.conn_close		= tfw_ws_conn_close,
+	.conn_abort		= tfw_ws_conn_abort,
+	.conn_drop		= tfw_ws_conn_drop,
+	.conn_send		= tfw_ws_conn_send,
+	.conn_recv_finish	= tfw_ws_conn_recv_finish,
 };
 
 static TfwConnHooks wss_conn_hooks = {
-	.conn_close	= tfw_ws_conn_close,
-	.conn_abort	= tfw_ws_conn_abort,
-	.conn_drop	= tfw_ws_conn_drop,
-	.conn_send	= tfw_ws_conn_send,
+	.conn_close		= tfw_ws_conn_close,
+	.conn_abort		= tfw_ws_conn_abort,
+	.conn_drop		= tfw_ws_conn_drop,
+	.conn_send		= tfw_ws_conn_send,
+	.conn_recv_finish	= tfw_ws_conn_recv_finish,
 };
 
 /*
