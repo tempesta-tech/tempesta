@@ -3185,11 +3185,14 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 	return ss_send(conn->sk, &msg->skb_head, msg->ss_flags);
 }
 
-static void
+static int
 tfw_http_conn_recv_finish(TfwConn *conn)
 {
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
 		tfw_h2_conn_recv_finish(conn);
+	if (unlikely(frang_client_mem_limit((TfwCliConn *)conn, true)))
+		return T_BLOCK_WITH_RST;
+	return 0;
 }
 
 /**
@@ -6597,15 +6600,6 @@ next_msg:
 		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
 				 CLIENT_MEM_FROM_CONN(conn),
 				 skb->truesize);
-	}
-
-	r = frang_client_mem_limit((TfwCliConn *)conn, false);
-	if (unlikely(r)) {
-		BUG_ON(r != T_BLOCK);
-		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 403,
-				"parsed request has been filtered out",
-				HTTP2_ECODE_PROTO);
 	}
 
 	r = ss_skb_process(skb, actor, req, &req->chunk_cnt, &parsed);

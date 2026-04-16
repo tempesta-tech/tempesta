@@ -91,7 +91,7 @@ typedef struct ss_hooks {
 	int (*connection_recv)(TfwConn *conn, struct sk_buff *skb);
 
 	/* Callback to make some job after processing received data. */
-	void (*connection_recv_finish)(TfwConn *conn);
+	int (*connection_recv_finish)(TfwConn *conn);
 
 	/* Callback to make some job on connection shutdown. */
 	void (*connection_on_shutdown)(TfwConn *conn);
