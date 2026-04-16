@@ -809,10 +809,10 @@ out:
 	return r;
 }
 
-static void
+static int
 tfw_tls_conn_recv_finish(TfwConn *c)
 {
-	tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_recv_finish);
+	return tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_recv_finish);
 }
 
 static TfwConnHooks tls_conn_hooks = {
