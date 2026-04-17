@@ -35,10 +35,25 @@
 #include "server.h"
 #include "lib/fault_injection_alloc.h"
 
+/*
+ * Maximum count of servers. We use it to limit total number
+ * of servers.
+ * TODO: Remove after 736. When we fix issue with a lot of 
+ * timers, we don't need to limit total count of servers.
+ */
+#define TOTAL_SRV_N_MAX 10000
+
 /* Use SLAB for frequent server allocations in forward proxy mode. */
 static struct kmem_cache *srv_cache;
 /* Total number of created server groups. */
 static atomic64_t act_sg_n = ATOMIC64_INIT(0);
+/*
+ * Total count of servers. We use it to limit total number
+ * of servers.
+ * TODO: Remove after 736. When we fix issue with a lot of 
+ * timers, we don't need to limit total count of servers.
+ */
+static atomic_t total_srv_n = ATOMIC_INIT(0);
 
 /*
  * Server group management.
@@ -333,7 +348,7 @@ tfw_sg_drop_reconfig(void)
  * Add a server to a server group.
  * This function is called only on configuration processing.
  */
-void
+int
 tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 {
 	BUG_ON(srv->sg);
@@ -341,11 +356,16 @@ tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 	tfw_sg_get(sg);
 	srv->sg = sg;
 
+	if (atomic_inc_return(&total_srv_n) > TOTAL_SRV_N_MAX)
+		return -ENOMEM;
+
 	T_DBG2("Add new backend server to group '%s'\n", sg->name);
 	down_write(&sg_sem);
 	list_add(&srv->list, &sg->srv_list);
 	++sg->srv_n;
 	up_write(&sg_sem);
+
+	return 0;
 }
 
 /**
@@ -362,6 +382,8 @@ __tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv, bool lock)
 	 */
 
 	T_DBG2("Remove backend server from group '%s'\n", sg->name);
+
+	atomic_dec(&total_srv_n);
 
 	if (lock)
 		down_write(&sg_sem);
@@ -529,6 +551,8 @@ tfw_sg_release_all(void)
 	hash_init(sg_hash);
 
 	up_write(&sg_sem);
+
+	WARN_ON(atomic_read(&total_srv_n));
 }
 
 /**

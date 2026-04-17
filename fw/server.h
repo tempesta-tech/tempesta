@@ -329,7 +329,7 @@ int tfw_sg_add_reconfig(TfwSrvGroup *sg);
 void tfw_sg_apply_reconfig(struct hlist_head *del_sg);
 void tfw_sg_drop_reconfig(void);
 
-void tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv);
+int tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv);
 void __tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv, bool lock);
 #define tfw_sg_del_srv(sg, srv)	__tfw_sg_del_srv(sg, srv, true)
 int tfw_sg_start_sched(TfwSrvGroup *sg, TfwScheduler *sched, void *arg);

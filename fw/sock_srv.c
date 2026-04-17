@@ -1404,7 +1404,8 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	srv->cleanup = tfw_sock_srv_del_conns;
 	srv->weight = weight;
 	srv->conn_n = conns_n;
-	tfw_sg_add_srv(sg_cfg->parsed_sg, srv);
+	if (tfw_sg_add_srv(sg_cfg->parsed_sg, srv))
+		return -EINVAL;
 	tfw_cfgop_server_orig_lookup(sg_cfg, srv);
 
 	tfw_server_put(srv);
