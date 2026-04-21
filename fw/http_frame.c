@@ -2191,7 +2191,7 @@ do {									\
 	 * If the lenght of data to send is less then `min_to_send`	\
 	 * use it as a minimum bytes to send.				\
 	 */								\
-	if (frame_length < min_len)					\
+	if (stream->xmit.frame_length == 0 && frame_length < min_len)	\
 		ADJUST_BLOCKED_STREAMS_AND_EXIT(min_len, type);		\
 	frame_type = type;						\
 } while(0)
