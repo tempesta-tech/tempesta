@@ -2226,8 +2226,10 @@ tfw_sock_srv_stop(void)
 	 * Wait until all connections will be shut down gracefully
 	 * and abort all pending connections.
 	 */
-	if (!ss_synchronize())
+	if (!ss_synchronize()) {
+		tfw_sg_for_each_srv_reconfig(tfw_sock_srv_abort_srv);
 		tfw_sg_for_each_srv(NULL, tfw_sock_srv_abort_srv);
+	}
 
 	tfw_sg_release_all();
 }
