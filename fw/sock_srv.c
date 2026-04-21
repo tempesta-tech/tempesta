@@ -115,6 +115,13 @@
 /*
  * Per-CPU storage of connection release history aggregated
  * across all servers.
+ *
+ * TODO #736: This code should be checked after the timers will be moved
+ * to a kernel thread. It has been tested on different machines, and it
+ * can be observed that systems with fewer CPU cores require stricter limits
+ * to prevent kernel lockups. Therefore, without moving the timers to a
+ * kernel thread, we cannot fully rely on this code. It is also possible that
+ * it will no longer be needed after #736 will be implemented.
  */
 static DEFINE_PER_CPU(TfwSlidingWindow, recns_history);
 static unsigned int recns_history_window = 5;
