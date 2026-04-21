@@ -762,16 +762,12 @@ do {									\
 				res = STREAM_FSM_RES_TERM_CONN;
 			}
 		}
-
 		break;
 	default:
 		BUG();
 	}
 
 finish:
-	if (type == HTTP2_RST_STREAM || res == STREAM_FSM_RES_TERM_STREAM)
-		tfw_h2_conn_reset_stream_on_close(ctx, stream);
-
 	T_DBG4("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream), res);
 
