@@ -199,7 +199,8 @@ do {									\
 			return T_BAD;					\
 		} else if (res == STREAM_FSM_RES_TERM_STREAM) {		\
 			WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id); \
-			return tfw_h2_current_stream_send_rst((ctx), err); \
+			return tfw_h2_send_rst_stream(ctx, ctx->cur_stream->id,\
+						      err);\
 		}							\
 		return T_OK;						\
 	}								\
@@ -1638,7 +1639,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_RST_STREAM) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		tfw_h2_rst_stream_process(ctx);
+		if (ctx->cur_stream != ctx->cur_send_headers)
+			tfw_h2_rst_stream_process(ctx);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -2054,6 +2056,43 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	bool trailers = false;
 	char *data;
 	int r = 0;
+	unsigned char flags;
+
+	if (type == HTTP2_DATA) {
+		ctx->rem_wnd -= frame_length;
+		ctx->data_bytes_sent += frame_length;
+		stream->rem_wnd -= frame_length;
+		stream->xmit.b_len -= frame_length;
+	} else if (stream->xmit.h_len) {
+		stream->xmit.h_len -= frame_length;
+	} else if (stream->xmit.t_len) {
+		stream->xmit.t_len -= frame_length;
+		trailers = true;
+	}
+	flags = tfw_h2_calc_frame_flags(stream, type, trailers);
+
+	switch (tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags)) {
+	case STREAM_FSM_RES_OK:
+		break;
+	case STREAM_FSM_RES_IGNORE:
+		fallthrough;
+	case STREAM_FSM_RES_TERM_STREAM:
+		/* Send previosly successfully prepared frames if exist. */
+		if (stream->xmit.frame_length) {
+			r = tfw_h2_entail_stream_skb(sk, ctx, stream,
+						     &stream->xmit.frame_length,
+						     true);
+		}
+		stream->xmit.frame_length += frame_length;
+		/*
+		 * Purge stream send queue, but leave postponed
+		 * skbs and rst stream/goaway/tls alert if exist.
+		 */
+		tfw_h2_stream_purge_send_queue(stream);
+		return r;
+	case STREAM_FSM_RES_TERM_CONN:
+		return -EPIPE;
+	}
 
 	/*
 	 * Very unlikely case, when skb_head and one or more next skbs
@@ -2088,50 +2127,13 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		data = dst.data;
 	}
 
-	if (type == HTTP2_DATA) {
-		ctx->rem_wnd -= frame_length;
-		ctx->data_bytes_sent += frame_length;
-		stream->rem_wnd -= frame_length;
-		stream->xmit.b_len -= frame_length;
-	} else if (stream->xmit.h_len) {
-		stream->xmit.h_len -= frame_length;
-	} else if (stream->xmit.t_len) {
-		stream->xmit.t_len -= frame_length;
-		trailers = true;
-	}
-
 	frame_hdr.length = frame_length;
 	frame_hdr.stream_id = stream->id;
 	frame_hdr.type = type;
-	frame_hdr.flags = tfw_h2_calc_frame_flags(stream, type, trailers);
+	frame_hdr.flags = flags;
 	tfw_h2_pack_frame_header(data, &frame_hdr);
 
 	stream->xmit.frame_length += frame_length + FRAME_HEADER_SIZE;
-	switch (tfw_h2_stream_fsm_ignore_err(ctx, stream, type,
-					     frame_hdr.flags))
-	{
-	case STREAM_FSM_RES_OK:
-		break;
-	case STREAM_FSM_RES_IGNORE:
-		fallthrough;
-	case STREAM_FSM_RES_TERM_STREAM:
-		/* Send previosly successfully prepared frames if exist. */
-		stream->xmit.frame_length -= frame_length + FRAME_HEADER_SIZE;
-		if (stream->xmit.frame_length) {
-			r = tfw_h2_entail_stream_skb(sk, ctx, stream,
-						     &stream->xmit.frame_length,
-						     true);
-		}
-		stream->xmit.frame_length += frame_length + FRAME_HEADER_SIZE;
-		/*
-		 * Purge stream send queue, but leave postponed
-		 * skbs and rst stream/goaway/tls alert if exist.
-		 */
-		tfw_h2_stream_purge_send_queue(stream);
-		return r;
-	case STREAM_FSM_RES_TERM_CONN:
-		return -EPIPE;
-	}
 
 	return r;
 }

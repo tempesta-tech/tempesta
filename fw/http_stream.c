@@ -754,9 +754,24 @@ do {									\
 		break;
 
 	case HTTP2_STREAM_CLOSED:
-		T_WARN("%s, stream fully closed: stream->id=%u, type=%hhu,"
+		T_DBG2("%s, stream fully closed: stream->id=%u, type=%hhu,"
 		       " flags=0x%hhx\n", __func__, stream->id, type, flags);
 		if (send) {
+			const bool is_headers = type == HTTP2_HEADERS ||
+				type == HTTP2_CONTINUATION;
+
+			if (ctx->cur_send_headers && is_headers) {
+				/*
+				 * Headers has been sent in closed state.
+				 * It happens when Tempesta encoded all headers
+				 * and after received RST_STREAM. To not break
+				 * compression state Tempesta sends all remaining
+				 * headers.
+				 */
+				if (flags & HTTP2_F_END_HEADERS)
+					ctx->cur_send_headers = NULL;
+				break;
+			}
 			res = STREAM_FSM_RES_IGNORE;
 		} else {
 			if (type != HTTP2_PRIORITY) {
@@ -764,16 +779,12 @@ do {									\
 				res = STREAM_FSM_RES_TERM_CONN;
 			}
 		}
-
 		break;
 	default:
 		BUG();
 	}
 
 finish:
-	if (type == HTTP2_RST_STREAM || res == STREAM_FSM_RES_TERM_STREAM)
-		tfw_h2_conn_reset_stream_on_close(ctx, stream);
-
 	T_DBG4("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream), res);
 
