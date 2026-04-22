@@ -35,10 +35,25 @@
 #include "server.h"
 #include "lib/fault_injection_alloc.h"
 
+/*
+ * Maximum count of servers. We use it to limit total number
+ * of servers.
+ * TODO: Remove after 736. When we fix issue with a lot of
+ * timers, we don't need to limit total count of servers.
+ */
+#define TOTAL_SRV_N_MAX 10000
+
 /* Use SLAB for frequent server allocations in forward proxy mode. */
 static struct kmem_cache *srv_cache;
 /* Total number of created server groups. */
 static atomic64_t act_sg_n = ATOMIC64_INIT(0);
+/*
+ * Total count of servers. We use it to limit total number
+ * of servers.
+ * TODO: Remove after 736. When we fix issue with a lot of
+ * timers, we don't need to limit total count of servers.
+ */
+static atomic64_t total_srv_n = ATOMIC64_INIT(0);
 
 /*
  * Server group management.
@@ -92,6 +107,7 @@ tfw_server_destroy(TfwServer *srv)
 	if (srv->sg)
 		tfw_sg_put(srv->sg);
 	kmem_cache_free(srv_cache, srv);
+	atomic64_dec(&total_srv_n);
 }
 
 TfwServer *
@@ -333,9 +349,12 @@ tfw_sg_drop_reconfig(void)
  * Add a server to a server group.
  * This function is called only on configuration processing.
  */
-void
+int
 tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 {
+	if (atomic64_inc_return(&total_srv_n) > TOTAL_SRV_N_MAX)
+		return -ENOMEM;
+
 	BUG_ON(srv->sg);
 	tfw_server_get(srv);
 	tfw_sg_get(sg);
@@ -346,6 +365,8 @@ tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 	list_add(&srv->list, &sg->srv_list);
 	++sg->srv_n;
 	up_write(&sg_sem);
+
+	return 0;
 }
 
 /**
@@ -537,6 +558,7 @@ tfw_sg_release_all(void)
 void
 tfw_sg_wait_release(void)
 {
+	tfw_objects_wait_release(&total_srv_n, 5, "servers");
 	tfw_objects_wait_release(&act_sg_n, 5, "server group");
 }
 

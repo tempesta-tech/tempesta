@@ -1334,6 +1334,7 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	int i, conns_n = 0, weight = 0;
 	bool has_conns_n = false, has_weight = false;
 	const char *key, *val;
+	int r;
 
 	TFW_CFG_CHECK_VAL_N(==, 1, cs, ce);
 	if (ce->attr_n > 3) {
@@ -1404,7 +1405,10 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	srv->cleanup = tfw_sock_srv_del_conns;
 	srv->weight = weight;
 	srv->conn_n = conns_n;
-	tfw_sg_add_srv(sg_cfg->parsed_sg, srv);
+	if (unlikely(r = tfw_sg_add_srv(sg_cfg->parsed_sg, srv))) {
+		tfw_server_put(srv);
+		return r;
+	}
 	tfw_cfgop_server_orig_lookup(sg_cfg, srv);
 
 	tfw_server_put(srv);
@@ -2093,9 +2097,11 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		tfw_server_get(srv);
 		tfw_sg_del_srv(sg_cfg->parsed_sg, srv);
 		srv->sg = NULL;
-		tfw_sg_add_srv(sg_cfg->orig_sg, srv);
+		r = tfw_sg_add_srv(sg_cfg->orig_sg, srv);
 		tfw_sg_put(sg_cfg->parsed_sg);
 		tfw_server_put(srv);
+		if (unlikely(r))
+			return r;
 
 		if ((r = tfw_sock_srv_start_srv(NULL, srv, sg_cfg->hm_name))) {
 			T_ERR_NL("cannot establish new server connection\n");
