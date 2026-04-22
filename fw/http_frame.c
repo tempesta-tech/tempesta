@@ -668,15 +668,13 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 		T_DBG("Invalid dependency: new stream with %u depends on"
 		      " itself\n", hdr->stream_id);
 
-		ctx->state = HTTP2_IGNORE_FRAME_DATA;
-
-		if (likely(!ctx->cur_stream)) {
-			return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
-						      HTTP2_ECODE_PROTO);
-		}
-
-		WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
-		return tfw_h2_current_stream_send_rst(ctx, HTTP2_ECODE_PROTO);
+		/*
+		 * RFC 7540 states that it MUST be treated as a stream-level
+		 * error, however, it doesn’t make sense to continue servicing
+		 * a suspicious connection.
+		 */
+		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
+		return T_BAD;
 	}
 
 	if (likely(!ctx->cur_stream)) {
@@ -778,18 +776,6 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 		return T_OK;
 	}
 
-	if (ctx->cur_stream->state == HTTP2_STREAM_IDLE) {
-		/*
-		 * According to RFC 9113 we should response with stream
-		 * error of type PROTOCOL ERROR here, but we can't send
-		 * RST_STREAM for idle stream.
-		 * RFC 9113 doesn't describe this case, so terminate
-		 * connection.
-		 */
-		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
-		return T_BAD;
-	}
-
 	/*
 	 * Stream cannot depend on itself (see RFC 7540 section 5.1.2 for
 	 * details).
@@ -797,12 +783,14 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 	T_DBG("Invalid dependency: new stream with %u depends on itself\n",
 	      hdr->stream_id);
 
-	if (tfw_h2_stream_fsm_ignore_err(ctx, ctx->cur_stream,
-					 HTTP2_RST_STREAM, 0))
-		return -EPERM;
+	/*
+	 * RFC 7540 states that it MUST be treated as a stream-level error,
+	 * however, it doesn’t make sense to continue servicing a suspicious
+	 * connection.
+	 */
+	tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
 
-	WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
-	return tfw_h2_current_stream_send_rst(ctx, HTTP2_ECODE_PROTO);
+	return T_BAD;
 }
 
 static inline void
