@@ -159,16 +159,18 @@ tfw_cli_mem_kill_work_fn(struct work_struct *work)
 }
 
 static inline int
-tfw_cli_mem_init(TfwClientMem *cli_mem)
+tfw_cli_mem_init(TfwClientMem *cli_mem, bool from_pool)
 {
+	gfp_t flags;
 	int r;
 
-	cli_mem->mem = tfw_alloc_percpu_gfp(long, GFP_KERNEL | __GFP_ZERO);
+	flags = (from_pool ? GFP_KERNEL : GFP_ATOMIC);
+	cli_mem->mem = tfw_alloc_percpu_gfp(long, flags | __GFP_ZERO);
 	if (unlikely(!cli_mem->mem))
 		return -ENOMEM;
 
 	r = tfw_percpu_ref_init(&cli_mem->refcnt, cli_mem_release,
-				PERCPU_REF_ALLOW_REINIT, GFP_KERNEL);
+				PERCPU_REF_ALLOW_REINIT, flags);
 	if (unlikely(r))
 		goto free_per_cpu_mem;
 
@@ -210,6 +212,8 @@ tfw_cli_mem_pool_init(void)
 
 	cli_mem_pool.order =
 		get_order(sizeof(TfwClientMem) * client_cfg.lru_size);
+	if (cli_mem_pool.order > MAX_PAGE_ORDER)
+		cli_mem_pool.order = MAX_PAGE_ORDER;
 
 	cli_mem_pool.mem = (TfwClientMem *)tfw__get_free_pages(GFP_KERNEL,
 							       cli_mem_pool.order);
@@ -218,7 +222,7 @@ tfw_cli_mem_pool_init(void)
 
 	block = cli_mem_pool.mem;
 	for (i = 0; i < client_cfg.lru_size; i++) {
-		r = tfw_cli_mem_init(&block[i]);
+		r = tfw_cli_mem_init(&block[i], true);
 		if (unlikely(r))
 			return r;
 		list_add(&block[i].in_free_list, &cli_mem_pool.free_list);
@@ -356,7 +360,7 @@ tfw_cli_mem_alloc_from_cache(void)
 	if (unlikely(!cli_mem))
 		return NULL;
 
-	if (unlikely(tfw_cli_mem_init(cli_mem)))
+	if (unlikely(tfw_cli_mem_init(cli_mem, false)))
 		goto free_cli_mem;
 
 	return cli_mem;

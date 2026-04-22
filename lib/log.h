@@ -22,97 +22,110 @@
 
 #ifdef __KERNEL__
 #include <linux/err.h>
-#include <linux/build_bug.h>
+#include <linux/bug.h>
 #else
 #define MAX_ERRNO 4095
 #endif
 
-#define T_COMMON_ERROR_CODE_MAX 10
-#define T_INTERNAL_ERROR_CODE_MAX T_COMMON_ERROR_CODE_MAX + 10
-
 /*
- * Return codes.
+ * Tempesta FW common return codes.
  */
-enum {
+typedef enum {
 	/* The message looks good and we can safely pass it. */
 	T_OK		 = 0,
 
 	/*
-	 * Common error codes high boundary. All common error codes
-	 * should be less then this boundary. Error codes should be listed
-	 * from least crusial to most crusial.
+	 * Common error codes boundary. All common error codes should be
+	 * greater then this boundary. Error codes should be listed in this
+	 * enum from the most crucial to the least crucial.
 	 */
-	__T_COMMON_ERROR_CODE_MAX = -MAX_ERRNO + T_COMMON_ERROR_CODE_MAX,
-
-	/* The message should be stashed (made by callback). */
-	T_POSTPONE	 = __T_COMMON_ERROR_CODE_MAX - 1,
-	/*
-	 * The message must be dropped. Connection should be alive or closed
-	 * with TCP FIN depending on whether we can communicate with this
-	 * client or not.
-	 */
-	T_DROP		 = __T_COMMON_ERROR_CODE_MAX - 2,
-
-	/*
-	 * Generic error. Connection should be shutdown gracefully
-	 * with TCP_FIN.
-	 */
-	T_BAD		 = __T_COMMON_ERROR_CODE_MAX - 3,
+	__T_COMMON_ERROR_CODE_START = -MAX_ERRNO,
 
 	/*
 	 * The message must be blocked (typically on a security event).
 	 * Tempesta send TCP RST in this case.
 	 */
-	T_BLOCK_WITH_RST = __T_COMMON_ERROR_CODE_MAX - 4,
+	T_BLOCK_WITH_RST = __T_COMMON_ERROR_CODE_START + 1,
 
 	/*
 	 * The message must be blocked (typically on a security event).
 	 * Tempesta send TCP FIN in this case.
 	 */
-	T_BLOCK_WITH_FIN = __T_COMMON_ERROR_CODE_MAX - 5,
+	T_BLOCK_WITH_FIN = __T_COMMON_ERROR_CODE_START + 2,
 
 	/*
-	 * Internal error codes high boundary. All internal error codes
-	 * should be less then this boundary. Error codes should be listed
-	 * from least crusial to most crusial.
+	 * Generic error. Connection should be shutdown gracefully
+	 * with TCP_FIN.
 	 */
-	__T_INTERNAL_ERROR_CODE_MAX = -MAX_ERRNO + T_INTERNAL_ERROR_CODE_MAX,
+	T_BAD		 = __T_COMMON_ERROR_CODE_START + 3,
+
+	/*
+	 * The message must be dropped. Connection should be alive or closed
+	 * with TCP FIN depending on whether we can communicate with this
+	 * client or not.
+	 */
+	T_DROP		 = __T_COMMON_ERROR_CODE_START + 4,
+
+	/* The message should be stashed (made by callback). */
+	T_POSTPONE	 = __T_COMMON_ERROR_CODE_START + 5,
+
+	/* Last common error code + 1 */
+	__T_COMMON_ERROR_CODE_END,
+} TfwRcCommon;
+
+/*
+ * Tempesta FW internal error codes. Can be returned from different
+ * modules (e.g. hpack, frang). Should be converted to common return
+ * code before use on low level (connection, socket) layer.
+ */ 
+typedef enum {
+	__T_INTERNAL_ERROR_CODE_START = __T_COMMON_ERROR_CODE_END + 1,
 
 	/* Compression error during hpack decoding. */
-	T_COMPRESSION	= __T_INTERNAL_ERROR_CODE_MAX - 1,
+	T_COMPRESSION	= __T_INTERNAL_ERROR_CODE_START + 1,
 
 	/*
 	 * The message must be blocked (typically on a security event).
 	 * Sending TCP RST or TCP FIN depends on block action setting.
 	 */
-	T_BLOCK		 = __T_INTERNAL_ERROR_CODE_MAX - 2,
+	T_BLOCK		 = __T_INTERNAL_ERROR_CODE_START + 2,
 
-	/* All Tempesta FW error codes should be below this boundary. */
-	__T_ERROR_CODES_BOUNDARY = __T_INTERNAL_ERROR_CODE_MAX + 1
-};
+	/* Last internal error code + 1 */
+	__T_INTERNAL_ERROR_CODE_END,
+} TfwInternalErrCodes;
 
 static inline bool
-is_tfw_error_code(int err_code)
+is_tfw_common_error_code(int err_code)
 {
-	return err_code < __T_ERROR_CODES_BOUNDARY;
+	return err_code > __T_COMMON_ERROR_CODE_START
+		&& err_code < __T_COMMON_ERROR_CODE_END;
 }
 
 static inline bool
-tfw_error_code_more_crusial(int err_code1, int err_code2)
+is_tfw_internal_error_code(int err_code)
 {
-	/*
-	 * Check that last error code from appropriate list
-	 * is in range.
-	 */
-	BUILD_BUG_ON(T_BLOCK_WITH_FIN >= MAX_ERRNO);
-	BUILD_BUG_ON(T_BLOCK <= __T_COMMON_ERROR_CODE_MAX);
+	return err_code > __T_INTERNAL_ERROR_CODE_START
+		&& err_code < __T_INTERNAL_ERROR_CODE_END;
+}
+
+static inline bool
+tfw_error_code_more_crucial(int err_code1, int err_code2)
+{
+	WARN_ON_ONCE(err_code1 && !is_tfw_common_error_code(err_code1)
+		     && !is_tfw_internal_error_code(err_code1));
+	WARN_ON_ONCE(err_code2 && !is_tfw_common_error_code(err_code2)
+		     && is_tfw_internal_error_code(err_code2));
 
 	return err_code1 < err_code2;
 }
 
 static inline bool
-tfw_error_code_is_crusial(int err_code)
+tfw_error_code_is_crucial(int err_code)
 {
+	/*
+	 * Also works with system error codes, not only Tempesta FW
+	 * error codes.
+	 */
 	return err_code && err_code != T_POSTPONE && err_code != T_DROP;
 }
 

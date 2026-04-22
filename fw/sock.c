@@ -1095,7 +1095,7 @@ ss_tcp_process_data(struct sock *sk)
 	}
 out:
 	tmp_r = SS_CALL(connection_recv_finish, sk->sk_user_data);
-	if (unlikely(tfw_error_code_more_crusial(tmp_r, r)))
+	if (unlikely(tfw_error_code_more_crucial(tmp_r, r)))
 		r = tmp_r;
 
 	/*
