@@ -2602,10 +2602,29 @@ index fe7947f77..3c3621c2d 100644
  	if (unlikely(sk->sk_state != TCP_LISTEN)) {
  		inet_child_forget(sk, req, child);
 diff --git a/net/ipv4/inet_hashtables.c b/net/ipv4/inet_hashtables.c
-index 9bfcfd016..5e3b6dee5 100644
+index 9bfcfd016..14cc1e0d5 100644
 --- a/net/ipv4/inet_hashtables.c
 +++ b/net/ipv4/inet_hashtables.c
-@@ -1078,7 +1078,8 @@ int __inet_hash_connect(struct inet_timewait_death_row *death_row,
+@@ -1027,8 +1027,18 @@ int __inet_hash_connect(struct inet_timewait_death_row *death_row,
+ 	if (!local_ports && remaining > 1)
+ 		remaining &= ~1U;
+ 
++	/*
++	 * TODO Remove it after #736 in Tempesta. We can sleep
++	 * after moving timers (which are used for reconnections)
++	 * to the kernel thread.
++	 */
++#ifdef CONFIG_SECURITY_TEMPESTA
++	get_random_once(table_perturb,
++			INET_TABLE_PERTURB_SIZE * sizeof(*table_perturb));
++#else
+ 	get_random_sleepable_once(table_perturb,
+ 				  INET_TABLE_PERTURB_SIZE * sizeof(*table_perturb));
++#endif
+ 	index = port_offset & (INET_TABLE_PERTURB_SIZE - 1);
+ 
+ 	offset = READ_ONCE(table_perturb[index]) + (port_offset >> 32);
+@@ -1078,7 +1088,8 @@ int __inet_hash_connect(struct inet_timewait_death_row *death_row,
  		goto ok;
  next_port:
  		spin_unlock_bh(&head->lock);
