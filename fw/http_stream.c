@@ -146,7 +146,6 @@ tfw_h2_stream_purge_send_queue(TfwStream *stream)
 
 	while (len) {
 		skb = ss_skb_dequeue(&stream->xmit.skb_head);
-		pr_err("len = %lu skb=%px\n", len, skb);
 		BUG_ON(!skb);
 
 		len -= skb->len;
@@ -250,7 +249,7 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 void
 tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 {
-	pr_err("Stop and delete stream (id %u state %d(%s) weight %u),"
+	T_DBG3("Stop and delete stream (id %u state %d(%s) weight %u),"
 	       " ctx %px streams num %lu\n", stream->id,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
 	       stream->weight, ctx, ctx->streams_num);
@@ -755,6 +754,8 @@ do {									\
 		break;
 
 	case HTTP2_STREAM_CLOSED:
+		T_DBG2("%s, stream fully closed: stream->id=%u, type=%hhu,"
+		       " flags=0x%hhx\n", __func__, stream->id, type, flags);
 		if (send) {
 			const bool is_headers = type == HTTP2_HEADERS ||
 				type == HTTP2_CONTINUATION;
@@ -778,8 +779,6 @@ do {									\
 				res = STREAM_FSM_RES_TERM_CONN;
 			}
 		}
-		T_WARN("%s, stream fully closed: stream->id=%u, type=%hhu,"
-		       " flags=0x%hhx\n", __func__, stream->id, type, flags);
 		break;
 	default:
 		BUG();

@@ -2091,7 +2091,6 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		 * Purge stream send queue, but leave postponed
 		 * skbs and rst stream/goaway/tls alert if exist.
 		 */
-		pr_err("stream->xmit.frame_length = %u skb_head=%px\n", stream->xmit.frame_length, &stream->xmit.skb_head);
 		tfw_h2_stream_purge_send_queue(stream);
 		return r;
 	case STREAM_FSM_RES_TERM_CONN:
@@ -2162,9 +2161,6 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	unsigned int min_to_send = tfw_h2_calc_min_to_send(sk, ctx, mss_now);
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
 
-	printk("run: %s with window=%lu\n", __func__, *snd_wnd);
-	/*if (*snd_wnd == 5)*/
-		/*dump_stack();*/
 #define ADJUST_BLOCKED_STREAMS_AND_EXIT(len, type)			\
 do {									\
 	/*								\
@@ -2240,10 +2236,8 @@ do {									\
 			return -EPIPE;
 		}
 
-		printk("Make headers frame start snd_wnd=%lu\n", *snd_wnd);
 		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_HEADERS,
 							     stream->xmit.h_len);
-		printk("Make headers frame end snd_wnd=%lu\n", *snd_wnd);
 		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
 			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
 						       stream->xmit.skb_head,
@@ -2267,10 +2261,8 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
-		printk("Make cont frame start snd_wnd=%lu\n", *snd_wnd);
 		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_CONTINUATION,
 							     stream->xmit.h_len);
-		printk("Make cont frame end snd_wnd=%lu\n", *snd_wnd);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
 		if (unlikely(r)) {
@@ -2285,10 +2277,8 @@ do {									\
 		if (unlikely(ctx->rem_wnd <= 0 || stream->rem_wnd <= 0))
 			ADJUST_BLOCKED_STREAMS_AND_EXIT(0, HTTP2_DATA);
 
-		printk("Make data frame start snd_wnd=%lu\n", *snd_wnd);
 		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_DATA,
 							     stream->xmit.b_len);
-		printk("Make data frame end snd_wnd=%lu\n", *snd_wnd);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
 		if (unlikely (r)) {
