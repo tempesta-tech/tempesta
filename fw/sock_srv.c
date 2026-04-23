@@ -1726,7 +1726,7 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 
 	if (!(srv = tfw_server_create(&addr))) {
 		T_ERR_NL("Error handling the server: '%s'\n", ce->vals[0]);
-		return -EINVAL;
+		return -ENOMEM;
 	}
 
 	srv->cleanup = tfw_sock_srv_del_conns;
