@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -59,8 +59,8 @@ enum {
  */
 typedef enum {
 	HTTP2_ENCODE_HEADERS,
-	HTTP2_RELEASE_RESPONSE,
 	HTTP2_MAKE_HEADERS_FRAMES,
+	HTTP2_SEND_HEADERS_FRAMES,
 	HTTP2_MAKE_CONTINUATION_FRAMES,
 	HTTP2_MAKE_DATA_FRAMES,
 	HTTP2_MAKE_TRAILER_FRAMES,

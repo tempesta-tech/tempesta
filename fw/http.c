@@ -5424,7 +5424,7 @@ tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned long h_len,
 	if (unlikely(r))
 		return r;
 
-	return tfw_h2_stream_init_for_xmit(resp, HTTP2_RELEASE_RESPONSE,
+	return tfw_h2_stream_init_for_xmit(resp, HTTP2_MAKE_HEADERS_FRAMES,
 					   h_len, b_len);
 }
 

@@ -505,7 +505,6 @@ do {									\
 				 * should be DATA frame.
 				 */
 				if (send) {
-					ctx->cur_send_headers = NULL;
 					if (tfw_h2_stream_is_eos_sent(stream)) {
 						new_state =
 							HTTP2_STREAM_LOC_HALF_CLOSED;
@@ -520,9 +519,7 @@ do {									\
 					}
 				}
 			} else {
-				if (send)
-					ctx->cur_send_headers = stream;
-				else
+				if (!send)
 					ctx->cur_recv_headers = stream;
 			}
 			break;
@@ -535,7 +532,6 @@ do {									\
 			    && flags & HTTP2_F_END_STREAM)
 			{
 				if (send) {
-					ctx->cur_send_headers = NULL;
 					new_state =
 						HTTP2_STREAM_LOC_HALF_CLOSED;
 				} else {
@@ -555,7 +551,6 @@ do {									\
 				 * frame.
 				 */
 				if (send) {
-					ctx->cur_send_headers = stream;
 					stream->state |=
 						HTTP2_STREAM_SEND_END_OF_STREAM;
 				} else {
@@ -565,9 +560,7 @@ do {									\
 				}
 			}
 			else {
-				if (send)
-					ctx->cur_send_headers = stream;
-				else
+				if (!send)
 					ctx->cur_recv_headers = stream;
 			}
 			break;
@@ -671,24 +664,16 @@ do {									\
 				 * END_STREAM flag set.
 				 */
 				case HTTP2_F_END_STREAM:
-					ctx->cur_send_headers = stream;
 					stream->state |=
 						HTTP2_STREAM_SEND_END_OF_STREAM;
 					break;
 				case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
-					ctx->cur_send_headers = NULL;
 					SET_STATE(HTTP2_STREAM_CLOSED);
 					break;
 				case HTTP2_F_END_HEADERS:
-					/*
-					 * Headers are ended, next frame in the
-					 * stream should be DATA frame.
-					 */
-					ctx->cur_send_headers = NULL;
 					break;
 
 				default:
-					ctx->cur_send_headers = stream;
 					break;
 				}
 			} else if (type == HTTP2_DATA) {
