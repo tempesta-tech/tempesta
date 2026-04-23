@@ -35,10 +35,25 @@
 #include "server.h"
 #include "lib/fault_injection_alloc.h"
 
+/*
+ * Maximum count of servers. We use it to limit total number
+ * of servers.
+ * TODO: Remove after 736. When we fix issue with a lot of
+ * timers, we don't need to limit total count of servers.
+ */
+#define TOTAL_SRV_N_MAX 1000
+
 /* Use SLAB for frequent server allocations in forward proxy mode. */
 static struct kmem_cache *srv_cache;
 /* Total number of created server groups. */
 static atomic64_t act_sg_n = ATOMIC64_INIT(0);
+/*
+ * Total count of servers. We use it to limit total number
+ * of servers.
+ * TODO: Remove after 736. When we fix issue with a lot of
+ * timers, we don't need to limit total count of servers.
+ */
+static atomic64_t total_srv_n = ATOMIC64_INIT(0);
 
 /*
  * Server group management.
@@ -101,12 +116,35 @@ tfw_server_destroy(TfwServer *srv)
 	if (srv->sg)
 		tfw_sg_put(srv->sg);
 	kmem_cache_free(srv_cache, srv);
+	atomic64_dec(&total_srv_n);
+}
+
+static inline bool
+tfw_sg_check_srv_cnt(void)
+{
+	long long old, new;
+
+	do {
+		old = atomic64_read(&total_srv_n);
+
+		if (old >= TOTAL_SRV_N_MAX)
+			return false;
+
+		new = old + 1;
+	} while (atomic64_cmpxchg(&total_srv_n, old, new) != old);
+
+	return true;
 }
 
 TfwServer *
 tfw_server_create(const TfwAddr *addr)
 {
-	TfwServer *srv = kmem_cache_alloc(srv_cache, GFP_KERNEL | __GFP_ZERO);
+	TfwServer *srv;
+
+	if (!tfw_sg_check_srv_cnt())
+		return NULL;
+
+	srv = kmem_cache_alloc(srv_cache, GFP_KERNEL | __GFP_ZERO);
 	if (!srv)
 		return NULL;
 
@@ -553,6 +591,7 @@ tfw_sg_release_all(void)
 void
 tfw_sg_wait_release(void)
 {
+	tfw_objects_wait_release(&total_srv_n, 5, "servers");
 	tfw_objects_wait_release(&act_sg_n, 5, "server group");
 }
 
