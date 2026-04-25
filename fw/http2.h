@@ -59,7 +59,7 @@ typedef struct {
  */
 typedef struct {
 	unsigned int	ping_cnt;
-	unsigned int	settings_cnt;	
+	unsigned int	settings_cnt;
 	unsigned int	rst_cnt;
 	unsigned int	priority_cnt;
 	unsigned int	ts;

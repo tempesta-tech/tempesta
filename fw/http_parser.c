@@ -5046,7 +5046,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, unsigned int len,
 	/* HTTP method. */
 	__FSM_STATE(Req_Method, hot) {
 		parser->_hdr_tag = TFW_HTTP_METHOD;
-		/* 
+		/*
 		 * Open header manually. HTTP method is not a header, storing
 		 * it in @msg->h_tbl it's only optimization to not introduce
 		 * new field into TfwHttpReq. Using @tfw_http_msg_hdr_open
@@ -10515,7 +10515,7 @@ tfw_h2_parse_req_hdr_val(unsigned char *data, unsigned long len, TfwHttpReq *req
 	}
 
 	__FSM_STATE(Req_Mark, hot) {
-		__FSM_H2_PSHDR_MOVE_FIN_fixup(Req_Mark, 1, Req_Path);		
+		__FSM_H2_PSHDR_MOVE_FIN_fixup(Req_Mark, 1, Req_Path);
 	}
 
 	__FSM_STATE(Req_Path) {

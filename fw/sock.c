@@ -497,7 +497,7 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 
 	while ((*snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now))) {
 		struct sk_buff *skb = ss_skb_dequeue(skb_head);
-		
+
 		if (!skb)
 			break;
 		/*
@@ -550,7 +550,7 @@ restore_sk_write_queue:
 	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head)
 		ss_skb_setup_head_of_list(*skb_head, mark, tls_type);
 
-	return r;	
+	return r;
 }
 
 /**

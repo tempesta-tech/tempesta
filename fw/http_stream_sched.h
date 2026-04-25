@@ -34,7 +34,7 @@
  *			  free list;
  * @active		- head of the active streams scheduler list;
  * @blocked	- head of the blocked streams scheduler list;
- */ 
+ */
 typedef struct tfw_stream_sched_entry_t {
 	u64				total_weight;
 	long int			active_cnt;
