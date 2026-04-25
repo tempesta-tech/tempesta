@@ -47,7 +47,7 @@
 
 /*
  * ASCII table column bitmaps for HTTP token, e.g. header name (RFC 7230 3.2.6).
- * 
+ *
  * ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
  * !#$%&'*+-.^_`|~0123456789
  */
@@ -94,7 +94,7 @@
 
 /*
  * ASCII codes to accept HTTP header values
- * 
+ *
  * RFC 7230, Appendix B; RFC 5234, Appendix B.1.:
  * field-value OWS = VCHAR SP HTAB = %x9 %x20-7E
  *

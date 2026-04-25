@@ -2363,11 +2363,11 @@ do {									\
  * Compare split header/value against values stored inside
  * node and return positive/negative/zero depending on their
  * relation.
- * 
+ *
  * The order geven by this function is the following:
  * (hdr_name_len, total_hdr_len, special_strcmp)
  * where hdr_name_len and total_hdr_len are compared as integers.
- * 
+ *
  * Where special_strcmp is case-insensitive for header names,
  * case-sensitive for header values and in both cases it compares
  * multiple characters per instruction, so don't expect strict
@@ -2382,7 +2382,7 @@ tfw_hpack_node_compare(const TfwStr *__restrict h_name,
 	unsigned len;
 	const char *np, *p;
 	const TfwStr *c, *end;
-	
+
 	if (h_name->len != node->name_len)
 		return (int)h_name->len - (int)node->name_len;
 
@@ -2412,7 +2412,7 @@ tfw_hpack_node_compare(const TfwStr *__restrict h_name,
 
 	if (nm_node)
 		*nm_node = node;
-	
+
 	len = h_name->len + h_val->len;
 	if (len != node->hdr_len)
 		return (int)len - (int)node->hdr_len;
