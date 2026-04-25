@@ -27,7 +27,7 @@
  * are requested sequentially. Progressive JPEGS (only for Firefox browser)
  * is a very rare case, so we decide to process requests from streams from
  * larger to smaller weight.
- * 
+ *
  * When we search for the most priority stream we iterate over the levels of
  * the priority tree. For exanple:
  *                     1 (256)
@@ -234,7 +234,7 @@ static void
 __tfw_h2_stream_sched_remove(TfwStreamSched *sched, TfwStream *stream)
 {
 	TfwStreamSchedEntry *parent = stream->sched->parent;
-	
+
 	tfw_h2_stream_sched_spin_lock_assert(sched);
 	list_del_init(&stream->sched_node);
 	stream->sched_state = HTTP2_STREAM_SCHED_STATE_UNKNOWN;
@@ -453,7 +453,7 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 	 * Here we move children of the removed stream to the parent
 	 * scheduler. If parent scheduler has no children we move
 	 * current removed stream children as is (saving their weight)
-	 * Otherwise we recalculate their weight according RFC. 
+	 * Otherwise we recalculate their weight according RFC.
 	 */
 	parent_has_children = tfw_h2_stream_sched_has_children(parent);
 

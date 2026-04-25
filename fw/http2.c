@@ -352,7 +352,7 @@ tfw_h2_alloc_stream_sched_entry(TfwH2Ctx *ctx)
 		 * 15 - 20 streams in parallel even if there are much
 		 * more resourses to request). TfwStreamSchedEntry is
 		 * small (64 bytes), so use special cache for allocation.
-		 */ 
+		 */
 		entry = kmem_cache_alloc(stream_sched_cache,
 					 GFP_ATOMIC | __GFP_ZERO);
 	} else {
@@ -604,7 +604,7 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
 
 	/*
 	 * TODO #2136: Remove this flag during reworking
-	 * `tfw_http_msg_expand_from_pool` function. 
+	 * `tfw_http_msg_expand_from_pool` function.
 	 */
 	__set_bit(TFW_HTTP_B_RESP_ENCODE_TRAILERS, resp->flags);
 

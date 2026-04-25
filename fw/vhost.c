@@ -994,7 +994,7 @@ tfw_cfgop_cache_use_stale(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	TFW_CFG_CHECK_NO_ATTRS(cs, ce);
 	TFW_CFG_CHECK_VAL_N(>=, 1, cs, ce);
 
-	/* 
+	/*
 	 * TODO: Revise and remove after #2123.
 	 */
 	if (tfw_vhost_is_default_reconfig(tfw_vhost_entry)) {
