@@ -1675,28 +1675,27 @@ int
 frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
 {
 	TfwClient *cli = (TfwClient *)conn->peer;
+	TfwVhost *dflt_vh;
 
-	if (tfw_cli_hard_mem_limit
-	    && tfw_client_mem(cli) > tfw_cli_hard_mem_limit)
-	{
-		if (block_if_exceeded) {
-			TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+	if (likely(!tfw_cli_hard_mem_limit
+		   || !tfw_client_mem(cli) > tfw_cli_hard_mem_limit))
+		return 0;
 
-			if (WARN_ON_ONCE(!dflt_vh))
-				return T_BLOCK;
-
-			if (dflt_vh->frang_gconf->ip_block) {
-				unsigned int duration =
-					dflt_vh->frang_gconf->ip_block_duration;
-
-				tfw_filter_block_ip(cli, duration);
-			}
-			tfw_vhost_put(dflt_vh);
-		}
+	if (!block_if_exceeded)
 		return T_BLOCK;
-	}
 
-	return 0;
+	dflt_vh = tfw_vhost_lookup_default();
+	if (WARN_ON_ONCE(!dflt_vh))
+		return T_BLOCK;
+
+	if (dflt_vh->frang_gconf->ip_block) {
+		unsigned int duration = dflt_vh->frang_gconf->ip_block_duration;
+
+		tfw_filter_block_ip(cli, duration);
+	}
+	tfw_vhost_put(dflt_vh);
+
+	return T_BLOCK;
 }
 
 

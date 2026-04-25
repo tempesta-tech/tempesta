@@ -1135,7 +1135,7 @@ tfw_h2_ctrl_frame_limit(TfwH2Ctx *ctx, TfwFrameType hdr_type)
 		break;
 	}
 
-	return true;		
+	return true;
 }
 
 /*
@@ -1180,7 +1180,7 @@ do {									\
 		goto conn_term;
 
 	if (unlikely(!tfw_h2_ctrl_frame_limit(ctx, hdr_type)))
-		return T_BLOCK_WITH_RST; 
+		return T_BLOCK_WITH_RST;
 
 	/*
 	 * TODO: RFC 7540 Section 6.2:

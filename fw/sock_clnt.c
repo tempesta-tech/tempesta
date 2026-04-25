@@ -351,7 +351,7 @@ tfw_cli_conn_on_shutdown(TfwConn *conn)
 	 * connection keep alive timer. Since we decide to patch and
 	 * reuse TCP keep alive timer, we don't need this callback and
 	 * should directly modify TCP keep alive timer from sock.c.
-	 */ 
+	 */
 	tfw_cli_conn_mod_timer((TfwCliConn *)conn, tcp_fin_timeout);
 }
 

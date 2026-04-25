@@ -3131,7 +3131,7 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 		smp_mb__before_atomic();
 		set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
 		if (unused) {
-			tfw_http_free_req_carefully(req, &resp_del_queue);			
+			tfw_http_free_req_carefully(req, &resp_del_queue);
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 	}
@@ -3190,8 +3190,15 @@ tfw_http_conn_recv_finish(TfwConn *conn)
 {
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
 		tfw_h2_conn_recv_finish(conn);
+
+	/*
+	 * SoftIRQ shot is very short, 0.001 to 0.01 sec, so we can account
+	 * client memory once per softirq shot - this is a quite fast response
+	 * to a DDoS attack.
+	 */
 	if (unlikely(frang_client_mem_limit((TfwCliConn *)conn, true)))
 		return T_BLOCK_WITH_RST;
+
 	return 0;
 }
 
@@ -6998,7 +7005,7 @@ next_msg:
 		tfw_http_send_err_resp(req, 500, "request dropped:"
 				       " processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
-	}	
+	}
 	/*
 	 * According to RFC 7230 6.3.2, connection with a client
 	 * must be dropped after a response is sent to that client,

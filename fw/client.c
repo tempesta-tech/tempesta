@@ -38,9 +38,9 @@
 #define UA_CMP_LEN	256
 
 static struct {
-	const char	*db_path;
-	unsigned long	db_size;
-	unsigned int	lru_size;
+	const char		*db_path;
+	unsigned long		db_size;
+	unsigned int		lru_size;
 } client_cfg __read_mostly;
 
 /**
@@ -52,15 +52,15 @@ static struct {
  * @user_agent		- UA_CMP_LEN first characters of User-Agent
  */
 typedef struct {
-	TfwClient	cli;
-	TfwAddr		xff_addr;
-	unsigned long	user_agent_len;
-	char		user_agent[UA_CMP_LEN];
+	TfwClient		cli;
+	TfwAddr			xff_addr;
+	unsigned long		user_agent_len;
+	char			user_agent[UA_CMP_LEN];
 } TfwClientEntry;
 
 static struct {
-	struct list_head head;
-	unsigned int     lru_size;
+	struct list_head	head;
+	unsigned int     	lru_size;
 } client_lru = {
 	.head = LIST_HEAD_INIT(client_lru.head),
 	.lru_size = 0,
@@ -73,15 +73,15 @@ static DECLARE_WAIT_QUEUE_HEAD(shutdown_wq);
 
 static struct kmem_cache *cli_mem_cache;
 static struct {
-	TfwClientMem *mem;
-	struct list_head free_list;
-	unsigned int size;
-	unsigned int order;
+	TfwClientMem		*mem;
+	struct list_head	free_list;
+	unsigned int		size;
+	unsigned int		order;
 } cli_mem_pool = {
-	.mem = NULL,
-	.free_list = LIST_HEAD_INIT(cli_mem_pool.free_list),
-	.size = 0,
-	.order = 0,
+	.mem		= NULL,
+	.free_list	= LIST_HEAD_INIT(cli_mem_pool.free_list),
+	.size		= 0,
+	.order		= 0,
 };
 
 static inline bool
@@ -208,10 +208,9 @@ tfw_cli_mem_pool_init(void)
 	int i, r;
 
 	if (WARN_ON_ONCE(!client_cfg.lru_size))
-		return -EINVAL; 
+		return -EINVAL;
 
-	cli_mem_pool.order =
-		get_order(sizeof(TfwClientMem) * client_cfg.lru_size);
+	cli_mem_pool.order = get_order(sizeof(TfwClientMem) * client_cfg.lru_size);
 	if (cli_mem_pool.order > MAX_PAGE_ORDER)
 		cli_mem_pool.order = MAX_PAGE_ORDER;
 
