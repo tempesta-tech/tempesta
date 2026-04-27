@@ -119,7 +119,7 @@ tfw_server_destroy(TfwServer *srv)
 	atomic64_dec(&total_srv_n);
 }
 
-static inline bool
+bool
 tfw_sg_check_srv_cnt(void)
 {
 	long long old, new;
@@ -140,9 +140,6 @@ TfwServer *
 tfw_server_create(const TfwAddr *addr)
 {
 	TfwServer *srv;
-
-	if (!tfw_sg_check_srv_cnt())
-		return NULL;
 
 	srv = kmem_cache_alloc(srv_cache, GFP_KERNEL | __GFP_ZERO);
 	if (!srv)

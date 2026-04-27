@@ -124,6 +124,17 @@
  * it will no longer be needed after #736 will be implemented.
  */
 static DEFINE_PER_CPU(TfwSlidingWindow, recns_history);
+/*
+ * Sliding window size (in seconds) used for reconnection rate estimation.
+ *
+ * The value is chosen empirically to provide a reasonable balance between
+ * responsiveness and stability of the rate calculation. A ~5-second window
+ * allows capturing short-term bursts of reconnections while still providing
+ * enough smoothing to make meaningful decisions about reconnection timeouts.
+ *
+ * This parameter directly affects how quickly the system reacts to changes
+ * in reconnection rate.
+ */
 static unsigned int recns_history_window = 5;
 
 /*
@@ -209,9 +220,7 @@ tfw_srv_conn_total_recns_to_idx(unsigned int sum, unsigned int l1,
 static inline void
 tfw_srv_inc_total_recns_count(void)
 {
-	TfwSlidingWindow *h = this_cpu_ptr(&recns_history);
-
-	tfw_sliding_window_update(h, recns_history_window, 1);
+	tfw_sliding_window_update(this_cpu_ptr(&recns_history), 1);
 }
 
 static inline u64
@@ -221,9 +230,9 @@ tfw_srv_total_recns_count(void)
 	u64 sum = 0;
 
 	for_each_possible_cpu(cpu) {
-		TfwSlidingWindow *h =
+		TfwSlidingWindow *w =
 			per_cpu_ptr(&recns_history, cpu);
-		sum += tfw_sliding_window_get_total(h, recns_history_window);
+		sum += tfw_sliding_window_get_total(w);
 	}
 
 	return sum;
@@ -1724,6 +1733,13 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 		return -EINVAL;
 	}
 
+	if (!tfw_sg_check_srv_cnt()) {
+		T_ERR_NL("Total number of servers exceeded (limit: 1000)."
+			 " This limitation will be removed after resolving"
+			 " issue #736.");
+		return -EINVAL;
+	}
+
 	if (!(srv = tfw_server_create(&addr))) {
 		T_ERR_NL("Error handling the server: '%s'\n", ce->vals[0]);
 		return -ENOMEM;
@@ -2775,6 +2791,8 @@ static TfwMod tfw_sock_srv_mod = {
 int
 tfw_sock_srv_init(void)
 {
+	int cpu;
+
 	BUILD_BUG_ON(_TFW_PSTATS_IDX_COUNT > TFW_SG_M_PSTATS_IDX);
 	BUG_ON(tfw_srv_conn_cache);
 
@@ -2788,6 +2806,11 @@ tfw_sock_srv_init(void)
 	if (!tfw_sg_cfg_cache) {
 		kmem_cache_destroy(tfw_srv_conn_cache);
 		return -ENOMEM;
+	}
+
+	for_each_online_cpu(cpu) {
+		tfw_sliding_window_init(per_cpu_ptr(&recns_history, cpu),
+					recns_history_window);
 	}
 
 	tfw_mod_register(&tfw_sock_srv_mod);
