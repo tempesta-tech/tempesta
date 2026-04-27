@@ -58,8 +58,10 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * Structure to control server connections re-establishing;
  *
  * @recns_list		- list of connections, should be re-established;
- * @failed_recns_list	- list of connections, which were failed to
- * 			  re-establish;
+ * @failed_recns_list	- list of connections which failed to re-establish.
+ *			  must be processed strictly after @recns_list to
+ *			  preserve reconnection order: failed attempts are
+ *			  retried only after normal reconnections;
  * @recns_in_progress	- number of connections currently being
  * 			  re-established;
  * @recns_batch_idx	- index to calculate, count of connections should
@@ -246,6 +248,11 @@ TfwServer *tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr);
 TfwServer *tfw_server_lookup_nolock(TfwSrvGroup *sg, TfwAddr *addr);
 int tfw_server_start_sched(TfwServer *srv);
 void tfw_server_stop_sched(TfwServer *srv);
+/*
+ * TODO: Remove after 736. When we fix issue with a lot of
+ * timers, we don't need to limit total count of servers.
+ */
+bool tfw_sg_check_srv_cnt(void);
 
 static inline bool
 tfw_server_live(TfwServer *srv)
