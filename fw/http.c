@@ -116,6 +116,7 @@
 #include "websocket.h"
 #include "tf_filter.h"
 #include "tf_conf.h"
+#include "training.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -199,6 +200,10 @@ unsigned int wnd_update_frame_rate_mul = 0;
 #define S_V_RETRY_AFTER		"10"
 #define S_V_MULTIPART		"multipart/form-data; boundary="
 #define S_V_WARN		"110 - Response is stale"
+
+static inline int
+tfw_http_req_block(TfwHttpReq *req, int status, const char *msg,
+		   TfwH2Err err_code);
 
 /*
  * A string with enough chunks to hold any element of `http_predef_resps`
@@ -1359,10 +1364,18 @@ tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 static inline void
 tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
+
 	if (!list_empty(&req->nip_list)) {
 		list_del_init(&req->nip_list);
 		tfw_http_conn_nip_reset(srv_conn);
 	}
+
+	if (unlikely(!cli))
+		return;
+
+	WARN_ON(!tfw_training_mode_update_req_num_stat(&cli->req_stat, -1,
+						       &req->training_epoch));
 }
 
 /*
@@ -1467,13 +1480,23 @@ tfw_http_fwdq_reset(TfwSrvConn *srv_conn, struct list_head *dst)
 /**
  * Add @req to the server connection's forwarding queue.
  */
-static inline void
+static inline bool
 tfw_http_req_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
+	bool is_nip = tfw_http_req_is_nip(req);
+
+	if (is_nip && cli &&
+	    !tfw_training_mode_update_req_num_stat(&cli->req_stat, 1,
+						   &req->training_epoch))
+		return false;
+
 	list_add_tail(&req->fwd_list, &srv_conn->fwd_queue);
 	srv_conn->qsize++;
-	if (tfw_http_req_is_nip(req))
+	if (is_nip)
 		tfw_http_req_nip_enlist(srv_conn, req);
+
+	return true;
 }
 
 /**
@@ -2224,7 +2247,10 @@ tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req, struct list_head *eq,
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
-	tfw_http_req_enlist(srv_conn, req);
+	if (!tfw_http_req_enlist(srv_conn, req)) {
+		spin_unlock_bh(&srv_conn->fwd_qlock);
+		return T_BLOCK;
+	}
 	/*
 	 * If we are rescheduling request and connection is on hold or
 	 * forwarding procedure is failed (the case of busy hanged
@@ -2504,6 +2530,27 @@ tfw_http_req_resched(TfwHttpReq *req, TfwServer *srv, struct list_head *eq)
 	}
 	ret = tfw_http_req_fwd(sch_conn, req, eq, true);
 	/*
+	 * Request forwarding was blocked, because count of non-idempotent
+	 * requests in server connection queue was exceeded z-score threshold.
+	 * Send 403 error response, close client connection and block client
+	 * by IP if necessary.
+	 */
+	if (unlikely(ret == T_BLOCK)) {
+		TfwClient *cli = cli = req->peer ? :
+			(TfwClient *)(req->conn ? req->conn->peer : NULL);
+
+		tfw_http_req_block(req, 403, "request blocked: count of "
+				   "non-idempotent requests exceeded",
+				   HTTP2_ECODE_INTERNAL);
+		if (cli)
+			tfw_client_filter_block_ip(cli);
+		/*
+		 * Do not try to resched this request any more. Request was
+		 * freed in `tfw_http_req_block`.
+		 */
+		ret = 0;
+	}
+	/*
 	 * Paired with tfw_srv_conn_get_if_live() via sched_srv_conn callback or
 	 * tfw_http_get_srv_conn() which increments the reference counter.
 	 */
@@ -2549,7 +2596,7 @@ tfw_http_fwdq_resched(TfwSrvConn *srv_conn, struct list_head *resch_queue,
  * unfinished; in this case the connection's @fwd_queue will be reset
  * and all requests from it will be rescheduled to other connections.
  */
-static void
+static int
 tfw_http_req_fwd_resched(TfwSrvConn *srv_conn, TfwHttpReq *req,
 			 struct list_head *eq)
 {
@@ -2559,18 +2606,23 @@ tfw_http_req_fwd_resched(TfwSrvConn *srv_conn, TfwHttpReq *req,
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
-	tfw_http_req_enlist(srv_conn, req);
+	if (!tfw_http_req_enlist(srv_conn, req)) {
+		spin_unlock_bh(&srv_conn->fwd_qlock);
+		return T_BLOCK;
+	}
 	if (tfw_http_conn_on_hold(srv_conn)
 	    || !tfw_http_conn_fwd_unsent(srv_conn, eq))
 	{
 		spin_unlock_bh(&srv_conn->fwd_qlock);
-		return;
+		return 0;
 	}
 	tfw_srv_set_busy_delay(srv_conn);
 	tfw_http_fwdq_reset(srv_conn, &reschq);
 	spin_unlock_bh(&srv_conn->fwd_qlock);
 
 	tfw_http_fwdq_resched(srv_conn, &reschq, eq);
+
+	return 0;
 }
 
 /**
@@ -5518,22 +5570,13 @@ tfw_h2_choose_close_type(ErrorType type, bool reply)
 static void
 tfw_http_req_filter_block_ip(TfwHttpReq *req)
 {
-	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 	TfwClient *cli;
-
-	if (WARN_ON_ONCE(!dflt_vh))
-		return;
 
 	cli = req->peer ? : (TfwClient *)(req->conn ? req->conn->peer : NULL);
 	if (!cli)
-		goto out;
+		return;
 
-	if (dflt_vh->frang_gconf->ip_block)
-		tfw_filter_block_ip(cli,
-				    dflt_vh->frang_gconf->ip_block_duration);
-
-out:
-	tfw_vhost_put(dflt_vh);
+	tfw_client_filter_block_ip(cli);
 }
 
 static int
@@ -5959,6 +6002,8 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 {
 	int r;
 	TfwHttpReq *req = (TfwHttpReq *)msg;
+	TfwClient *cli =
+		req->peer ? : (TfwClient *)(req->conn ? req->conn->peer : NULL);
 	TfwSrvConn *srv_conn = NULL;
 	LIST_HEAD(eq);
 
@@ -6003,7 +6048,19 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	tfw_http_hm_srv_update((TfwServer *)srv_conn->peer, req);
 
 	/* Forward request to the server. */
-	tfw_http_req_fwd_resched(srv_conn, req, &eq);
+	r = tfw_http_req_fwd_resched(srv_conn, req, &eq);
+	if (unlikely(r)) {
+		/*
+		 * There is only one case when  `tfw_http_req_fwd_resched`
+		 * can return error - count of non-idempotent requests in
+		 * server connection queue was exceeded z-score threshold.
+		 * Send 403 error response, close client connection and
+		 * block client by IP if necessary.
+		 */
+		WARN_ON(r != T_BLOCK);
+		goto send_403;
+	}
+
 	tfw_http_req_zap_error(&eq);
 	goto conn_put;
 
@@ -6015,6 +6072,15 @@ send_502:
 send_500:
 	T_DBG("request dropped: processing error, status 500");
 	tfw_http_send_err_resp_nolog(req, 500);
+	TFW_INC_STAT_BH(clnt.msgs_otherr);
+	goto conn_put;
+send_403:
+	T_DBG("request dropped: processing error, status 403");
+	tfw_http_req_block(req, 403, "request blocked: count of "
+			   "non-idempotent requests exceeded",
+			   HTTP2_ECODE_INTERNAL);
+	if (cli)
+		tfw_client_filter_block_ip(cli);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
 	/*
@@ -7833,7 +7899,8 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 		goto cleanup;
 	}
 
-	tfw_http_req_fwd(srv_conn, req, &equeue, false);
+	r = tfw_http_req_fwd(srv_conn, req, &equeue, false);
+	WARN_ON(r == T_BLOCK);
 	tfw_http_req_zap_error(&equeue);
 
 	/*

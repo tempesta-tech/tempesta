@@ -27,6 +27,7 @@
 #include "hash.h"
 #include "client.h"
 #include "connection.h"
+#include "filter.h"
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
@@ -195,6 +196,7 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 
 	assert_spin_locked(&client_db->ga_lock);
 
+	tfw_training_stat_init(&cli->req_stat);
 	INIT_LIST_HEAD(&cli->list);
 	tfw_client_update_lru(cli);
 
@@ -284,6 +286,21 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 }
 EXPORT_SYMBOL(tfw_client_obtain);
 ALLOW_ERROR_INJECTION(tfw_client_obtain, NULL);
+
+void
+tfw_client_filter_block_ip(TfwClient *cli)
+{
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return;
+
+	if (dflt_vh->frang_gconf->ip_block)
+		tfw_filter_block_ip(cli,
+				    dflt_vh->frang_gconf->ip_block_duration);
+
+	tfw_vhost_put(dflt_vh);
+}
 
 /**
  * @cli			- client object
