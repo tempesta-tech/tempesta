@@ -394,6 +394,8 @@ typedef struct {
  * @method_override - Overridden HTTP request method, passed in request headers;
  * @header_list_sz - total size of headers in bytes;
  * @headers_cnt - total headers count;
+ * @training_epoch - training epoch identifier. Used to don't adjust requests
+ *		     in trainging from previous training epoch;
  *
  * TfwStr members must be the first for efficient scanning.
  */
@@ -431,6 +433,7 @@ struct tfw_http_req_t {
 	unsigned char		method_override;
 	unsigned int		header_list_sz;
 	unsigned int		headers_cnt;
+	unsigned int		training_epoch;
 };
 
 #define TFW_IDX_BITS		24

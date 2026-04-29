@@ -27,6 +27,7 @@
 #include "hash.h"
 #include "client.h"
 #include "connection.h"
+#include "filter.h"
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
@@ -104,6 +105,7 @@ tfw_client_free(TdbRec *rec)
 	 * Tempesta FW shut down from `tfw_client_free_lru`
 	 */
 	WARN_ON(!list_empty(&cli->list));
+	free_percpu(cli->cpu_ema);
 }
 
 static void
@@ -192,6 +194,14 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
 	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
+
+	tfw_training_stat_init(&cli->req_stat);
+	tfw_training_stat_init(&cli->cpu_stat);
+
+	cli->cpu_ema =
+		tfw_alloc_percpu_gfp(TfwCpuEma, GFP_ATOMIC | __GFP_ZERO);
+	if (unlikely(!cli->cpu_ema))
+		return -ENOMEM;
 
 	assert_spin_locked(&client_db->ga_lock);
 
@@ -284,6 +294,64 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 }
 EXPORT_SYMBOL(tfw_client_obtain);
 ALLOW_ERROR_INJECTION(tfw_client_obtain, NULL);
+
+static void
+tfw_client_update_cpu_ema(TfwCpuEma *cpu_ema, u64 delta_cpu)
+{
+	u64 now = ktime_get_ns();
+	u64 dt = now - cpu_ema->last_ts;
+	u64 usage, decay, total_cpu = 0;
+	static const u64 time_to_forget_ns = 100000000;
+	static const u64 min_time_to_adjust = 1000;
+	static const unsigned int ema_alpha_shift = 4;
+
+	cpu_ema->pending_cpu += delta_cpu;
+	if (unlikely(dt < min_time_to_adjust))
+		return;
+
+	cpu_ema->last_ts = now;
+	swap(cpu_ema->pending_cpu, total_cpu);
+	usage = (total_cpu << SCALE_SHIFT) / dt;
+	decay = (dt << SCALE_SHIFT) / time_to_forget_ns;
+
+	if (decay > (1 << SCALE_SHIFT))
+		decay = 1 << SCALE_SHIFT;
+	cpu_ema->ema = cpu_ema->ema *
+		((1 << SCALE_SHIFT) - decay) >> SCALE_SHIFT;
+	cpu_ema->ema += ((s64)usage - (s64)cpu_ema->ema) >> ema_alpha_shift;
+}
+
+bool
+tfw_client_training_adjust_cpu_num(TfwClient *cli, u64 begin_time)
+{
+	TfwCpuEma *cpu_ema = this_cpu_ptr(cli->cpu_ema);
+	u64 delta_cpu = ktime_get_ns() - begin_time;
+	s64 prev_ema = cpu_ema->ema;
+	unsigned int training_epoch;
+	int delta;
+
+	tfw_client_update_cpu_ema(cpu_ema, delta_cpu);
+	if (!(delta = cpu_ema->ema - prev_ema))
+		return true;
+
+	return tfw_training_mode_update_cpu_num_stat(&cli->cpu_stat,
+						     delta, &training_epoch);
+}
+
+void
+tfw_client_filter_block_ip(TfwClient *cli)
+{
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return;
+
+	if (dflt_vh->frang_gconf->ip_block)
+		tfw_filter_block_ip(cli,
+				    dflt_vh->frang_gconf->ip_block_duration);
+
+	tfw_vhost_put(dflt_vh);
+}
 
 /**
  * @cli			- client object
