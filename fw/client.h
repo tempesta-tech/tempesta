@@ -52,12 +52,22 @@ typedef struct tfw_client_mem_t {
  *			  no any classification logic is used;
  * @list_head		- entry in the lru list;
  * @cli_mem		- memory used by current client;
+ * @conn_max		- maximum count of simultaneously opened connections
+ *			  during training period. Not atomic, because it is
+ *			  changed under `ra->lock`;
+ * @conn_curr		- current count of simultaneously opened connections
+ *			  during training period;
+ * @conn_training_epoch	- training epoch identifier, used to zero @conn_max
+ *			  and @conn_curr when the new training start;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
 	struct list_head	list;
 	TfwClientMem		*cli_mem;
+	unsigned int		conn_max;
+	int			conn_curr;
+	unsigned int		conn_training_epoch;
 } TfwClient;
 
 int tfw_client_init(void);
@@ -72,6 +82,8 @@ int tfw_cli_conn_abort_all(void *data);
 void tfw_cli_abort_all(void);
 
 void tfw_tls_connection_lost(TfwConn *conn);
+bool tfw_client_training_adjust_conn_num(TfwClient *cli, int delta,
+					 unsigned int *training_epoch);
 
 #define CLIENT_MEM_FROM_CONN(conn)				\
 	((TfwClient *)((TfwConn *)conn)->peer)->cli_mem
