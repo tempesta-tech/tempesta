@@ -23,6 +23,7 @@
 
 #include "http_limits.h"
 #include "connection.h"
+#include "adaptive_limits.h"
 
 /*
  * Client memory accounting structure for Tempesta FW.
@@ -50,14 +51,18 @@ typedef struct tfw_client_mem_t {
  * @class_prvt		- private client accounting data for classifier module.
  *			  Typically it's large and wastes memory in vain if
  *			  no any classification logic is used;
- * @list_head		- entry in the lru list;
+ * @list		- entry in the lru list;
  * @cli_mem		- memory used by current client;
+ * @conn_lim		- structure to track active connections count in
+ *			  for the current client. Used in adaptive_limits
+ *			  module to collect statistic and z-score calculation;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
 	struct list_head	list;
 	TfwClientMem		*cli_mem;
+	TfwAdaptiveLimit	conn_lim;
 } TfwClient;
 
 int tfw_client_init(void);

@@ -31,6 +31,7 @@
 #include "procfs.h"
 #include "tdb.h"
 #include "lib/fault_injection_alloc.h"
+#include "adaptive_limits.h"
 #include "lib/str.h"
 #include "lib/common.h"
 
@@ -473,6 +474,7 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	if (ctx->init)
 		ctx->init(cli);
 
+	tfw_adaptive_limit_init(&cli->conn_lim);
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
 	ent->xff_addr = ctx->xff_addr;
 	tfw_str_to_cstr(&ctx->user_agent, ent->user_agent,
