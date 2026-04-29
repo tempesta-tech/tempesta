@@ -23,6 +23,7 @@
 
 #include "http_limits.h"
 #include "connection.h"
+#include "training.h"
 
 /*
  * Client memory accounting structure for Tempesta FW.
@@ -59,6 +60,7 @@ typedef struct tfw_client_mem_t {
  *			  during training period;
  * @conn_training_epoch	- training epoch identifier, used to zero @conn_max
  *			  and @conn_curr when the new training start;
+ * @req_stat		- training statistic for non idempodent requests;
  */
 typedef struct {
 	TFW_PEER_COMMON;
@@ -68,6 +70,7 @@ typedef struct {
 	unsigned int		conn_max;
 	int			conn_curr;
 	unsigned int		conn_training_epoch;
+	TfwTrainingStat		req_stat;
 } TfwClient;
 
 int tfw_client_init(void);
@@ -80,10 +83,10 @@ void tfw_cli_conn_release(TfwCliConn *cli_conn);
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg);
 int tfw_cli_conn_abort_all(void *data);
 void tfw_cli_abort_all(void);
-
 void tfw_tls_connection_lost(TfwConn *conn);
 bool tfw_client_training_adjust_conn_num(TfwClient *cli, int delta,
 					 unsigned int *training_epoch);
+void tfw_client_filter_block_ip(TfwClient *cli);
 
 #define CLIENT_MEM_FROM_CONN(conn)				\
 	((TfwClient *)((TfwConn *)conn)->peer)->cli_mem
