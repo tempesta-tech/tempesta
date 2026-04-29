@@ -1052,10 +1052,10 @@ index 0f3c58007..e2576c604 100644
  
 diff --git a/include/linux/tempesta.h b/include/linux/tempesta.h
 new file mode 100644
-index 000000000..2269a39e8
+index 000000000..fb3a57993
 --- /dev/null
 +++ b/include/linux/tempesta.h
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,67 @@
 +/**
 + * Linux interface for Tempesta FW.
 + *
@@ -1097,6 +1097,7 @@ index 000000000..2269a39e8
 +
 +struct socket_tempesta {
 +	void	*class_prvt;
++	unsigned int training_epoch;
 +};
 +
 +extern struct lsm_blob_sizes tempesta_blob_sizes;
