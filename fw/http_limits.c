@@ -45,6 +45,7 @@
 #include "http_match.h"
 #include "http.h"
 #include "http_sess.h"
+#include "training.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -213,14 +214,23 @@ frang_time_quantum(unsigned short tframe)
 }
 
 static int
-frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
+frang_conn_limit(struct sock *sk, FrangGlobCfg *conf)
 {
+	FrangAcc *ra = frang_acc_from_sk(sk);
+	unsigned int *training_epoch = &tempesta_sock(sk)->training_epoch;
 	const unsigned long ts = frang_time_quantum(conf->conn_rate_tf);
 	const int i = ts % FRANG_FREQ;
 
 	spin_lock(&ra->lock);
 
 	frang_acc_history_init(ra, ts);
+
+	if (!tfw_client_training_adjust_conn_num(FRANG_ACC2CLI(ra), 1,
+						 training_epoch))
+	{
+		spin_unlock(&ra->lock);
+		return T_BLOCK;
+	}
 
 	if (conf->conn_max && unlikely(ra->conn_curr > conf->conn_max)) {
 		frang_limmsg("connections max num.", ra->conn_curr,
@@ -310,6 +320,7 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	 * TfwConn{}.
 	 */
 	tempesta_sock(sk)->class_prvt = ra;
+	tempesta_sock(sk)->training_epoch = 0;
 	if (tfw_http_mark_is_in_whitlist(skb->mark)) {
 		/*
 		 * Netfilter works on TCP/IP level, so once we observe a
@@ -339,7 +350,7 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	 * and to configure it, while making some of the limits to be global
 	 * for a single client is absolutely straight-forward.
 	 */
-	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
+	r = frang_conn_limit(sk, dflt_vh->frang_gconf);
 	if (unlikely(r == T_BLOCK) && dflt_vh->frang_gconf->ip_block)
 		tfw_filter_block_ip(cli,
 				    dflt_vh->frang_gconf->ip_block_duration);
@@ -357,6 +368,7 @@ void
 tfw_classify_conn_close(struct sock *sk)
 {
 	FrangAcc *ra = frang_acc_from_sk(sk);
+	unsigned int *training_epoch = &tempesta_sock(sk)->training_epoch;
 
 	if (unlikely(!sock_flag(sk, SOCK_TEMPESTA)))
 		return;
@@ -368,6 +380,8 @@ tfw_classify_conn_close(struct sock *sk)
 
 	BUG_ON(ra->conn_curr == 0);
 	ra->conn_curr--;
+	WARN_ON(!tfw_client_training_adjust_conn_num(FRANG_ACC2CLI(ra), -1,
+						     training_epoch));
 
 	if (!ra->conn_curr)
 		TFW_DEC_STAT_BH(clnt.online);
@@ -375,6 +389,7 @@ tfw_classify_conn_close(struct sock *sk)
 	spin_unlock(&ra->lock);
 
 	tempesta_sock(sk)->class_prvt = NULL;
+	tempesta_sock(sk)->training_epoch = 0;
 
 	tfw_client_put(FRANG_ACC2CLI(ra));
 }
