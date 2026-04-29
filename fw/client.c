@@ -30,6 +30,7 @@
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
+#include "training.h"
 #include "lib/str.h"
 #include "lib/common.h"
 
@@ -201,6 +202,10 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	if (ctx->init)
 		ctx->init(cli);
 
+	cli->conn_max = 0;
+	cli->conn_curr = 0;
+	cli->conn_training_epoch = 0;
+
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
 	ent->xff_addr = ctx->xff_addr;
 	tfw_str_to_cstr(&ctx->user_agent, ent->user_agent,
@@ -279,6 +284,98 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 }
 EXPORT_SYMBOL(tfw_client_obtain);
 ALLOW_ERROR_INJECTION(tfw_client_obtain, NULL);
+
+/**
+ * @cli			- client object
+ * @delta		- connection delta (+1 on open, -1 on close)
+ * @training_epoch 	- per-connection training epoch marker
+ *
+ * This function updates per-client connection statistics used by the
+ * training/defence subsystem.
+ *
+ * Behaviour depends on current mode:
+ *
+ *   - TFW_MODE_DISABLED:
+ *       No-op, always returns true.
+ *
+ *   - TFW_MODE_IS_DEFENCE:
+ *       Updates current number of connections and checks it against
+ *       learned z-score threshold. Returns false if the value exceeds
+ *       the threshold (connection should be rejected).
+ *
+ *   - TFW_MODE_IS_TRAINING:
+ *       Tracks per-client maximum number of concurrent connections and
+ *       contributes positive deltas (growth of max) to global statistics.
+ *
+ * Epoch handling:
+ *
+ * Each connection is tagged with @training_epoch when created. When a
+ * connection is closed, its contribution is ignored if it belongs to a
+ * previous training epoch. This prevents mixing statistics across
+ * training restarts.
+ *
+ * Concurrency:
+ *
+ * The function is called under client-private lock, so per-client fields
+ * (conn_curr, conn_max, training_epoch) are updated without atomics.
+ */
+bool
+tfw_client_training_adjust_conn_num(TfwClient *cli, int delta,
+				    unsigned int *training_epoch)
+{
+	u64 delta1, delta2;
+	unsigned int old_max;
+	bool new_client = false;
+
+	if (tfw_mode_is_disabled())
+		return true;
+
+	/*
+	 * Ignore connection close events from previous training epochs.
+	 * For new connections, assign current training epoch.
+	 */
+	if (delta < 0 && *training_epoch < g_training_epoch)
+		return true;
+	else if (delta > 0)
+		*training_epoch = g_training_epoch;
+
+	if (tfw_mode_is_defence()) {
+		cli->conn_curr += delta;
+		WARN_ON(cli->conn_curr < 0);
+
+		if (delta < 0)
+			return true;
+		return tfw_training_mode_defence_conn_num(cli->conn_curr);
+	}
+
+	/*
+	 * Training mode.
+	 *
+	 * Reset per-client stats on new training epoch.
+	 * This is safe without extra synchronization as we are under
+	 * client-private lock.
+	 */
+	if (cli->conn_training_epoch < g_training_epoch) {
+		cli->conn_training_epoch = g_training_epoch;
+		cli->conn_curr = 0;
+		cli->conn_max = 0;
+		new_client = true;
+	}
+
+	cli->conn_curr += delta;
+	WARN_ON(cli->conn_curr < 0);
+
+	old_max = cli->conn_max;
+	if (cli->conn_curr <= old_max)
+		return true;
+	cli->conn_max = cli->conn_curr;
+	delta1 = cli->conn_curr - old_max;
+	delta2 = (u64)cli->conn_curr * cli->conn_curr -
+		(u64)old_max * old_max;
+	tfw_training_mode_adjust_conn_num(delta1, delta2, new_client);
+
+	return true;
+}
 
 /**
  * Beware: @fn is called under client hash bucket spin lock.
