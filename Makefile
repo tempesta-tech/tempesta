@@ -24,6 +24,7 @@ else
 test-gt = $(shell test $(strip $1)0 -gt $(strip $2)0 && echo y)
 endif
 
+
 TFW_CFLAGS = $(DEFINES) -Werror
 ifdef DEBUG
 	ifeq ($(call test-gt, 1, $(DEBUG)), y)
