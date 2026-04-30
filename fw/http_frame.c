@@ -2239,8 +2239,6 @@ do {									\
 			return -EPIPE;
 		}
 
-		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_HEADERS,
-							     stream->xmit.h_len);
 		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
 			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
 						       stream->xmit.skb_head,
@@ -2252,6 +2250,9 @@ do {									\
 				return r;
 			}
 		}
+
+		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_HEADERS,
+							     stream->xmit.h_len);
 
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
