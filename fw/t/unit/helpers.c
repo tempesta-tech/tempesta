@@ -522,6 +522,12 @@ tfw_training_mode_update_req_num_stat(TfwTrainingStat *stat, int delta,
 	return true;
 }
 
+bool
+tfw_client_training_adjust_cpu_num(TfwClient *cli, u64 begin_time)
+{
+	return true;
+}
+
 TfwCfgSpec tf_hash_specs[0];
 
 unsigned int cache_default_ttl = 60;

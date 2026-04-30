@@ -105,6 +105,7 @@ tfw_client_free(TdbRec *rec)
 	 * Tempesta FW shut down from `tfw_client_free_lru`
 	 */
 	WARN_ON(!list_empty(&cli->list));
+	free_percpu(cli->cpu_ema);
 }
 
 static void
@@ -196,7 +197,13 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 
 	assert_spin_locked(&client_db->ga_lock);
 
+	cli->cpu_ema =
+		tfw_alloc_percpu_gfp(TfwCpuEma, GFP_ATOMIC | __GFP_ZERO);
+	if (unlikely(!cli->cpu_ema))
+		return -ENOMEM;
+
 	tfw_training_stat_init(&cli->req_stat);
+	tfw_training_stat_init(&cli->cpu_stat);
 	INIT_LIST_HEAD(&cli->list);
 	tfw_client_update_lru(cli);
 
@@ -286,6 +293,86 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 }
 EXPORT_SYMBOL(tfw_client_obtain);
 ALLOW_ERROR_INJECTION(tfw_client_obtain, NULL);
+
+/**
+ * Update per-client CPU usage EMA.
+ * @cpu_ema: per-CPU EMA state for the client.
+ * @delta_cpu: CPU time consumed since the last measurement (in ns).
+ *
+ * Accumulates raw CPU time in @pending_cpu and periodically folds it
+ * into the exponential moving average (@ema).
+ *
+ * The update is performed only if enough time (@min_time_to_adjust)
+ * has passed since the previous update to avoid excessive noise and
+ * high-frequency recalculations.
+ *
+ * The function:
+ *   - computes elapsed time (@dt);
+ *   - converts accumulated CPU time into normalized usage value;
+ *   - applies time-based decay (older history loses weight);
+ *   - updates EMA using a combination of decay and smoothing factor.
+ */
+static void
+tfw_client_update_cpu_ema(TfwCpuEma *cpu_ema, u64 delta_cpu)
+{
+	u64 now = ktime_get_ns();
+	u64 dt = now - cpu_ema->last_ts;
+	u64 usage, decay, total_cpu = 0;
+	static const u64 time_to_forget_ns = 100000000;
+	static const u64 min_time_to_adjust = 1000;
+	static const unsigned int ema_alpha_shift = 4;
+
+	cpu_ema->pending_cpu += delta_cpu;
+	if (unlikely(dt < min_time_to_adjust))
+		return;
+
+	cpu_ema->last_ts = now;
+	swap(cpu_ema->pending_cpu, total_cpu);
+	usage = (total_cpu << SCALE_SHIFT) / dt;
+	decay = (dt << SCALE_SHIFT) / time_to_forget_ns;
+
+	if (decay > (1 << SCALE_SHIFT))
+		decay = 1 << SCALE_SHIFT;
+	cpu_ema->ema = cpu_ema->ema *
+		((1 << SCALE_SHIFT) - decay) >> SCALE_SHIFT;
+	cpu_ema->ema += ((s64)usage - (s64)cpu_ema->ema) >> ema_alpha_shift;
+}
+
+/**
+ * Update CPU usage statistics for training/defence logic.
+ * @cli: client descriptor.
+ * @begin_time: timestamp when processing started (in ns).
+ *
+ * Measures CPU time spent on requests/responses processing, updates EMA,
+ * and passes the delta of EMA into the training subsystem.
+ * If EMA has not changed, no update is performed.
+ *
+ * During training mode:
+ *   - contributes to global statistics (mean/std deviation).
+ *
+ * During defence mode:
+ *   - checks z-score for CPU usage;
+ *   - returns false if the client exceeds the configured threshold.
+ *
+ * Return: true if processing is allowed, false if connection should be
+ * dropped and client should be blocked by IP.
+ */
+bool
+tfw_client_training_adjust_cpu_num(TfwClient *cli, u64 begin_time)
+{
+	TfwCpuEma *cpu_ema = this_cpu_ptr(cli->cpu_ema);
+	u64 delta_cpu = ktime_get_ns() - begin_time;
+	s64 prev_ema = cpu_ema->ema;
+	unsigned int training_epoch;
+	int delta;
+
+	tfw_client_update_cpu_ema(cpu_ema, delta_cpu);
+	if (!(delta = cpu_ema->ema - prev_ema))
+		return true;
+
+	return tfw_training_mode_update_cpu_num_stat(&cli->cpu_stat,
+						     delta, &training_epoch);
+}
 
 void
 tfw_client_filter_block_ip(TfwClient *cli)

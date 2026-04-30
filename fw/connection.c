@@ -203,10 +203,10 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 	return (r == T_OK || is_tfw_common_error_code(r)) ? r : T_BAD;
 }
 
-void
-tfw_connection_recv_finish(TfwConn *conn)
+int
+tfw_connection_recv_finish(TfwConn *conn, u64 begin_time)
 {
-	TFW_CONN_HOOK_CALL(conn, conn_recv_finish);
+	return TFW_CONN_HOOK_CALL(conn, conn_recv_finish, begin_time);
 }
 
 void
