@@ -391,7 +391,7 @@ complete:
 	 * See comments for @do_split_and_parse()/__TRY_PARSE_EXPECT_*
 	 */
 	*fchunks = chunks;
-	return r <= T_BAD || r == T_OK ? r : T_BAD;
+	return (r == T_OK || is_tfw_common_error_code(r)) ? r : T_BAD;
 }
 
 /**

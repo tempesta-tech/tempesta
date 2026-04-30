@@ -1212,7 +1212,7 @@ int
 ss_skb_process(struct sk_buff *skb, ss_skb_actor_t actor, void *objdata,
 	       unsigned int *chunks, unsigned int *processed)
 {
-	int i, r = SS_OK;
+	int i, r = T_OK;
 	unsigned int headlen = skb_headlen(skb);
 	unsigned int _processed;
 	struct skb_shared_info *si = skb_shinfo(skb);
@@ -1226,7 +1226,7 @@ ss_skb_process(struct sk_buff *skb, ss_skb_actor_t actor, void *objdata,
 		_processed = 0;
 		r = actor(objdata, skb->data, headlen, &_processed);
 		*processed += _processed;
-		if (r != SS_POSTPONE)
+		if (r != T_POSTPONE)
 			return r;
 	}
 
@@ -1242,7 +1242,7 @@ ss_skb_process(struct sk_buff *skb, ss_skb_actor_t actor, void *objdata,
 		r = actor(objdata, skb_frag_address(frag), skb_frag_size(frag),
 			  &_processed);
 		*processed += _processed;
-		if (r != SS_POSTPONE)
+		if (r != T_POSTPONE)
 			return r;
 	}
 

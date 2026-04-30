@@ -27,9 +27,11 @@
 #include "hash.h"
 #include "client.h"
 #include "connection.h"
+#include "filter.h"
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
+#include "training.h"
 #include "lib/str.h"
 #include "lib/common.h"
 
@@ -103,6 +105,7 @@ tfw_client_free(TdbRec *rec)
 	 * Tempesta FW shut down from `tfw_client_free_lru`
 	 */
 	WARN_ON(!list_empty(&cli->list));
+	free_percpu(cli->cpu_ema);
 }
 
 static void
@@ -185,7 +188,7 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 	return true;
 }
 
-static void
+static int
 tfw_client_ent_init(TdbRec *rec, void *data)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
@@ -194,12 +197,23 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 
 	assert_spin_locked(&client_db->ga_lock);
 
+	cli->cpu_ema =
+		tfw_alloc_percpu_gfp(TfwCpuEma, GFP_ATOMIC | __GFP_ZERO);
+	if (unlikely(!cli->cpu_ema))
+		return -ENOMEM;
+
+	tfw_training_stat_init(&cli->req_stat);
+	tfw_training_stat_init(&cli->cpu_stat);
 	INIT_LIST_HEAD(&cli->list);
 	tfw_client_update_lru(cli);
 
 	bzero_fast(&cli->class_prvt, sizeof(cli->class_prvt));
 	if (ctx->init)
 		ctx->init(cli);
+
+	cli->conn_max = 0;
+	cli->conn_curr = 0;
+	cli->conn_training_epoch = 0;
 
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
 	ent->xff_addr = ctx->xff_addr;
@@ -210,6 +224,8 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 	T_DBG("new client: cli=%p\n", cli);
 	T_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
 	T_DBG2("client %p, users=%d\n", cli, 1);
+
+	return 0;
 }
 
 /**
@@ -277,6 +293,193 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 }
 EXPORT_SYMBOL(tfw_client_obtain);
 ALLOW_ERROR_INJECTION(tfw_client_obtain, NULL);
+
+/**
+ * Update per-client CPU usage EMA.
+ * @cpu_ema: per-CPU EMA state for the client.
+ * @delta_cpu: CPU time consumed since the last measurement (in ns).
+ *
+ * Accumulates raw CPU time in @pending_cpu and periodically folds it
+ * into the exponential moving average (@ema).
+ *
+ * The update is performed only if enough time (@min_time_to_adjust)
+ * has passed since the previous update to avoid excessive noise and
+ * high-frequency recalculations.
+ *
+ * The function:
+ *   - computes elapsed time (@dt);
+ *   - converts accumulated CPU time into normalized usage value;
+ *   - applies time-based decay (older history loses weight);
+ *   - updates EMA using a combination of decay and smoothing factor.
+ */
+static void
+tfw_client_update_cpu_ema(TfwCpuEma *cpu_ema, u64 delta_cpu)
+{
+	u64 now = ktime_get_ns();
+	u64 dt = now - cpu_ema->last_ts;
+	u64 usage, decay, total_cpu = 0;
+	static const u64 time_to_forget_ns = 100000000;
+	static const u64 min_time_to_adjust = 1000;
+	static const unsigned int ema_alpha_shift = 4;
+
+	cpu_ema->pending_cpu += delta_cpu;
+	if (unlikely(dt < min_time_to_adjust))
+		return;
+
+	cpu_ema->last_ts = now;
+	swap(cpu_ema->pending_cpu, total_cpu);
+	usage = (total_cpu << SCALE_SHIFT) / dt;
+	decay = (dt << SCALE_SHIFT) / time_to_forget_ns;
+
+	if (decay > (1 << SCALE_SHIFT))
+		decay = 1 << SCALE_SHIFT;
+	cpu_ema->ema = cpu_ema->ema *
+		((1 << SCALE_SHIFT) - decay) >> SCALE_SHIFT;
+	cpu_ema->ema += ((s64)usage - (s64)cpu_ema->ema) >> ema_alpha_shift;
+}
+
+/**
+ * Update CPU usage statistics for training/defence logic.
+ * @cli: client descriptor.
+ * @begin_time: timestamp when processing started (in ns).
+ *
+ * Measures CPU time spent on requests/responses processing, updates EMA,
+ * and passes the delta of EMA into the training subsystem.
+ * If EMA has not changed, no update is performed.
+ *
+ * During training mode:
+ *   - contributes to global statistics (mean/std deviation).
+ *
+ * During defence mode:
+ *   - checks z-score for CPU usage;
+ *   - returns false if the client exceeds the configured threshold.
+ *
+ * Return: true if processing is allowed, false if connection should be
+ * dropped and client should be blocked by IP.
+ */
+bool
+tfw_client_training_adjust_cpu_num(TfwClient *cli, u64 begin_time)
+{
+	TfwCpuEma *cpu_ema = this_cpu_ptr(cli->cpu_ema);
+	u64 delta_cpu = ktime_get_ns() - begin_time;
+	s64 prev_ema = cpu_ema->ema;
+	unsigned int training_epoch;
+	int delta;
+
+	tfw_client_update_cpu_ema(cpu_ema, delta_cpu);
+	if (!(delta = cpu_ema->ema - prev_ema))
+		return true;
+
+	return tfw_training_mode_update_cpu_num_stat(&cli->cpu_stat,
+						     delta, &training_epoch);
+}
+
+void
+tfw_client_filter_block_ip(TfwClient *cli)
+{
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return;
+
+	if (dflt_vh->frang_gconf->ip_block)
+		tfw_filter_block_ip(cli,
+				    dflt_vh->frang_gconf->ip_block_duration);
+
+	tfw_vhost_put(dflt_vh);
+}
+
+/**
+ * @cli			- client object
+ * @delta		- connection delta (+1 on open, -1 on close)
+ * @training_epoch 	- per-connection training epoch marker
+ *
+ * This function updates per-client connection statistics used by the
+ * training/defence subsystem.
+ *
+ * Behaviour depends on current mode:
+ *
+ *   - TFW_MODE_DISABLED:
+ *       No-op, always returns true.
+ *
+ *   - TFW_MODE_IS_DEFENCE:
+ *       Updates current number of connections and checks it against
+ *       learned z-score threshold. Returns false if the value exceeds
+ *       the threshold (connection should be rejected).
+ *
+ *   - TFW_MODE_IS_TRAINING:
+ *       Tracks per-client maximum number of concurrent connections and
+ *       contributes positive deltas (growth of max) to global statistics.
+ *
+ * Epoch handling:
+ *
+ * Each connection is tagged with @training_epoch when created. When a
+ * connection is closed, its contribution is ignored if it belongs to a
+ * previous training epoch. This prevents mixing statistics across
+ * training restarts.
+ *
+ * Concurrency:
+ *
+ * The function is called under client-private lock, so per-client fields
+ * (conn_curr, conn_max, training_epoch) are updated without atomics.
+ */
+bool
+tfw_client_training_adjust_conn_num(TfwClient *cli, int delta,
+				    unsigned int *training_epoch)
+{
+	u64 delta1, delta2;
+	unsigned int old_max;
+	bool new_client = false;
+
+	if (tfw_mode_is_disabled())
+		return true;
+
+	/*
+	 * Ignore connection close events from previous training epochs.
+	 * For new connections, assign current training epoch.
+	 */
+	if (delta < 0 && *training_epoch < g_training_epoch)
+		return true;
+	else if (delta > 0)
+		*training_epoch = g_training_epoch;
+
+	if (tfw_mode_is_defence()) {
+		cli->conn_curr += delta;
+		WARN_ON(cli->conn_curr < 0);
+
+		if (delta < 0)
+			return true;
+		return tfw_training_mode_defence_conn_num(cli->conn_curr);
+	}
+
+	/*
+	 * Training mode.
+	 *
+	 * Reset per-client stats on new training epoch.
+	 * This is safe without extra synchronization as we are under
+	 * client-private lock.
+	 */
+	if (cli->conn_training_epoch < g_training_epoch) {
+		cli->conn_training_epoch = g_training_epoch;
+		cli->conn_curr = 0;
+		cli->conn_max = 0;
+		new_client = true;
+	}
+
+	cli->conn_curr += delta;
+	WARN_ON(cli->conn_curr < 0);
+
+	old_max = cli->conn_max;
+	if (cli->conn_curr <= old_max)
+		return true;
+	cli->conn_max = cli->conn_curr;
+	delta1 = cli->conn_curr - old_max;
+	delta2 = (u64)cli->conn_curr * cli->conn_curr -
+		(u64)old_max * old_max;
+	tfw_training_mode_adjust_conn_num(delta1, delta2, new_client);
+
+	return true;
+}
 
 /**
  * Beware: @fn is called under client hash bucket spin lock.

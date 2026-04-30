@@ -23,6 +23,25 @@
 
 #include "http_limits.h"
 #include "connection.h"
+#include "training.h"
+
+/**
+ * Exponential moving average (EMA) tracker for per-CPU time usage.
+ *
+ * The structure is used to accumulate execution time deltas and maintain
+ * a smoothed estimate (EMA) of CPU consumption.
+ *
+ * @last_ts	- timestamp of the last update (in ns). Used to compute
+ *		  time delta between consecutive measurements;
+ * @ema		- current exponential moving average of CPU usage;
+ * @pending_cpu	- accumulated raw CPU time (in ns) since the last EMA
+ *		  update. This value is periodically folded into @ema;
+ */
+typedef struct {
+	u64 last_ts;
+	s64 ema;
+	u64 pending_cpu;
+} TfwCpuEma;
 
 /**
  * Client descriptor.
@@ -30,12 +49,28 @@
  * @class_prvt		- private client accounting data for classifier module.
  *			  Typically it's large and wastes memory in vain if
  *			  no any classification logic is used;
- * list_head		- entry in the lru list;
+ * @list_head		- entry in the lru list;
+ * @conn_max		- maximum count of simultaneously opened connections
+ *			  during training period. Not atomic, because it is
+ *			  changed under `ra->lock`;
+ * @conn_curr		- current count of simultaneously opened connections
+ *			  during training period;
+ * @conn_training_epoch	- training epoch identifier, used to zero @conn_max
+ *			  and @conn_curr when the new training start;
+ * @req_stat		- training statistic for non idempodent requests;
+ * @cpu_stat		- training statistic for cpu usage;
+ * @cpu_ema		- per cpu storage for cpu @ema calculation; 
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
 	struct list_head	list;
+	unsigned int		conn_max;
+	int			conn_curr;
+	unsigned int		conn_training_epoch;
+	TfwTrainingStat		req_stat;
+	TfwTrainingStat		cpu_stat;
+	TfwCpuEma __percpu	*cpu_ema;
 } TfwClient;
 
 int tfw_client_init(void);
@@ -48,7 +83,10 @@ void tfw_cli_conn_release(TfwCliConn *cli_conn);
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg);
 int tfw_cli_conn_abort_all(void *data);
 void tfw_cli_abort_all(void);
-
 void tfw_tls_connection_lost(TfwConn *conn);
+bool tfw_client_training_adjust_conn_num(TfwClient *cli, int delta,
+					 unsigned int *training_epoch);
+bool tfw_client_training_adjust_cpu_num(TfwClient *cli, u64 begin_time);
+void tfw_client_filter_block_ip(TfwClient *cli);
 
 #endif /* __TFW_CLIENT_H__ */
