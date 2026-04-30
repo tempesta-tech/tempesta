@@ -67,6 +67,7 @@ typedef enum {
 	HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES,
 	HTTP2_SEND_FRAMES,
 	HTTP2_MAKE_FRAMES_FINISH,
+	HTTP2_FRAMING_FAILED
 } TfwStreamXmitState;
 
 static const char *__tfw_strm_st_names[] = {
