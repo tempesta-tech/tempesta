@@ -3204,11 +3204,20 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 	return ss_send(conn->sk, &msg->skb_head, msg->ss_flags);
 }
 
-static void
-tfw_http_conn_recv_finish(TfwConn *conn)
+static int
+tfw_http_conn_recv_finish(TfwConn *conn, u64 begin_time)
 {
+	TfwClient *cli = (TfwClient *)conn->peer;
+	int r = 0;
+
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
 		tfw_h2_conn_recv_finish(conn);
+	if (!tfw_client_training_adjust_cpu_num(cli, begin_time)) {
+		tfw_client_filter_block_ip(cli);
+		r = T_BLOCK_WITH_RST;
+	}
+
+	return r;
 }
 
 /**
