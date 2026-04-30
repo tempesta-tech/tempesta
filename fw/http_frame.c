@@ -2059,28 +2059,9 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	}
 	flags = tfw_h2_calc_frame_flags(stream, type, trailers);
 
-	switch (tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags)) {
-	case STREAM_FSM_RES_OK:
-		break;
-	case STREAM_FSM_RES_IGNORE:
-		fallthrough;
-	case STREAM_FSM_RES_TERM_STREAM:
-		/* Send previosly successfully prepared frames if exist. */
-		if (stream->xmit.frame_length) {
-			r = tfw_h2_entail_stream_skb(sk, ctx, stream,
-						     &stream->xmit.frame_length,
-						     true);
-		}
-		stream->xmit.frame_length += frame_length;
-		/*
-		 * Purge stream send queue, but leave postponed
-		 * skbs and rst stream/goaway/tls alert if exist.
-		 */
-		tfw_h2_stream_purge_send_queue(stream);
+	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
+	if (unlikely(r))
 		return r;
-	case STREAM_FSM_RES_TERM_CONN:
-		return -EPIPE;
-	}
 
 	/*
 	 * Very unlikely case, when skb_head and one or more next skbs
@@ -2256,10 +2237,8 @@ do {									\
 
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
-		if (unlikely(r)) {
-			T_WARN("Failed to make headers frame %d", r);
-			return r;
-		}
+		if (unlikely(r))
+			T_FSM_JMP(HTTP2_FRAMING_FAILED);
 
 		FRAME_XMIT_FSM_NEXT(frame_length, HTTP2_SEND_FRAMES);
 	}
@@ -2269,10 +2248,8 @@ do {									\
 							     stream->xmit.h_len);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
-		if (unlikely(r)) {
-			T_WARN("Failed to make continuation frame %d", r);
-			return r;
-		}
+		if (unlikely(r))
+			T_FSM_JMP(HTTP2_FRAMING_FAILED);
 
 		FRAME_XMIT_FSM_NEXT(frame_length, HTTP2_SEND_FRAMES);
 	}
@@ -2285,10 +2262,8 @@ do {									\
 							     stream->xmit.b_len);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
-		if (unlikely (r)) {
-			T_WARN("Failed to make data frame %d", r);
-			return r;
-		}
+		if (unlikely(r))
+			T_FSM_JMP(HTTP2_FRAMING_FAILED);
 
 		ctx->data_frames_sent++;
 		FRAME_XMIT_FSM_NEXT(frame_length, HTTP2_SEND_FRAMES);
@@ -2320,10 +2295,8 @@ do {									\
 		}
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
-		if (unlikely(r)) {
-			T_WARN("Failed to make trail headers frame %d", r);
-			return r;
-		}
+		if (unlikely(r))
+			T_FSM_JMP(HTTP2_FRAMING_FAILED);
 
 		FRAME_XMIT_FSM_NEXT(frame_length, HTTP2_SEND_FRAMES);
 	}
@@ -2334,10 +2307,8 @@ do {									\
 							     stream->xmit.t_len);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
-		if (unlikely(r)) {
-			T_WARN("Failed to make trail continuation frame %d", r);
-			return r;
-		}
+		if (unlikely(r))
+			T_FSM_JMP(HTTP2_FRAMING_FAILED);
 
 		FRAME_XMIT_FSM_NEXT(frame_length, HTTP2_SEND_FRAMES);
 	}
@@ -2409,6 +2380,66 @@ do {									\
 		 */
 		if (!stream_is_exclusive)
 			tfw_h2_stream_add_closed(ctx, stream);
+		T_FSM_EXIT();
+	}
+
+	/*
+	 * In this state we handle framing error. It may happen if we trying
+	 * to send DATA frames to closed stream. e.g Stream closed by the
+	 * client while receiving response, that is valid behavior for firefox.
+	 */
+	T_FSM_STATE(HTTP2_FRAMING_FAILED) {
+		switch (r) {
+		case STREAM_FSM_RES_IGNORE:
+			fallthrough;
+		case STREAM_FSM_RES_TERM_STREAM:
+			/* Send previosly successfully prepared frames if exist. */
+			if (stream->xmit.frame_length) {
+				r = tfw_h2_entail_stream_skb(sk, ctx, stream,
+							     &stream->xmit.frame_length,
+							     true);
+				if (unlikely(r))
+					return r;
+			}
+
+			/* During headers insertion we already subtract
+			 * @frame_length from b_len, h_len or t_len. However
+			 * tfw_h2_stream_purge_send_queue() need actual
+			 * size of the queue data to completely free it. Thus
+			 * restore actual size here.
+			 */
+			stream->xmit.frame_length += frame_length;
+			/**
+			 * Purge stream send queue, but leave postponed
+			 * skbs and rst stream/goaway/tls alert if exist.
+			 */
+			tfw_h2_stream_purge_send_queue(stream);
+
+			if (unlikely(stream->xmit.postponed) &&
+			    !ctx->cur_send_headers) {
+				struct sk_buff **head = &stream->xmit.postponed;
+
+				r = tfw_h2_stream_send_postponed(sk, head,
+								 mss_now,
+								 snd_wnd);
+				if (unlikely(r)) {
+					T_WARN("Failed to send postponed"
+					       " frames %d", r);
+					return r;
+				}
+			}
+			T_FSM_JMP(HTTP2_MAKE_FRAMES_FINISH);
+		case STREAM_FSM_RES_TERM_CONN:
+			return -EPIPE;
+		default:
+			/*
+			 * Framing error not occurred but framing failed state
+			 * reached.
+			 */
+			WARN_ON_ONCE(!r);
+			return -EPIPE;
+		}
+
 		T_FSM_EXIT();
 	}
 
