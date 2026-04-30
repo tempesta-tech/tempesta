@@ -358,10 +358,10 @@ tfw_ws_conn_send(TfwConn *conn, TfwMsg *msg)
 }
 
 static int
-tfw_ws_conn_recv_finish(TfwConn *conn)
+tfw_ws_conn_recv_finish(TfwConn *conn, u64 begin_time)
 {
 	return tfw_conn_hook_call(TFW_CONN_HTTP_TYPE(conn), conn,
-				  conn_recv_finish);
+				  conn_recv_finish, begin_time);
 }
 
 static TfwConnHooks ws_conn_hooks = {

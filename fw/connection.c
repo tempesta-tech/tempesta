@@ -205,9 +205,9 @@ tfw_connection_recv(TfwConn *conn, struct sk_buff *skb)
 }
 
 int
-tfw_connection_recv_finish(TfwConn *conn)
+tfw_connection_recv_finish(TfwConn *conn, u64 begin_time)
 {
-	return TFW_CONN_HOOK_CALL(conn, conn_recv_finish);
+	return TFW_CONN_HOOK_CALL(conn, conn_recv_finish, begin_time);
 }
 
 void

@@ -3249,8 +3249,10 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 }
 
 static int
-tfw_http_conn_recv_finish(TfwConn *conn)
+tfw_http_conn_recv_finish(TfwConn *conn, u64 begin_time)
 {
+	TfwClient *cli = (TfwClient *)conn->peer;
+
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
 		tfw_h2_conn_recv_finish(conn);
 
@@ -3261,6 +3263,11 @@ tfw_http_conn_recv_finish(TfwConn *conn)
 	 */
 	if (unlikely(frang_client_mem_limit((TfwCliConn *)conn, true)))
 		return T_BLOCK_WITH_RST;
+
+	if (!tfw_client_training_adjust_cpu_num(cli, begin_time)) {
+		tfw_client_filter_block_ip(cli);
+		return T_BLOCK_WITH_RST;
+	}
 
 	return 0;
 }

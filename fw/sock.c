@@ -1063,6 +1063,7 @@ ss_tcp_process_data(struct sock *sk)
 	unsigned int skb_len, skb_seq;
 	struct sk_buff *skb, *tmp;
 	struct tcp_sock *tp = tcp_sk(sk);
+	u64 begin_time = ktime_get_ns();
 
 	skb_queue_walk_safe(&sk->sk_receive_queue, skb, tmp) {
 		if (unlikely(before(tp->copied_seq, TCP_SKB_CB(skb)->seq))) {
@@ -1094,7 +1095,7 @@ ss_tcp_process_data(struct sock *sk)
 				 skb_len);
 	}
 out:
-	tmp_r = SS_CALL(connection_recv_finish, sk->sk_user_data);
+	tmp_r = SS_CALL(connection_recv_finish, sk->sk_user_data, begin_time);
 	if (unlikely(tfw_error_code_more_crucial(tmp_r, r)))
 		r = tmp_r;
 
