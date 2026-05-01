@@ -199,7 +199,8 @@ do {									\
 			return T_BAD;					\
 		} else if (res == STREAM_FSM_RES_TERM_STREAM) {		\
 			WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id); \
-			return tfw_h2_current_stream_send_rst((ctx), err); \
+			return tfw_h2_send_rst_stream(ctx, ctx->cur_stream->id,\
+						      err);\
 		}							\
 		return T_OK;						\
 	}								\
@@ -667,15 +668,13 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 		T_DBG("Invalid dependency: new stream with %u depends on"
 		      " itself\n", hdr->stream_id);
 
-		ctx->state = HTTP2_IGNORE_FRAME_DATA;
-
-		if (likely(!ctx->cur_stream)) {
-			return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
-						      HTTP2_ECODE_PROTO);
-		}
-
-		WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
-		return tfw_h2_current_stream_send_rst(ctx, HTTP2_ECODE_PROTO);
+		/*
+		 * RFC 7540 states that it MUST be treated as a stream-level
+		 * error, however, it doesn’t make sense to continue servicing
+		 * a suspicious connection.
+		 */
+		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
+		return T_BAD;
 	}
 
 	if (likely(!ctx->cur_stream)) {
@@ -777,18 +776,6 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 		return T_OK;
 	}
 
-	if (ctx->cur_stream->state == HTTP2_STREAM_IDLE) {
-		/*
-		 * According to RFC 9113 we should response with stream
-		 * error of type PROTOCOL ERROR here, but we can't send
-		 * RST_STREAM for idle stream.
-		 * RFC 9113 doesn't describe this case, so terminate
-		 * connection.
-		 */
-		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
-		return T_BAD;
-	}
-
 	/*
 	 * Stream cannot depend on itself (see RFC 7540 section 5.1.2 for
 	 * details).
@@ -796,12 +783,14 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 	T_DBG("Invalid dependency: new stream with %u depends on itself\n",
 	      hdr->stream_id);
 
-	if (tfw_h2_stream_fsm_ignore_err(ctx, ctx->cur_stream,
-					 HTTP2_RST_STREAM, 0))
-		return -EPERM;
+	/*
+	 * RFC 7540 states that it MUST be treated as a stream-level error,
+	 * however, it doesn’t make sense to continue servicing a suspicious
+	 * connection.
+	 */
+	tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
 
-	WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
-	return tfw_h2_current_stream_send_rst(ctx, HTTP2_ECODE_PROTO);
+	return T_BAD;
 }
 
 static inline void
@@ -1638,7 +1627,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_RST_STREAM) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		tfw_h2_rst_stream_process(ctx);
+		if (ctx->cur_stream != ctx->cur_send_headers)
+			tfw_h2_rst_stream_process(ctx);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -2054,6 +2044,24 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	bool trailers = false;
 	char *data;
 	int r = 0;
+	unsigned char flags;
+
+	if (type == HTTP2_DATA) {
+		ctx->rem_wnd -= frame_length;
+		ctx->data_bytes_sent += frame_length;
+		stream->rem_wnd -= frame_length;
+		stream->xmit.b_len -= frame_length;
+	} else if (stream->xmit.h_len) {
+		stream->xmit.h_len -= frame_length;
+	} else if (stream->xmit.t_len) {
+		stream->xmit.t_len -= frame_length;
+		trailers = true;
+	}
+	flags = tfw_h2_calc_frame_flags(stream, type, trailers);
+
+	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
+	if (unlikely(r))
+		return r;
 
 	/*
 	 * Very unlikely case, when skb_head and one or more next skbs
@@ -2088,52 +2096,23 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		data = dst.data;
 	}
 
-	if (type == HTTP2_DATA) {
-		ctx->rem_wnd -= frame_length;
-		ctx->data_bytes_sent += frame_length;
-		stream->rem_wnd -= frame_length;
-		stream->xmit.b_len -= frame_length;
-	} else if (stream->xmit.h_len) {
-		stream->xmit.h_len -= frame_length;
-	} else if (stream->xmit.t_len) {
-		stream->xmit.t_len -= frame_length;
-		trailers = true;
-	}
-
 	frame_hdr.length = frame_length;
 	frame_hdr.stream_id = stream->id;
 	frame_hdr.type = type;
-	frame_hdr.flags = tfw_h2_calc_frame_flags(stream, type, trailers);
+	frame_hdr.flags = flags;
 	tfw_h2_pack_frame_header(data, &frame_hdr);
 
 	stream->xmit.frame_length += frame_length + FRAME_HEADER_SIZE;
-	switch (tfw_h2_stream_fsm_ignore_err(ctx, stream, type,
-					     frame_hdr.flags))
-	{
-	case STREAM_FSM_RES_OK:
-		break;
-	case STREAM_FSM_RES_IGNORE:
-		fallthrough;
-	case STREAM_FSM_RES_TERM_STREAM:
-		/* Send previosly successfully prepared frames if exist. */
-		stream->xmit.frame_length -= frame_length + FRAME_HEADER_SIZE;
-		if (stream->xmit.frame_length) {
-			r = tfw_h2_entail_stream_skb(sk, ctx, stream,
-						     &stream->xmit.frame_length,
-						     true);
-		}
-		stream->xmit.frame_length += frame_length + FRAME_HEADER_SIZE;
-		/*
-		 * Purge stream send queue, but leave postponed
-		 * skbs and rst stream/goaway/tls alert if exist.
-		 */
-		tfw_h2_stream_purge_send_queue(stream);
-		return r;
-	case STREAM_FSM_RES_TERM_CONN:
-		return -EPIPE;
-	}
 
 	return r;
+}
+
+static inline int
+__tfw_h2_is_ready_to_send_postponed(const TfwH2Ctx *ctx,
+				    const TfwStream *stream)
+{
+	return stream->xmit.postponed && !stream->xmit.frame_length &&
+	       !ctx->cur_send_headers;
 }
 
 static int
@@ -2180,7 +2159,7 @@ do {									\
 	T_FSM_EXIT();							\
 } while(0)
 
-#define CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(type, len)			\
+#define CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(type, len)		\
 do {									\
 	unsigned int max_len;						\
 	unsigned int min_len;						\
@@ -2198,7 +2177,7 @@ do {									\
 	 * If the lenght of data to send is less then `min_to_send`	\
 	 * use it as a minimum bytes to send.				\
 	 */								\
-	if (frame_length < min_len)					\
+	if (stream->xmit.frame_length == 0 && frame_length < min_len)	\
 		ADJUST_BLOCKED_STREAMS_AND_EXIT(min_len, type);		\
 	frame_type = type;						\
 } while(0)
@@ -2229,37 +2208,48 @@ do {									\
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_HEADERS_FRAMES) {
-		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_HEADERS,
-						     stream->xmit.h_len);
+		/*
+		 * This call doesn't change the stream state, but sets ctx->cur_send_headers.
+		 * We do this to force the stream scheduler to select this
+		 * stream during next sending if current sending of this stream
+		 * has been postponed due to lack of tcp window.
+		 */
+		r = tfw_h2_stream_fsm_ignore_err(ctx, stream, HTTP2_HEADERS, 0);
+		if (unlikely(r)) {
+			T_WARN("Wrong state during sending headers.\n");
+			return -EPIPE;
+		}
+
 		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
 			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
-						       stream);
+						       stream->xmit.skb_head,
+						       0,
+						       &stream->xmit.h_len);
 			if (unlikely(r < 0)) {
-				T_WARN("Failed to encode hpack dynamic"
+				T_WARN("Failed to encode hpack dynamic "
 				       "table size %d", r);
 				return r;
 			}
 		}
 
+		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_HEADERS,
+							     stream->xmit.h_len);
+
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
-		if (unlikely(r)) {
-			T_WARN("Failed to make headers frame %d", r);
-			return r;
-		}
+		if (unlikely(r))
+			T_FSM_JMP(HTTP2_FRAMING_FAILED);
 
 		FRAME_XMIT_FSM_NEXT(frame_length, HTTP2_SEND_FRAMES);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_CONTINUATION_FRAMES) {
-		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_CONTINUATION,
-						     stream->xmit.h_len);
+		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_CONTINUATION,
+							     stream->xmit.h_len);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
-		if (unlikely(r)) {
-			T_WARN("Failed to make continuation frame %d", r);
-			return r;
-		}
+		if (unlikely(r))
+			T_FSM_JMP(HTTP2_FRAMING_FAILED);
 
 		FRAME_XMIT_FSM_NEXT(frame_length, HTTP2_SEND_FRAMES);
 	}
@@ -2268,14 +2258,12 @@ do {									\
 		if (tfw_h2_conn_or_stream_wnd_is_exceeded(ctx, stream))
 			ADJUST_BLOCKED_STREAMS_AND_EXIT(0, HTTP2_DATA);
 
-		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_DATA,
-						     stream->xmit.b_len);
+		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_DATA,
+							     stream->xmit.b_len);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
-		if (unlikely (r)) {
-			T_WARN("Failed to make data frame %d", r);
-			return r;
-		}
+		if (unlikely(r))
+			T_FSM_JMP(HTTP2_FRAMING_FAILED);
 
 		ctx->data_frames_sent++;
 		FRAME_XMIT_FSM_NEXT(frame_length, HTTP2_SEND_FRAMES);
@@ -2283,72 +2271,86 @@ do {									\
 
 	T_FSM_STATE(HTTP2_MAKE_TRAILER_FRAMES) {
 		is_trailer_cont = true;
-		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_HEADERS,
-						     stream->xmit.t_len);
+		/*
+		 * This call doesn't change the stream state, but sets ctx->cur_send_headers.
+		 * We do this to force the stream scheduler to select this
+		 * stream during next sending if current sending of this stream
+		 * has been postponed due to lack of tcp window.
+		 */
+		r = tfw_h2_stream_fsm_ignore_err(ctx, stream, HTTP2_HEADERS, 0);
+
+		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_HEADERS,
+							     stream->xmit.t_len);
+
+		if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
+			r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
+						       stream->xmit.skb_head,
+						       stream->xmit.frame_length,
+						       &stream->xmit.t_len);
+			if (unlikely(r < 0)) {
+				T_WARN("Failed to encode hpack dynamic "
+				       "table size %d", r);
+				return r;
+			}
+		}
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
-		if (unlikely(r)) {
-			T_WARN("Failed to make trail headers frame %d", r);
-			return r;
-		}
+		if (unlikely(r))
+			T_FSM_JMP(HTTP2_FRAMING_FAILED);
 
 		FRAME_XMIT_FSM_NEXT(frame_length, HTTP2_SEND_FRAMES);
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES) {
 		is_trailer_cont = true;
-		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE(HTTP2_CONTINUATION,
-						     stream->xmit.t_len);
+		CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT(HTTP2_CONTINUATION,
+							     stream->xmit.t_len);
 		r = tfw_h2_insert_frame_header(sk, ctx, stream, frame_type,
 					       frame_length);
-		if (unlikely(r)) {
-			T_WARN("Failed to make trail continuation frame %d", r);
-			return r;
-		}
+		if (unlikely(r))
+			T_FSM_JMP(HTTP2_FRAMING_FAILED);
 
 		FRAME_XMIT_FSM_NEXT(frame_length, HTTP2_SEND_FRAMES);
 	}
 
 	T_FSM_STATE(HTTP2_SEND_FRAMES) {
 		if (likely(stream->xmit.frame_length)) {
-			r =  tfw_h2_entail_stream_skb(sk, ctx, stream,
-						      &stream->xmit.frame_length,
-						      false);
+			r = tfw_h2_entail_stream_skb(sk, ctx, stream,
+						     &stream->xmit.frame_length,
+						     false);
 			if (unlikely(r)) {
 				T_WARN("Failed to send frame %d", r);
 				return r;
 			}
 		}
 
-		if (stream->xmit.h_len) {
+		if (stream->xmit.h_len)
 			T_FSM_JMP(HTTP2_MAKE_CONTINUATION_FRAMES);
-		} else {
-			if (unlikely(stream->xmit.postponed)
-			    && !stream->xmit.frame_length
-			    && !ctx->cur_send_headers)
-			{
-				struct sk_buff **head = &stream->xmit.postponed;
 
-				r = tfw_h2_stream_send_postponed(sk, head,
-								 mss_now,
-								 snd_wnd);
-				if (unlikely(r)) {
-					T_WARN("Failed to send postponed"
-					       " frames %d", r);
-					return r;
-				}
+		if (unlikely(__tfw_h2_is_ready_to_send_postponed(ctx,
+								 stream))) {
+			struct sk_buff **head = &stream->xmit.postponed;
+
+			r = tfw_h2_stream_send_postponed(sk, head, mss_now,
+							 snd_wnd);
+			if (unlikely(r)) {
+				T_WARN("Failed to send postponed frames %d", r);
+				return r;
 			}
-			if (stream->xmit.b_len) {
-				T_FSM_JMP(HTTP2_MAKE_DATA_FRAMES);
-			} else if (stream->xmit.t_len) {
-				if (likely(!is_trailer_cont)) {
-					T_FSM_JMP(HTTP2_MAKE_TRAILER_FRAMES);
-				} else {
-					T_FSM_JMP(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES);
-				}
+		}
+
+		if (stream->xmit.b_len) {
+			T_FSM_JMP(HTTP2_MAKE_DATA_FRAMES);
+		}
+		else if (stream->xmit.t_len) {
+			if (likely(!is_trailer_cont)) {
+				T_FSM_JMP(HTTP2_MAKE_TRAILER_FRAMES);
 			} else {
-				fallthrough;
+				T_FSM_JMP(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES);
 			}
+		}
+		else {
+			fallthrough;
 		}
 	}
 
@@ -2361,8 +2363,8 @@ do {									\
 		 */
 		if (unlikely(stream->xmit.skb_head)) {
 			struct sk_buff **head = &stream->xmit.skb_head;
-			r = tfw_h2_stream_send_postponed(sk, head,
-							 mss_now,
+
+			r = tfw_h2_stream_send_postponed(sk, head, mss_now,
 							 snd_wnd);
 			if (unlikely(r)) {
 				T_WARN("Failed to send postponed"
@@ -2378,6 +2380,66 @@ do {									\
 		 */
 		if (!stream_is_exclusive)
 			tfw_h2_stream_add_closed(ctx, stream);
+		T_FSM_EXIT();
+	}
+
+	/*
+	 * In this state we handle framing error. It may happen if we trying
+	 * to send DATA frames to closed stream. e.g Stream closed by the
+	 * client while receiving response, that is valid behavior for firefox.
+	 */
+	T_FSM_STATE(HTTP2_FRAMING_FAILED) {
+		switch (r) {
+		case STREAM_FSM_RES_IGNORE:
+			fallthrough;
+		case STREAM_FSM_RES_TERM_STREAM:
+			/* Send previosly successfully prepared frames if exist. */
+			if (stream->xmit.frame_length) {
+				r = tfw_h2_entail_stream_skb(sk, ctx, stream,
+							     &stream->xmit.frame_length,
+							     true);
+				if (unlikely(r))
+					return r;
+			}
+
+			/* During headers insertion we already subtract
+			 * @frame_length from b_len, h_len or t_len. However
+			 * tfw_h2_stream_purge_send_queue() need actual
+			 * size of the queue data to completely free it. Thus
+			 * restore actual size here.
+			 */
+			stream->xmit.frame_length += frame_length;
+			/**
+			 * Purge stream send queue, but leave postponed
+			 * skbs and rst stream/goaway/tls alert if exist.
+			 */
+			tfw_h2_stream_purge_send_queue(stream);
+
+			if (unlikely(stream->xmit.postponed) &&
+			    !ctx->cur_send_headers) {
+				struct sk_buff **head = &stream->xmit.postponed;
+
+				r = tfw_h2_stream_send_postponed(sk, head,
+								 mss_now,
+								 snd_wnd);
+				if (unlikely(r)) {
+					T_WARN("Failed to send postponed"
+					       " frames %d", r);
+					return r;
+				}
+			}
+			T_FSM_JMP(HTTP2_MAKE_FRAMES_FINISH);
+		case STREAM_FSM_RES_TERM_CONN:
+			return -EPIPE;
+		default:
+			/*
+			 * Framing error not occurred but framing failed state
+			 * reached.
+			 */
+			WARN_ON_ONCE(!r);
+			return -EPIPE;
+		}
+
 		T_FSM_EXIT();
 	}
 
@@ -2398,8 +2460,7 @@ do {									\
 		{
 			struct sk_buff **head = &stream->xmit.postponed;
 
-			r = tfw_h2_stream_send_postponed(sk, head,
-							 mss_now,
+			r = tfw_h2_stream_send_postponed(sk, head, mss_now,
 							 snd_wnd);
 			if (unlikely(r)) {
 				T_WARN("Failed to send postponed"
@@ -2412,7 +2473,7 @@ do {									\
 	return r;
 
 #undef FRAME_XMIT_FSM_NEXT
-#undef CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE
+#undef CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT
 #undef ADJUST_BLOCKED_STREAMS_AND_EXIT
 }
 

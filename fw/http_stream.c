@@ -346,10 +346,11 @@ do {									\
 	}								\
 } while(0)
 
-#define TFW_H2_FSM_TYPE_CHECK(ctx, stream, op, type)			\
+#define TFW_H2_FSM_TYPE_CHECK(ctx, op, type, is_send)			\
 do {									\
 	if ((ctx->cur_##op##_headers					\
-	     && (type != HTTP2_CONTINUATION && type != HTTP2_RST_STREAM)) \
+	     && ((type == HTTP2_HEADERS && !is_send) ||			\
+		(type != HTTP2_HEADERS && type != HTTP2_CONTINUATION)))	\
 	    || (!ctx->cur_##op##_headers && type == HTTP2_CONTINUATION)) { \
 		*err = HTTP2_ECODE_PROTO;				\
 		res = STREAM_FSM_RES_TERM_CONN;				\
@@ -372,7 +373,7 @@ do {									\
 
 	if (send) {
 		TFW_H2_FSM_STREAM_CHECK(ctx, stream, send);
-		TFW_H2_FSM_TYPE_CHECK(ctx, stream, send, type);
+		TFW_H2_FSM_TYPE_CHECK(ctx, send, type, true);
 		/*
 		 * Usually we would send HEADERS/CONTINUATION or DATA frames
 		 * to the client when HTTP2_STREAM_REM_HALF_CLOSED state
@@ -399,7 +400,7 @@ do {									\
 		 */
 	} else {
 		TFW_H2_FSM_STREAM_CHECK(ctx, stream, recv);
-		TFW_H2_FSM_TYPE_CHECK(ctx, stream, recv, type);
+		TFW_H2_FSM_TYPE_CHECK(ctx, recv, type, false);
 	}
 
 	switch (tfw_h2_get_stream_state(stream)) {
@@ -753,9 +754,24 @@ do {									\
 		break;
 
 	case HTTP2_STREAM_CLOSED:
-		T_WARN("%s, stream fully closed: stream->id=%u, type=%hhu,"
+		T_DBG2("%s, stream fully closed: stream->id=%u, type=%hhu,"
 		       " flags=0x%hhx\n", __func__, stream->id, type, flags);
 		if (send) {
+			const bool is_headers = type == HTTP2_HEADERS ||
+				type == HTTP2_CONTINUATION;
+
+			if (ctx->cur_send_headers && is_headers) {
+				/*
+				 * Headers has been sent in closed state.
+				 * It happens when Tempesta encoded all headers
+				 * and after received RST_STREAM. To not break
+				 * compression state Tempesta sends all remaining
+				 * headers.
+				 */
+				if (flags & HTTP2_F_END_HEADERS)
+					ctx->cur_send_headers = NULL;
+				break;
+			}
 			res = STREAM_FSM_RES_IGNORE;
 		} else {
 			if (type != HTTP2_PRIORITY) {
@@ -763,16 +779,12 @@ do {									\
 				res = STREAM_FSM_RES_TERM_CONN;
 			}
 		}
-
 		break;
 	default:
 		BUG();
 	}
 
 finish:
-	if (type == HTTP2_RST_STREAM || res == STREAM_FSM_RES_TERM_STREAM)
-		tfw_h2_conn_reset_stream_on_close(ctx, stream);
-
 	T_DBG4("exit %s: strm [%p] state %d(%s), res %d\n", __func__, stream,
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream), res);
 

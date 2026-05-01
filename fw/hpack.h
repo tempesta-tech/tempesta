@@ -302,11 +302,12 @@ void write_int(unsigned long index, unsigned short max, unsigned short mask,
 int tfw_hpack_init(TfwHPack *__restrict hp, TfwClientMem *owner,
 		   unsigned int htbl_sz);
 void tfw_hpack_clean(TfwHPack *__restrict hp);
-int tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr);
+int tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
+			bool dyn_indexing);
 int tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		     bool use_pool, bool dyn_indexing);
 void tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
-			     unsigned short new_size);
+			     unsigned int new_size);
 int tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		     unsigned long n, TfwHttpReq *__restrict req,
 		     unsigned int *__restrict parsed);
@@ -314,7 +315,9 @@ int tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
 				  TfwHttpResp *__restrict resp,
 				  unsigned char *__restrict src, unsigned long n,
 				  TfwDecodeCacheIter *__restrict cd_iter);
-int tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream);
+int tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *tbl, struct sk_buff *skb_head,
+			       unsigned int offset,
+			       unsigned int *acc_len);
 
 static inline unsigned int
 tfw_hpack_int_size(unsigned long index, unsigned short max)
