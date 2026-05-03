@@ -192,7 +192,7 @@ TfwStream *tfw_h2_find_not_closed_stream(TfwH2Ctx *ctx, unsigned int id,
 void tfw_h2_req_unlink_stream(TfwHttpReq *req);
 void tfw_h2_req_unlink_and_close_stream(TfwHttpReq *req);
 int tfw_h2_stream_xmit_prepare_resp(TfwStream *stream);
-int tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
+int tfw_h2_entail_stream_skb(struct sock *sk, TfwStream *stream,
 			     unsigned int *len, bool should_split);
 TfwStreamSchedEntry *tfw_h2_alloc_stream_sched_entry(TfwH2Ctx *ctx);
 void tfw_h2_free_stream_sched_entry(TfwH2Ctx *ctx, TfwStreamSchedEntry *entry);

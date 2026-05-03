@@ -713,7 +713,7 @@ finish:
 ALLOW_ERROR_INJECTION(tfw_h2_stream_xmit_prepare_resp, ERRNO);
 
 int
-tfw_h2_entail_stream_skb(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
+tfw_h2_entail_stream_skb(struct sock *sk, TfwStream *stream,
 			 unsigned int *len, bool should_split)
 {
 	unsigned char tls_type = skb_tfw_tls_type(stream->xmit.skb_head);

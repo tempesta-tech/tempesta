@@ -183,11 +183,20 @@ ss_skb_orphan(struct sk_buff *skb)
 
 	destructor = TFW_SKB_CB(skb)->destructor;
 	if (destructor) {
+		/*
+		 * The same BUG_ON is present in linux kernel in `skb_orphan`.
+		 * `skb->opaque_data` will be used inside destructor, so if it
+		 * is NULL, we still catch BUG later.
+		 */
 		BUG_ON(!TFW_SKB_CB(skb)->opaque_data);
 		destructor(skb);
 		TFW_SKB_CB(skb)->destructor = NULL;
 		TFW_SKB_CB(skb)->opaque_data = NULL;
 	} else {
+		/*
+		 * The same BUG_ON is present in linux kernel in
+		 * `skb_orphan`.
+		 */
 		BUG_ON(TFW_SKB_CB(skb)->opaque_data);
 	}
 }
