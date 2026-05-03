@@ -1348,11 +1348,6 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
 
 	/*
-	 * dev is used to save connection for memory accounting
-	 * clear it before pass skb to the kernel.
-	 */
-	skb->dev = NULL;
-	/*
 	 * Since we use skb->sb for our purpose we should
 	 * zeroed it before pass skb to the kernel.
 	 */
