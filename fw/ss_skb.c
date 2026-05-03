@@ -1342,6 +1342,17 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	struct skb_shared_info *shinfo = skb_shinfo(skb);
 	__u8 pfmemalloc = skb->pfmemalloc;
 
+	/*
+	 * We call ss_skb_orphan here for several reasons:
+	 * - Currently, we use `skb->cb` to track memory consumed by the skb,
+	 *   but this area is reused once the skb is queued to the socket write
+	 *   queue.
+	 * - Tracking skb memory usage inside the kernel would require kernel
+	 *   patch and adding extra fields to the skb structure.
+	 * - We manage the TCP window for all outgoing data, so skb is only
+	 *   queued to the socket write queue when the kernel is already able
+	 *   to transmit it.
+	 */
 	ss_skb_orphan(skb);
 
 	skb_dst_drop(skb);

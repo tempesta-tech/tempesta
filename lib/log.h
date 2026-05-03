@@ -108,6 +108,13 @@ is_tfw_internal_error_code(int err_code)
 		&& err_code < __T_INTERNAL_ERROR_CODE_END;
 }
 
+/*
+ * Compare two error codes by severity.
+ * Lower value is treated as more critical, because all error codes are
+ * listed in TfwRcCommon enum from the most crucial to the least crucial.
+ * If more then one error occurs during request/response processing more
+ * crucial error should be returned.
+ */
 static inline bool
 tfw_error_code_more_crucial(int err_code1, int err_code2)
 {
@@ -119,6 +126,10 @@ tfw_error_code_more_crucial(int err_code1, int err_code2)
 	return err_code1 < err_code2;
 }
 
+/*
+ * Determine if an error is considered "crucial" (i.e., connection should be
+ * closed).
+ */
 static inline bool
 tfw_error_code_is_crucial(int err_code)
 {
