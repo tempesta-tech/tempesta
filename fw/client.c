@@ -71,18 +71,13 @@ static TDB *client_db;
 static atomic_t shutdown_pending = ATOMIC_INIT(0);
 static DECLARE_WAIT_QUEUE_HEAD(shutdown_wq);
 
-static struct kmem_cache *cli_mem_cache;
+static struct kmem_cache *tfw_cli_mem_cache;
 static struct {
 	TfwClientMem		*mem;
-	struct list_head	free_list;
+	TfwClientMem		*free_list;
 	unsigned int		size;
 	unsigned int		order;
-} cli_mem_pool = {
-	.mem		= NULL,
-	.free_list	= LIST_HEAD_INIT(cli_mem_pool.free_list),
-	.size		= 0,
-	.order		= 0,
-};
+} cli_mem_pool;
 
 static inline bool
 tfw_cli_mem_belongs_to_pool(TfwClientMem *cli_mem)
@@ -97,7 +92,7 @@ __cli_mem_release(TfwClientMem *cli_mem)
 	percpu_ref_exit(&cli_mem->refcnt);
 	free_percpu(cli_mem->mem);
 	if (!tfw_cli_mem_belongs_to_pool(cli_mem))
-		kmem_cache_free(cli_mem_cache, cli_mem);
+		kmem_cache_free(tfw_cli_mem_cache, cli_mem);
 }
 
 static inline void
@@ -110,7 +105,8 @@ tfw_cli_mem_pool_free(TfwClientMem *cli_mem)
 	for_each_online_cpu(cpu)
 		*per_cpu_ptr(cli_mem->mem, cpu) = 0;
 	percpu_ref_reinit(&cli_mem->refcnt);
-	list_add_tail(&cli_mem->in_free_list, &cli_mem_pool.free_list);
+	cli_mem->next_free = cli_mem_pool.free_list;
+	cli_mem_pool.free_list = cli_mem;
 }
 
 static inline TfwClientMem *
@@ -120,12 +116,11 @@ tfw_cli_mem_pool_alloc(void)
 
 	assert_spin_locked(&client_db->ga_lock);
 
-	cli_mem = list_first_entry_or_null(&cli_mem_pool.free_list,
-					   TfwClientMem, in_free_list);
-	if (!cli_mem)
+	if (!cli_mem_pool.free_list)
 		return NULL;
 
-	list_del_init(&cli_mem->in_free_list);
+	cli_mem = cli_mem_pool.free_list;
+	cli_mem_pool.free_list = cli_mem->next_free;
 
 	return cli_mem;
 }
@@ -172,13 +167,14 @@ tfw_cli_mem_init(TfwClientMem *cli_mem, gfp_t flags)
 	if (unlikely(r))
 		goto free_per_cpu_mem;
 
-	INIT_LIST_HEAD(&cli_mem->in_free_list);
+	cli_mem->next_free = NULL;
 	INIT_WORK(&cli_mem->kill_work, tfw_cli_mem_kill_work_fn);
 
 	return 0;
 
 free_per_cpu_mem:
 	free_percpu(cli_mem->mem);
+	cli_mem->mem = NULL;
 
 	return r;
 }
@@ -186,25 +182,24 @@ free_per_cpu_mem:
 static inline void
 tfw_cli_mem_pool_exit(void)
 {
-	TfwClientMem *curr, *tmp;
+	TfwClientMem *tmp, *curr = cli_mem_pool.free_list;
 
-	list_for_each_entry_safe(curr, tmp, &cli_mem_pool.free_list,
-				 in_free_list)
-	{
-		list_del_init(&curr->in_free_list);
-		__cli_mem_release(curr);
+	while (curr) {
+		tmp = curr;
+		curr = tmp->next_free;
+		__cli_mem_release(tmp);
 	}
 
 	free_pages((unsigned long)cli_mem_pool.mem, cli_mem_pool.order);
-	cli_mem_pool.mem = NULL;
+	bzero_fast(&cli_mem_pool, sizeof(cli_mem_pool));
 }
 
 static inline int
 tfw_cli_mem_pool_init(void)
 {
-	TfwClientMem *block;
-	unsigned int order;
-	int i, r;
+	TfwClientMem *block, *tail = NULL;
+	unsigned int i, order;
+	int r;
 
 	if (WARN_ON_ONCE(!client_cfg.lru_size))
 		return -EINVAL;
@@ -219,12 +214,30 @@ tfw_cli_mem_pool_init(void)
 	if (unlikely(!cli_mem_pool.mem))
 		return -ENOMEM;
 
+	/*
+	 * Initialize pool in forward order and build free_list as
+	 * 0 -> 1 -> ... -> N-1.
+	 *
+	 * This preserves the natural memory layout of the preallocated array,
+	 * which is important because tfw_cli_mem_belongs_to_pool() relies on
+	 * the pool being a contiguous range [mem, mem + size).
+	 *
+	 * Using tail insertion avoids reversing the order (which would happen
+	 * with head insertion) and keeps allocation predictable and
+	 * cache-friendly.
+	 */
 	block = cli_mem_pool.mem;
 	for (i = 0; i < client_cfg.lru_size; i++) {
 		r = tfw_cli_mem_init(&block[i], GFP_KERNEL);
 		if (unlikely(r))
 			return r;
-		list_add(&block[i].in_free_list, &cli_mem_pool.free_list);
+
+		if (!cli_mem_pool.free_list)
+			cli_mem_pool.free_list = &block[i];
+		else
+			tail->next_free = &block[i];
+
+		tail = &block[i];
 		cli_mem_pool.size++;
 	}
 
@@ -355,7 +368,7 @@ tfw_cli_mem_alloc_from_cache(void)
 {
 	TfwClientMem *cli_mem;
 
-	cli_mem = kmem_cache_alloc(cli_mem_cache, GFP_ATOMIC);
+	cli_mem = kmem_cache_alloc(tfw_cli_mem_cache, GFP_ATOMIC);
 	if (unlikely(!cli_mem))
 		return NULL;
 
@@ -365,7 +378,7 @@ tfw_cli_mem_alloc_from_cache(void)
 	return cli_mem;
 
 free_cli_mem:
-	kmem_cache_free(cli_mem_cache, cli_mem);
+	kmem_cache_free(tfw_cli_mem_cache, cli_mem);
 
 	return NULL;
 }
@@ -589,10 +602,10 @@ TfwMod tfw_client_mod = {
 int __init
 tfw_client_init(void)
 {
-	cli_mem_cache = kmem_cache_create("cli_mem_cache",
-					  sizeof(TfwClientMem),
-					  0, 0, NULL);
-	if (!cli_mem_cache)
+	tfw_cli_mem_cache = kmem_cache_create("tfw_cli_mem_cache",
+					      sizeof(TfwClientMem),
+					      0, 0, NULL);
+	if (!tfw_cli_mem_cache)
 		return -ENOMEM;
 	tfw_mod_register(&tfw_client_mod);
 
@@ -602,6 +615,6 @@ tfw_client_init(void)
 void
 tfw_client_exit(void)
 {
-	kmem_cache_destroy(cli_mem_cache);
+	kmem_cache_destroy(tfw_cli_mem_cache);
 	tfw_mod_unregister(&tfw_client_mod);
 }

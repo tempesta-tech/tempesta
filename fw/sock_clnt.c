@@ -992,7 +992,7 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 	},
 	{
 		.name = "client_mem",
-		.deflt = "0 0",
+		.deflt = "500M 1G",
 		.handler = tfw_cfgop_client_mem,
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
 		.allow_none = true,
