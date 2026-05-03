@@ -1678,7 +1678,7 @@ frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
 	TfwVhost *dflt_vh;
 
 	if (likely(!tfw_cli_hard_mem_limit
-		   || tfw_client_mem(cli) <= tfw_cli_hard_mem_limit))
+		   || tfw_client_mem(cli->cli_mem) <= tfw_cli_hard_mem_limit))
 		return 0;
 
 	if (!block_if_exceeded)

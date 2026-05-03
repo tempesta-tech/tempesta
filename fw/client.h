@@ -82,13 +82,13 @@ tfw_client_mem_put(TfwClientMem *cli_mem)
 }
 
 static inline long
-tfw_client_mem(TfwClient *cli)
+tfw_client_mem(TfwClientMem *cli_mem)
 {
 	long mem = 0;
 	int cpu;
 
 	for_each_online_cpu(cpu)
-		mem += *(per_cpu_ptr(cli->cli_mem->mem, cpu));
+		mem += *(per_cpu_ptr(cli_mem->mem, cpu));
 
 	return mem;
 }
