@@ -1742,6 +1742,7 @@ ss_skb_dflt_destructor(struct sk_buff *skb)
 
 	BUG_ON(skb_tfw_is_in_socket_write_queue(skb));
 	ss_skb_adjust_client_mem(skb, -TFW_SKB_CB(skb)->mem);
+	WARN_ON(TFW_SKB_CB(skb)->mem);
 	tfw_client_mem_put(cli_mem);
 }
 
