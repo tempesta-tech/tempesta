@@ -168,6 +168,11 @@ ss_skb_queue_splice(struct sk_buff **skb_head, struct sk_buff **skb)
 	*skb = NULL;
 }
 
+/*
+ * Orphan skb from Tempesta-specific ownership. 
+ * We use our own version (instead of using `skb_orphan`) to
+ * don't use `skb->sk` field inside Tempesta FW source code.
+ */
 static inline void
 ss_skb_orphan(struct sk_buff *skb)
 {

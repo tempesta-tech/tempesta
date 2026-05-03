@@ -95,6 +95,10 @@ __cli_mem_release(TfwClientMem *cli_mem)
 		kmem_cache_free(tfw_cli_mem_cache, cli_mem);
 }
 
+/*
+ * Reset counters, reinit refcnt and put `cli_mem` back to the pool.
+ * Sohuld be called under `ga_lock`, to protect `cli_mem_pool.free_list`
+ */
 static inline void
 tfw_cli_mem_pool_free(TfwClientMem *cli_mem)
 {
@@ -109,6 +113,11 @@ tfw_cli_mem_pool_free(TfwClientMem *cli_mem)
 	cli_mem_pool.free_list = cli_mem;
 }
 
+/*
+ * Get `TfwClientMem` object from pool if present.
+ * Object was already initialized during pool creation or
+ * releasing to pool.
+ */
 static inline TfwClientMem *
 tfw_cli_mem_pool_alloc(void)
 {
@@ -125,6 +134,10 @@ tfw_cli_mem_pool_alloc(void)
 	return cli_mem;
 }
 
+/*
+ * Final release of cli_mem: verify refcnt/memory are zero and either
+ * return to pool or free it. Signals shutdown completion if needed.
+ */
 static void
 cli_mem_release(struct percpu_ref *ref)
 {
@@ -145,6 +158,16 @@ cli_mem_release(struct percpu_ref *ref)
 		wake_up(&shutdown_wq);
 }
 
+/*
+ * Workqueue handler for asynchronous cli_mem destruction.
+ *
+ * This function initiates final teardown of a TfwClientMem object:
+ *  - percpu_ref_kill() marks the refcount as dead, preventing any new
+ *    users from acquiring references.
+ *  - percpu_ref_put() drops the caller’s reference, which may trigger
+ *    final release via cli_mem_release() once all outstanding users
+ *    are gone.
+ */
 static void
 tfw_cli_mem_kill_work_fn(struct work_struct *work)
 {
@@ -195,6 +218,21 @@ tfw_cli_mem_pool_exit(void)
 	bzero_fast(&cli_mem_pool, sizeof(cli_mem_pool));
 }
 
+/*
+ * Initialize cli_mem pool.
+ *
+ * Allocates a contiguous block of TfwClientMem objects and initializes each
+ * element, then builds a free list for fast allocation.
+ *
+ * Steps:
+ *  - Validate pool size from configuration.
+ *  - Compute allocation order and clamp it to MAX_PAGE_ORDER.
+ *  - Allocate zeroed pages for the entire pool.
+ *  - Initialize each TfwClientMem (per-cpu counters + refcnt + work).
+ *  - Link all objects into a singly-linked free list.
+ *
+ * Provide fast allocations of `TfwClientMem` later.
+ */
 static inline int
 tfw_cli_mem_pool_init(void)
 {
@@ -364,6 +402,10 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 	return true;
 }
 
+/*
+ * Allocate cli_mem from slab cache and fully initialize it.
+ * Used as a fallback when pool allocation is exhausted.
+ */
 static inline TfwClientMem *
 tfw_cli_mem_alloc_from_cache(void)
 {
@@ -384,6 +426,11 @@ free_cli_mem:
 	return NULL;
 }
 
+/*
+ * Allocate cli_mem:
+ *  - Try fast pool first, then fallback to slab cache.
+ *  - On success, take an extra refcnt reference before returning.
+ */
 static inline TfwClientMem *
 tfw_cli_mem_alloc(void)
 {
