@@ -2118,7 +2118,7 @@ tfw_h2_insert_frame_header(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		/* Send previosly successfully prepared frames if exist. */
 		stream->xmit.frame_length -= frame_length + FRAME_HEADER_SIZE;
 		if (stream->xmit.frame_length) {
-			r = tfw_h2_entail_stream_skb(sk, ctx, stream,
+			r = tfw_h2_entail_stream_skb(sk, stream,
 						     &stream->xmit.frame_length,
 						     true);
 		}
@@ -2141,15 +2141,35 @@ tfw_h2_stream_send_postponed(struct sock *sk, struct sk_buff **skb_head,
 			     unsigned int mss_now, unsigned long *snd_wnd)
 {
 	TfwConn *conn = (TfwConn *)sk->sk_user_data;
-	int r;
 
-	BUG_ON(conn->write_queue);
-	r = ss_skb_tcp_entail_list(sk, skb_head, mss_now, snd_wnd);
-	if (unlikely(r))
-		return r;
+	/*
+	 * We send all data from `conn->write_queue` before call
+	 * `tfw_h2_make_frames`. So there is only one case when
+	 * `conn->write_queue can be not empty here - we send
+	 * postponed frames from `HTTP2_SEND_FRAMES` state and
+	 * then call this function again from HTTP2_MAKE_FRAMES_FINISH.
+	 * If `conn->write_queue` is not empty, we should not entail new
+	 * data to socket write queue (it should be sent later after data
+	 * from connection will be sent), just add skb to the end of the\
+	 * connection write_queue.
+	 */
+	if (likely(!conn->write_queue)) {
+		int r;
+
+		r = ss_skb_tcp_entail_list(sk, skb_head, mss_now, snd_wnd);
+		if (unlikely(r))
+			return r;
+	} else {
+		/*
+		 * Send window was exceeded during previous call of
+		 * `tfw_h2_stream_send_postponed`.
+		 */
+		WARN_ON(*snd_wnd);
+	}
 
 	ss_skb_queue_splice(&conn->write_queue, skb_head);
-	sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+	if (unlikely(conn->write_queue))
+		sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
 
 	return 0;
 }
@@ -2311,7 +2331,7 @@ do {									\
 
 	T_FSM_STATE(HTTP2_SEND_FRAMES) {
 		if (likely(stream->xmit.frame_length)) {
-			r =  tfw_h2_entail_stream_skb(sk, ctx, stream,
+			r =  tfw_h2_entail_stream_skb(sk, stream,
 						      &stream->xmit.frame_length,
 						      false);
 			if (unlikely(r)) {
@@ -2347,6 +2367,13 @@ do {									\
 					T_FSM_JMP(HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES);
 				}
 			} else {
+				/*
+				 * If we there is no headers, data or trailer
+				 * frames to send, all data should be entailed
+				 * to the socket write queue at the beginning
+				 * of this state.
+				 */
+				WARN_ON(stream->xmit.frame_length);
 				fallthrough;
 			}
 		}
@@ -2361,6 +2388,7 @@ do {									\
 		 */
 		if (unlikely(stream->xmit.skb_head)) {
 			struct sk_buff **head = &stream->xmit.skb_head;
+
 			r = tfw_h2_stream_send_postponed(sk, head,
 							 mss_now,
 							 snd_wnd);
@@ -2386,13 +2414,14 @@ do {									\
 	T_FSM_FINISH(r, stream->xmit.state);
 
 	if (stream->xmit.frame_length) {
-		r = tfw_h2_entail_stream_skb(sk, ctx, stream,
+		r = tfw_h2_entail_stream_skb(sk, stream,
 					     &stream->xmit.frame_length,
 					     true);
 		if (unlikely(r)) {
 			T_WARN("Failed to send frame %d", r);
 			return r;
 		}
+		WARN_ON(stream->xmit.frame_length);
 		if (unlikely(stream->xmit.postponed)
 		    && !ctx->cur_send_headers)
 		{
