@@ -91,6 +91,12 @@ extern TEST_SUITE_MPART_ARR(http2_parser, H2_SUITE_PART_CNT);
 extern int tfw_pool_init(void);
 extern void tfw_pool_exit(void);
 
+static inline TfwClientMem *
+__tfw_client_mem_from_conn(TfwConn *conn)
+{
+	return ((TfwClient *)conn_req.peer)->cli_mem;
+}
+
 int
 test_run_all(void)
 {
@@ -120,19 +126,19 @@ test_run_all(void)
 
 	TEST_SUITE_MPART_RUN(http1_parser);
 	test_req_resp_cleanup();
-	EXPECT_EQ(tfw_client_mem((TfwClient *)conn_req.peer), 0);
+	EXPECT_EQ(tfw_client_mem(__tfw_client_mem_from_conn(&conn_req)), 0);
 	__fpu_schedule();
 
 	TEST_SETUP(test_http2_parser_setup_fn);
 	TEST_TEARDOWN(test_http2_parser_teardown_fn);
 
 	TEST_SUITE_MPART_RUN(http2_parser);
-	EXPECT_EQ(tfw_client_mem((TfwClient *)conn_req.peer), 0);
+	EXPECT_EQ(tfw_client_mem(__tfw_client_mem_from_conn(&conn_req)), 0);
 	__fpu_schedule();
 
 
 	TEST_SUITE_RUN(http2_parser_hpack);
-	EXPECT_EQ(tfw_client_mem((TfwClient *)conn_req.peer), 0);
+	EXPECT_EQ(tfw_client_mem(__tfw_client_mem_from_conn(&conn_req)), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(http_cache);
@@ -143,7 +149,7 @@ test_run_all(void)
 
 	TEST_SUITE_RUN(http_msg);
 	test_req_resp_cleanup();
-	EXPECT_EQ(tfw_client_mem((TfwClient *)conn_req.peer), 0);
+	EXPECT_EQ(tfw_client_mem(__tfw_client_mem_from_conn(&conn_req)), 0);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(hash);

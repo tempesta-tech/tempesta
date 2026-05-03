@@ -133,6 +133,7 @@ cli_mem_release(struct percpu_ref *ref)
 	spin_lock_bh(&client_db->ga_lock);
 
 	WARN_ON_ONCE(!percpu_ref_is_zero(ref));
+	WARN_ON_ONCE(tfw_client_mem(cli_mem));
 	if (tfw_cli_mem_belongs_to_pool(cli_mem))
 		tfw_cli_mem_pool_free(cli_mem);
 	else
