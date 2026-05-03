@@ -1751,6 +1751,12 @@ ss_skb_dflt_destructor(struct sk_buff *skb)
 	TfwClientMem *cli_mem =
 		(TfwClientMem *)TFW_SKB_CB(skb)->opaque_data;
 
+	/*
+	 * If skb is in socket write queue, skb->cb is used to store
+	 * `struct tcp_sock` data. Inside `ss_skb_adjust_client_mem`
+	 * we also access skb->cb, so we corrupt `tcp_sock` data for
+	 * skbs in socket write queue.
+	 */
 	BUG_ON(skb_tfw_is_in_socket_write_queue(skb));
 	ss_skb_adjust_client_mem(skb, -TFW_SKB_CB(skb)->mem);
 	WARN_ON(TFW_SKB_CB(skb)->mem);

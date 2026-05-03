@@ -2907,6 +2907,15 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 			int delta = PAGE_SIZE << hm->pool->order;
 
 			hm->pool->owner = cli_mem;
+			/*
+			 * `tfw_client_mem_get` returns false, if we already
+			 * call `percpu_ref_kill` for `cli_mem` after client
+			 * was freed. We hold the client reference counter
+			 * here due to active connections, so this situation
+			 * is impossible, moreover, false result here means
+			 * memory corruption, since we access `cli_mem` for
+			 * already released client.
+			 */
 			BUG_ON(!tfw_client_mem_get(cli_mem));
 			tfw_client_adjust_mem(cli_mem, delta);
 		}
@@ -5474,7 +5483,9 @@ tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 	if (unlikely(!stream))
 		return -EPIPE;
 
-	BUG_ON(stream->xmit.skb_head || stream->xmit.resp);
+	if (WARN_ON(stream->xmit.skb_head || stream->xmit.resp))
+		return -EINVAL;
+
 	TFW_SKB_CB(*skb_head)->opaque_data =
 		CLIENT_MEM_FROM_CONN(resp->req->conn);
 	TFW_SKB_CB(*skb_head)->destructor = ss_skb_dflt_destructor;
@@ -7458,10 +7469,8 @@ next_msg:
 				 skb->truesize);
 
 		r = frang_client_mem_limit(cli_conn, false);
-		if (unlikely(r)) {
-			BUG_ON(r != T_BLOCK);
+		if (unlikely(r))
 			return tfw_http_resp_filtout(hmresp);
-		}
 	} else {
 		conn_stop = false;
 	}

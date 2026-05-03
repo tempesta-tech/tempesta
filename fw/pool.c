@@ -270,8 +270,18 @@ __tfw_pool_new(size_t n, TfwClientMem *owner)
 	if (unlikely(!c))
 		return NULL;
 
-	if (cli_mem)
+	if (cli_mem) {
+		/*
+		 * `tfw_client_mem_get` returns false, if we already
+		 * call `percpu_ref_kill` for `cli_mem` after client
+		 * was freed. We hold the client reference counter
+		 * here due to active connections, so this situation
+		 * is impossible, moreover, false result here means
+		 * memory corruption, since we access `cli_mem` for
+		 * already released client.
+		 */
 		BUG_ON(!tfw_client_mem_get(cli_mem));
+	}
 
 	p = (TfwPool *)((char *)c + TFW_POOL_ALIGN_SZ(sizeof(*c)));
 
