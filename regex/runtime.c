@@ -1181,76 +1181,72 @@ hs_error_t HS_CDECL hs_scan_vector(const hs_database_t *db,
 }
 
 HS_PUBLIC_API
-hs_error_t HS_CDECL hs_scan_tfwstr(const hs_database_t *db,
-                                   const void *data,/*TfwStr*/
-                                   UNUSED unsigned int flags,
-                                   hs_scratch_t *scratch,
-                                   match_event_handler onEvent, void *context) {
+hs_error_t HS_CDECL
+hs_scan_tfwstr(const hs_database_t *db, const void *data,/*TfwStr*/
+	       UNUSED unsigned int flags, hs_scratch_t *scratch,
+	       match_event_handler onEvent, void *context)
+{
 
-        const TfwStr *chunk, *end, *str;
+	const TfwStr *chunk, *end, *str;
 
-        if (unlikely(!scratch || !data )) {
-                return HS_INVALID;
-        }
+	if (unlikely(!scratch || !data))
+		return HS_INVALID;
 
-        str = (const TfwStr *)data;
+	str = (const TfwStr *)data;
 
-        hs_error_t err = validDatabase(db);
-        if (unlikely(err != HS_SUCCESS)) {
-                return err;
-        }
+	hs_error_t err = validDatabase(db);
 
-        const struct RoseEngine *rose = hs_get_bytecode(db);
-        if (unlikely(!ISALIGNED_16(rose))) {
-                return HS_INVALID;
-        }
+	if (unlikely(err != HS_SUCCESS))
+		return err;
 
-        if (unlikely(rose->mode != HS_MODE_VECTORED)) {
-                return HS_DB_MODE_ERROR;
-        }
+	const struct RoseEngine *rose = hs_get_bytecode(db);
 
-        if (unlikely(!validScratch(rose, scratch))) {
-                return HS_INVALID;
-        }
+	if (unlikely(!ISALIGNED_16(rose)))
+		return HS_INVALID;
 
-        if (unlikely(markScratchInUse(scratch))) {
-                return HS_SCRATCH_IN_USE;
-        }
+	if (unlikely(rose->mode != HS_MODE_VECTORED))
+		return HS_DB_MODE_ERROR;
 
-        hs_stream_t *id = (hs_stream_t *)(scratch->bstate);
+	if (unlikely(!validScratch(rose, scratch)))
+		return HS_INVALID;
 
-        init_stream(id, rose, 1); /* open stream */
+	if (unlikely(markScratchInUse(scratch)))
+		return HS_SCRATCH_IN_USE;
+
+	hs_stream_t *id = (hs_stream_t *)(scratch->bstate);
+
+	init_stream(id, rose, 1); /* open stream */
 
 
-        TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
-                DEBUG_PRINTF("offset=%llu len=%lu\n", id->offset, chunk->len);
+	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
+		DEBUG_PRINTF("offset=%llu len=%lu\n", id->offset, chunk->len);
 #ifdef DEBUG
-                dumpData(chunk->data, chunk->len);
+		dumpData(chunk->data, chunk->len);
 #endif
-                hs_error_t ret
+		hs_error_t ret
 			= hs_scan_stream_internal(id, chunk->data, chunk->len,
 						  0, scratch, onEvent, context);
-                if (ret != HS_SUCCESS) {
-                        unmarkScratchInUse(scratch);
-                        return ret;
+		if (ret != HS_SUCCESS) {
+			unmarkScratchInUse(scratch);
+			return ret;
                 }
         }
 
         /* close stream */
         if (onEvent) {
-                report_eod_matches(id, scratch, onEvent, context);
+		report_eod_matches(id, scratch, onEvent, context);
 
-                if (unlikely(internal_matching_error(scratch))) {
-                        unmarkScratchInUse(scratch);
-                        return HS_UNKNOWN_ERROR;
-                } else if (told_to_stop_matching(scratch)) {
-                        unmarkScratchInUse(scratch);
-                        return HS_SCAN_TERMINATED;
+		if (unlikely(internal_matching_error(scratch))) {
+			unmarkScratchInUse(scratch);
+			return HS_UNKNOWN_ERROR;
+		} else if (told_to_stop_matching(scratch)) {
+			unmarkScratchInUse(scratch);
+			return HS_SCAN_TERMINATED;
                 }
         }
 
-        unmarkScratchInUse(scratch);
-        return HS_SUCCESS;
+	unmarkScratchInUse(scratch);
+	return HS_SUCCESS;
 }
 
 HS_PUBLIC_API
