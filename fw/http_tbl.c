@@ -363,7 +363,7 @@ tfw_cfgop_http_tbl_chain_finish(TfwCfgSpec *cs)
  *  |    +----------------------------  Header or any other field value to do
  *  |    |                              comparison with
  *  |    |     +----------------------  Condition type: equal ('==') or not
- *  |    |     |                        equal ('!=');
+ *  |    |     |                        equal ('!=') or regexp ('~');
  *  |    |     |      +---------------  Second operand of rule's condition part
  *  |    |     |      |                 (argument for the rule - any string);
  *  |    |     |      |       +-------  Action part of the rule (reference to
