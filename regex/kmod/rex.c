@@ -69,8 +69,9 @@ struct rex_scan_ctx {
 	struct rex_scan_attr *attr;
 };
 
-static int rex_scan_cb(unsigned int expression, unsigned long long from,
-		       unsigned long long to, unsigned int flags, void *raw_ctx)
+static int
+rex_scan_cb(unsigned int expression, unsigned long long from,
+	    unsigned long long to, unsigned int flags, void *raw_ctx)
 {
 	struct rex_scan_ctx *ctx = raw_ctx;
 	struct rex_scan_attr *attr = ctx->attr;
@@ -89,7 +90,8 @@ static int rex_scan_cb(unsigned int expression, unsigned long long from,
 	return (features & REX_SINGLE_SHOT) ? 1 : 0;
 }
 
-int rex_scan_tfwstr(const TfwStr *str, struct rex_scan_attr *attr)
+int
+rex_scan_tfwstr(const TfwStr *str, struct rex_scan_attr *attr)
 {
 	struct rex_scan_ctx ctx = {
 		.attr = attr
@@ -128,14 +130,14 @@ int rex_scan_tfwstr(const TfwStr *str, struct rex_scan_attr *attr)
 	case HS_INVALID:
 	case HS_UNKNOWN_ERROR:
 	default:
-		WARN(1, "hs_scan() failed with code %d\n", (int)err);
+		WARN(1, "hs_scan_tfwstr() failed with code %d\n", (int)err);
 		return -EFAULT;
 	}
 }
 EXPORT_SYMBOL(rex_scan_tfwstr);
 
-__bpf_kfunc int bpf_scan_bytes(const void *buf, __u32 buf__sz,
-			       struct rex_scan_attr *attr)
+__bpf_kfunc int
+bpf_scan_bytes(const void *buf, __u32 buf__sz, struct rex_scan_attr *attr)
 {
 	struct rex_scan_ctx ctx = {
 		.attr = attr
@@ -181,7 +183,8 @@ __bpf_kfunc int bpf_scan_bytes(const void *buf, __u32 buf__sz,
 EXPORT_SYMBOL(bpf_scan_bytes);
 
 /* This code is taken from net/core/filter.c */
-static void *__bpf_xdp_pointer(struct xdp_buff *xdp, u32 offset, u32 len)
+static void *
+__bpf_xdp_pointer(struct xdp_buff *xdp, u32 offset, u32 len)
 {
 	u32 size = xdp->data_end - xdp->data;
 	struct skb_shared_info *sinfo;
@@ -213,8 +216,9 @@ out:
 	return offset + len <= size ? addr + offset : NULL;
 }
 
-__bpf_kfunc int bpf_xdp_scan_bytes(const struct xdp_md *xdp_md, u32 offset,
-				   u32 len, struct rex_scan_attr *scan_attr)
+__bpf_kfunc int
+bpf_xdp_scan_bytes(const struct xdp_md *xdp_md, u32 offset, u32 len,
+		   struct rex_scan_attr *scan_attr)
 {
 	struct xdp_buff *xdp = (struct xdp_buff *)xdp_md;
 	void *ptr = __bpf_xdp_pointer(xdp, offset, len);
@@ -239,13 +243,14 @@ static struct btf_kfunc_id_set rex_kfunc_btf_set = {
 	.set   = &rex_kfunc_ids,
 };
 
-static struct rex_policy *to_policy(struct config_item *item)
+static struct rex_policy *
+to_policy(struct config_item *item)
 {
 	return item ? container_of(item, struct rex_policy, item) : NULL;
 }
 
-static ssize_t rexcfg_database_read(struct config_item *item, void *outbuf,
-				    size_t size)
+static ssize_t
+rexcfg_database_read(struct config_item *item, void *outbuf, size_t size)
 {
 	struct rex_policy *rex = to_policy(item);
 	struct rex_database *db;
@@ -284,7 +289,8 @@ out:
 	return ret;
 }
 
-static void rex_assign_database(struct rex_policy *rex, struct rex_database *db)
+static void
+rex_assign_database(struct rex_policy *rex, struct rex_database *db)
 {
 	db = rcu_replace_pointer(rex->database, db,
 				 lockdep_is_held(&rex_config_mutex));
@@ -297,7 +303,8 @@ static void rex_assign_database(struct rex_policy *rex, struct rex_database *db)
 	}
 }
 
-static ssize_t rexcfg_database_write(struct config_item *item,
+static ssize_t
+rexcfg_database_write(struct config_item *item,
 				     const void *bytes, size_t nbytes)
 {
 	struct rex_policy *rex = to_policy(item);
@@ -353,7 +360,8 @@ static ssize_t rexcfg_database_write(struct config_item *item,
 	return nbytes;
 }
 
-static ssize_t rexcfg_info_show(struct config_item *item, char *str)
+static ssize_t
+rexcfg_info_show(struct config_item *item, char *str)
 {
 	struct rex_policy *rex = to_policy(item);
 	struct rex_database *db;
@@ -376,18 +384,20 @@ out:
 	return ret;
 }
 
-static ssize_t rexcfg_epoch_show(struct config_item *item, char *str)
+static ssize_t
+rexcfg_epoch_show(struct config_item *item, char *str)
 {
 	return snprintf(str, PAGE_SIZE, "%d\n", to_policy(item)->epoch);
 }
 
-static ssize_t rexcfg_id_show(struct config_item *item, char *str)
+static ssize_t
+rexcfg_id_show(struct config_item *item, char *str)
 {
 	return snprintf(str, PAGE_SIZE, "%d\n", to_policy(item)->id);
 }
 
-static ssize_t rexcfg_id_store(struct config_item *item, const char *str,
-			       size_t length)
+static ssize_t
+rexcfg_id_store(struct config_item *item, const char *str, size_t length)
 {
 	struct rex_policy *rex = to_policy(item);
 	int ret, new_id;
@@ -416,7 +426,8 @@ out:
 	return ret;
 }
 
-static ssize_t rexcfg_note_show(struct config_item *item, char *str)
+static ssize_t
+rexcfg_note_show(struct config_item *item, char *str)
 {
 	struct rex_policy *rex = to_policy(item);
 	int ret;
@@ -428,8 +439,8 @@ static ssize_t rexcfg_note_show(struct config_item *item, char *str)
 	return ret;
 }
 
-static ssize_t rexcfg_note_store(struct config_item *item, const char *str,
-				 size_t length)
+static ssize_t
+rexcfg_note_store(struct config_item *item, const char *str, size_t length)
 {
 	struct rex_policy *rex = to_policy(item);
 
@@ -460,7 +471,8 @@ CONFIGFS_ATTR_RO(rexcfg_, info);
 CONFIGFS_ATTR(rexcfg_, id);
 CONFIGFS_ATTR(rexcfg_, note);
 
-static void rexcfg_item_release(struct config_item *item)
+static void
+rexcfg_item_release(struct config_item *item)
 {
 	struct rex_policy *rex = to_policy(item);
 
@@ -488,8 +500,8 @@ static const struct config_item_type rex_type = {
 		}
 };
 
-static struct config_item *rex_make_item(struct config_group *group,
-					 const char *name)
+static struct config_item *
+rex_make_item(struct config_group *group, const char *name)
 {
 	struct rex_policy *rex;
 	int id;
@@ -541,7 +553,8 @@ static void banner(void)
 	pr_info("Hyperscan %s\n", hs_version());
 }
 
-static int __init rex_init(void)
+static int __init
+rex_init(void)
 {
 	int err;
 
@@ -559,7 +572,8 @@ static int __init rex_init(void)
 	return 0;
 }
 
-static void __exit rex_exit(void)
+static void __exit
+rex_exit(void)
 {
 	configfs_unregister_subsystem(&rex_configfs);
 	WARN_ON(!idr_is_empty(&rex_idr));
