@@ -821,7 +821,8 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	*type_out = tfw_http_tbl_arg_type(field);
 
 	if (wc_arg && regex) {
-		T_ERR_NL("http_match: use simple wildcard argument: hdr == *. Instead regex.\n");
+		T_ERR_NL("http_match: use simple wildcard argument: hdr == *"
+			 " instead of regex.\n");
 		return ERR_PTR(-EINVAL);
 	}
 
