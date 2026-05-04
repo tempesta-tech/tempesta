@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+# SPDX-FileCopyrightText: Copyright 2022 G-Core Labs S.A.
+# SPDX-FileCopyrightText: Copyright 2026 Tempesta Technologies, Inc.
+
 obj-m := xdp_rex.o
 
 CC_FLAGS_HSRUNTIME	:= -isystem $(shell $(CC) -print-file-name=include)

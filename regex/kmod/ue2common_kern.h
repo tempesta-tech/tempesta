@@ -1,3 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
+/* SPDX-FileCopyrightText: Copyright 2022 G-Core Labs S.A. */
+/* SPDX-FileCopyrightText: Copyright 2026 Tempesta Technologies, Inc. */
+
 #ifndef UE2COMMON_KERN_H
 #define UE2COMMON_KERN_H
 
