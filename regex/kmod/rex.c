@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /* SPDX-FileCopyrightText: Copyright 2022 G-Core Labs S.A. */
+/* SPDX-FileCopyrightText: Copyright 2026 Tempesta Technologies, Inc. */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
