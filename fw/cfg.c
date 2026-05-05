@@ -1826,27 +1826,38 @@ tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 }
 
 int
-tfw_cfg_set_mem(TfwCfgSpec *cs, TfwCfgEntry *e)
+tfw_cfg_set_mem_val(TfwCfgSpec *cs, TfwCfgEntry *e,
+		    unsigned int val_num, unsigned long *dst)
 {
-	long *dest_long;
-	unsigned long val;
+	unsigned int n = val_num;
 	TfwCfgSpecMem *cse;
-
-	BUG_ON(!cs->dest);
-
-	if (tfw_cfg_check_single_val(e))
-		return -EINVAL;
 
 	/* Check value restrictions if we have any in the spec extension. */
 	cse = cs->spec_ext;
 	if (cse) {
-		if (tfw_cfg_mem_check_multiple_of(e->vals[0], cse->multiple_of)
-		    || tfw_cfg_mem_check_range(e->vals[0], cse->range.min,
+		if (tfw_cfg_mem_check_multiple_of(e->vals[n], cse->multiple_of)
+		    || tfw_cfg_mem_check_range(e->vals[n], cse->range.min,
 					       cse->range.max))
 			return -EINVAL;
 	}
 
-	val = memparse(e->vals[0], NULL);
+	*dst = memparse(e->vals[n], NULL);
+
+	return 0;
+}
+
+int
+tfw_cfg_set_mem(TfwCfgSpec *cs, TfwCfgEntry *e)
+{
+	long *dest_long;
+	unsigned long val;
+	int r;
+
+	BUG_ON(!cs->dest);
+
+	r = tfw_cfg_set_mem_val(cs, e, 0, &val);
+	if (r)
+		return r;
 
 	dest_long = cs->dest;
 	*dest_long = val;

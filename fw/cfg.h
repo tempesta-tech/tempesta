@@ -489,6 +489,8 @@ int tfw_cfg_set_int(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_long(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_str(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
 int tfw_cfg_set_mem(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry);
+int tfw_cfg_set_mem_val(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry,
+			unsigned int val_num, unsigned long *dst);
 int tfw_cfg_handle_children(TfwCfgSpec *self, TfwCfgEntry *parsed_entry);
 void tfw_cfg_cleanup_children(TfwCfgSpec *cs);
 
