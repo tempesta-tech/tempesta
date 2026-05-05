@@ -48,8 +48,8 @@ static struct kmem_cache *tfw_h2_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
 unsigned int tfw_cli_max_concurrent_streams;
-u64 tfw_cli_soft_mem_limit;
-u64 tfw_cli_hard_mem_limit;
+unsigned long tfw_cli_soft_mem_limit;
+unsigned long tfw_cli_hard_mem_limit;
 
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
@@ -698,19 +698,6 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_parse_client_mem(const char *val, unsigned long long *mem)
-{
-	size_t len = strlen(val);
-	char *p;
-
-	*mem = memparse(val, &p);
-	if (p != val + len)
-		return -EINVAL;
-
-	return 0;
-}
-
-static int
 tfw_cfgop_client_mem(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
@@ -719,7 +706,7 @@ tfw_cfgop_client_mem(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_CHECK_VAL_N(>=, 1, cs, ce);
 	TFW_CFG_CHECK_VAL_N(<, 3, cs, ce);
 
-	r = tfw_parse_client_mem(ce->vals[0], &tfw_cli_soft_mem_limit);
+	r = tfw_cfg_set_mem_val(cs, ce, 0, &tfw_cli_soft_mem_limit);
 	if (unlikely(r)) {
 		T_ERR_NL("Invalid 'client_mem' value: '%s'",
 			 ce->vals[0]);
@@ -727,20 +714,19 @@ tfw_cfgop_client_mem(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	if (ce->val_n > 1) {
-		r = tfw_parse_client_mem(ce->vals[1], &tfw_cli_hard_mem_limit);
+		r = tfw_cfg_set_mem_val(cs, ce, 1, &tfw_cli_hard_mem_limit);
 		if (unlikely(r)) {
 			T_ERR_NL("Invalid 'client_mem' value: '%s'",
 				 ce->vals[1]);
 			return r;
 		}
 	} else {
-		tfw_cli_hard_mem_limit = (tfw_cli_soft_mem_limit < U64_MAX / 2) ?
-			tfw_cli_soft_mem_limit * 2 : U64_MAX;
+		tfw_cli_hard_mem_limit = 2 * tfw_cli_soft_mem_limit;
 	}
 
 	if (tfw_cli_hard_mem_limit < tfw_cli_soft_mem_limit) {
-		T_ERR_NL("Invalid 'client_mem' value: hard limit (%llu) is"
-			 " less then soft (%llu)", tfw_cli_hard_mem_limit,
+		T_ERR_NL("Invalid 'client_mem' value: hard limit (%lu) is"
+			 " less then soft (%lu)", tfw_cli_hard_mem_limit,
 			 tfw_cli_soft_mem_limit);
 		return -EINVAL;
 	}
@@ -998,6 +984,10 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 		.allow_none = true,
 		.allow_repeat = false,
 		.allow_reconfig = true,
+		.spec_ext = &(TfwCfgSpecMem) {
+			.multiple_of = "1K",
+			.range = { "1K", "100G" },
+		}
 	},
 	{ 0 }
 };
