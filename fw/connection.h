@@ -439,9 +439,15 @@ tfw_connection_live(TfwConn *conn)
 #define tfw_srv_conn_live(c)	tfw_connection_live((TfwConn *)(c))
 
 static inline void
+tfw_connection_get_many(TfwConn *conn, int cnt)
+{
+	atomic_add(cnt, &conn->refcnt);
+}
+
+static inline void
 tfw_connection_get(TfwConn *conn)
 {
-	atomic_inc(&conn->refcnt);
+	tfw_connection_get_many(conn, 1);
 }
 
 #define TFW_CONNETION_GET_IF(name, cond)				\
