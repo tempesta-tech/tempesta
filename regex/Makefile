@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright 2022 G-Core Labs S.A.
 # SPDX-FileCopyrightText: Copyright 2026 Tempesta Technologies, Inc.
 
-obj-m := xdp_rex.o
+obj-m := tempesta_regex.o
 
 CC_FLAGS_HSRUNTIME	:= -isystem $(shell $(CC) -print-file-name=include)
 CC_FLAGS_REMOVE_SIMD	:= -mno-80387 -mno-fp-ret-in-387 -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx
@@ -55,50 +55,50 @@ CFLAGS_REMOVE_scratch.o		:= $(CC_FLAGS_SIMD)
 CFLAGS_database.o		:= $(CC_FLAGS_REMOVE_SIMD)
 CFLAGS_REMOVE_database.o	:= $(CC_FLAGS_SIMD)
 
-xdp_rex-m	:= kmod/rex.o               \
-		   alloc.o                  \
-		   scratch.o                \
-		   runtime.o                \
-		   database.o               \
-		   hs_version.o             \
-		   stream_compress.o        \
-		   fdr/fdr.o                \
-		   fdr/teddy_avx2.o         \
-		   fdr/teddy.o              \
-		   hwlm/hwlm.o              \
-		   hwlm/noodle_engine.o     \
-		   nfa/accel.o              \
-		   nfa/castle.o             \
-		   nfa/gough.o              \
-		   nfa/lbr.o                \
-		   nfa/limex_64.o           \
-		   nfa/limex_accel.o        \
-		   nfa/limex_native.o       \
-		   nfa/limex_simd128.o      \
-		   nfa/limex_simd256.o      \
-		   nfa/limex_simd384.o      \
-		   nfa/limex_simd512.o      \
-		   nfa/mcclellan.o          \
-		   nfa/mcsheng.o            \
-		   nfa/mcsheng_data.o       \
-		   nfa/mpv.o                \
-		   nfa/nfa_api_dispatch.o   \
-		   nfa/repeat.o             \
-		   nfa/sheng.o              \
-		   nfa/shufti.o             \
-		   nfa/tamarama.o           \
-		   nfa/truffle.o            \
-		   rose/block.o             \
-		   rose/catchup.o           \
-		   rose/init.o              \
-		   rose/match.o             \
-		   rose/program_runtime.o   \
-		   rose/stream.o            \
-		   som/som_runtime.o        \
-		   som/som_stream.o         \
-		   util/cpuid_flags.o       \
-		   util/masked_move.o       \
-		   util/multibit.o          \
-		   util/simd_utils.o        \
-		   util/state_compress.o    \
+tempesta_regex-m	:= kmod/rex.o               \
+			   alloc.o                  \
+			   scratch.o                \
+			   runtime.o                \
+			   database.o               \
+			   hs_version.o             \
+			   stream_compress.o        \
+			   fdr/fdr.o                \
+			   fdr/teddy_avx2.o         \
+			   fdr/teddy.o              \
+			   hwlm/hwlm.o              \
+			   hwlm/noodle_engine.o     \
+			   nfa/accel.o              \
+			   nfa/castle.o             \
+			   nfa/gough.o              \
+			   nfa/lbr.o                \
+			   nfa/limex_64.o           \
+			   nfa/limex_accel.o        \
+			   nfa/limex_native.o       \
+			   nfa/limex_simd128.o      \
+			   nfa/limex_simd256.o      \
+			   nfa/limex_simd384.o      \
+			   nfa/limex_simd512.o      \
+			   nfa/mcclellan.o          \
+			   nfa/mcsheng.o            \
+			   nfa/mcsheng_data.o       \
+			   nfa/mpv.o                \
+			   nfa/nfa_api_dispatch.o   \
+			   nfa/repeat.o             \
+			   nfa/sheng.o              \
+			   nfa/shufti.o             \
+			   nfa/tamarama.o           \
+			   nfa/truffle.o            \
+			   rose/block.o             \
+			   rose/catchup.o           \
+			   rose/init.o              \
+			   rose/match.o             \
+			   rose/program_runtime.o   \
+			   rose/stream.o            \
+			   som/som_runtime.o        \
+			   som/som_stream.o         \
+			   util/cpuid_flags.o       \
+			   util/masked_move.o       \
+			   util/multibit.o          \
+			   util/simd_utils.o        \
+			   util/state_compress.o    \
 #
