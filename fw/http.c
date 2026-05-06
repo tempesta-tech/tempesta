@@ -1149,29 +1149,28 @@ tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 void
 tfw_h2_resp_fwd(TfwHttpResp *resp)
 {
-	bool resp_in_xmit = !!TFW_SKB_CB(resp->msg.skb_head)->stream_id;
 	TfwHttpReq *req = resp->req;
 	TfwConn *conn = req->conn;
 	int status = READ_ONCE(resp->status);
-	bool need_extra_put = false;
 
-	tfw_connection_get(conn);
+	/*
+	 * `tfw_h2_stream_init_for_xmit` should be called for
+	 * response before send it to the client.
+	 */
+	if (WARN_ON(!TFW_SKB_CB(resp->msg.skb_head)->stream_id))
+		return;
+
 	/*
 	 * We need this extra get, because if send fails, connection
 	 * will be put during freeing skbs of sending response (in
 	 * skb destructor).
 	 */
-	if (resp_in_xmit) {
-		TfwClientMem *owner =
-			TFW_SKB_CB(resp->msg.skb_head)->opaque_data;
-
-		WARN_ON(owner != CLIENT_MEM_FROM_CONN(resp->req->conn));
-		TFW_SKB_CB(resp->msg.skb_head)->opaque_data = resp;
-		TFW_SKB_CB(resp->msg.skb_head)->destructor =
+	tfw_connection_get_many(conn, 2);
+	WARN_ON(TFW_SKB_CB(resp->msg.skb_head)->opaque_data !=
+		CLIENT_MEM_FROM_CONN(resp->req->conn));
+	TFW_SKB_CB(resp->msg.skb_head)->opaque_data = resp;
+	TFW_SKB_CB(resp->msg.skb_head)->destructor =
 			tfw_h2_stream_skb_destructor;
-		need_extra_put = true;
-		tfw_connection_get(conn);
-	}
 	do_access_log(resp);
 
 	if (tfw_cli_conn_send((TfwCliConn *)conn, (TfwMsg *)resp)) {
@@ -1179,16 +1178,12 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		/* We can't send response, so we should free it here. */
 		tfw_connection_close(conn, true);
-		resp_in_xmit = !resp_in_xmit || !resp->msg.skb_head;
 	} else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 		tfw_inc_global_hm_stats(status);
 	}
 
-	if (!resp_in_xmit)
-		tfw_http_resp_pair_free_and_put_conn(resp);
-	if (need_extra_put)
-		tfw_connection_put(conn);
+	tfw_connection_put(conn);
 }
 
 /*
