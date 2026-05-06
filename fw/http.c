@@ -1146,6 +1146,14 @@ tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 	return 0;
 }
 
+static inline bool
+tfw_http_resp_check_skb_head_owner(TfwHttpResp *resp)
+{
+	return (TFW_SKB_CB(resp->msg.skb_head)->opaque_data ==
+		CLIENT_MEM_FROM_CONN(resp->req->conn))
+	        && ss_skb_has_dflt_destructor(resp->msg.skb_head);
+}
+
 void
 tfw_h2_resp_fwd(TfwHttpResp *resp)
 {
@@ -1156,8 +1164,10 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	/*
 	 * `tfw_h2_stream_init_for_xmit` should be called for
 	 * response before send it to the client.
+	 *
 	 */
-	if (WARN_ON(!TFW_SKB_CB(resp->msg.skb_head)->stream_id))
+	if (WARN_ON(!TFW_SKB_CB(resp->msg.skb_head)->stream_id
+		    || !tfw_http_resp_check_skb_head_owner(resp)))
 		return;
 
 	/*
@@ -1166,17 +1176,13 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	 * skb destructor).
 	 */
 	tfw_connection_get_many(conn, 2);
-	WARN_ON(TFW_SKB_CB(resp->msg.skb_head)->opaque_data !=
-		CLIENT_MEM_FROM_CONN(resp->req->conn));
-	TFW_SKB_CB(resp->msg.skb_head)->opaque_data = resp;
-	TFW_SKB_CB(resp->msg.skb_head)->destructor =
-			tfw_h2_stream_skb_destructor;
+	__ss_skb_set_owner(resp->msg.skb_head, tfw_h2_stream_skb_destructor,
+			   resp);
 	do_access_log(resp);
 
 	if (tfw_cli_conn_send((TfwCliConn *)conn, (TfwMsg *)resp)) {
 		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
-		/* We can't send response, so we should free it here. */
 		tfw_connection_close(conn, true);
 	} else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
@@ -4625,9 +4631,13 @@ tfw_http_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
 	TfwMsgIter *iter = &resp->iter;
 	struct sk_buff *nskb;
 
+	if (!WARN_ON(tfw_http_resp_check_skb_head_owner(resp)))
+		return -EINVAL;
+
 	nskb = ss_skb_alloc(0);
 	if (unlikely(!nskb))
 		return -ENOMEM;
+
 
 	ss_skb_set_owner(nskb, ss_skb_dflt_destructor,
 			 opaque_data, nskb->truesize);
@@ -5481,9 +5491,8 @@ tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 	if (WARN_ON(stream->xmit.skb_head || stream->xmit.resp))
 		return -EINVAL;
 
-	TFW_SKB_CB(*skb_head)->opaque_data =
-		CLIENT_MEM_FROM_CONN(resp->req->conn);
-	TFW_SKB_CB(*skb_head)->destructor = ss_skb_dflt_destructor;
+	__ss_skb_set_owner(*skb_head, ss_skb_dflt_destructor,
+			   CLIENT_MEM_FROM_CONN(resp->req->conn));
 	stream->xmit.resp = resp;
 
 	if (test_bit(TFW_HTTP_B_CLOSE_ERROR_RESPONSE, stream->xmit.resp->flags))
