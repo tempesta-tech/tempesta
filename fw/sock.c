@@ -676,9 +676,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 				SKB_DATA_ALIGN(sizeof(struct sk_buff)) +
 				SKB_DATA_ALIGN(head_data +
 					       sizeof(struct skb_shared_info));
-			ss_skb_set_owner(twin_skb, ss_skb_dflt_destructor,
-					 TFW_SKB_CB(skb)->opaque_data,
-					 copied_truesize);
+			ss_skb_copy_owner(twin_skb, skb, copied_truesize);
 			ss_skb_queue_tail(&sw.skb_head, twin_skb);
 			skb = skb->next;
 		} while (skb != *skb_head);

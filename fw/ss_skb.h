@@ -64,6 +64,8 @@ void ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
 void ss_skb_adjust_client_mem(struct sk_buff *skb, int delta);
 void ss_skb_dflt_destructor(struct sk_buff *skb);
 void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
+void ss_skb_copy_owner(struct sk_buff *to, struct sk_buff *from,
+		       unsigned int delta);
 
 static inline bool
 ss_skb_has_dflt_destructor(struct sk_buff *skb)

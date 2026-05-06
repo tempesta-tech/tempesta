@@ -4627,20 +4627,14 @@ tfw_http_resp_get_conn_flags(TfwHttpResp *resp)
 static int
 tfw_http_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
 {
-	void *opaque_data = TFW_SKB_CB(resp->msg.skb_head)->opaque_data;
 	TfwMsgIter *iter = &resp->iter;
 	struct sk_buff *nskb;
-
-	if (!WARN_ON(tfw_http_resp_check_skb_head_owner(resp)))
-		return -EINVAL;
 
 	nskb = ss_skb_alloc(0);
 	if (unlikely(!nskb))
 		return -ENOMEM;
 
-
-	ss_skb_set_owner(nskb, ss_skb_dflt_destructor,
-			 opaque_data, nskb->truesize);
+	ss_skb_copy_owner(nskb, resp->msg.skb_head, nskb->truesize);
 	nskb->mark = resp->msg.skb_head->mark;
 	cleanup->skb_head = resp->msg.skb_head;
 	resp->msg.skb_head = NULL;
