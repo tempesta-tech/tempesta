@@ -221,6 +221,16 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 				return -ENOMEM;
 
 			if (!skb_tfw_is_in_socket_write_queue(skb)) {
+				/*
+				 * If skb destructor is not default, that means
+				 * that skb `opaque_data` is not a `client_mem`.
+				 * In this case we can't call `ss_skb_set_owner`
+				 * because this function use `opaque_data` as
+				 * a `client_mem` structure and we catch memory
+				 * corruption.
+				 */
+				BUG_ON(TFW_SKB_CB(skb)->destructor
+				       && !ss_skb_has_dflt_destructor(skb));
 				ss_skb_set_owner(nskb, ss_skb_dflt_destructor,
 						 TFW_SKB_CB(skb)->opaque_data,
 						 nskb->truesize);
@@ -1725,20 +1735,24 @@ int
 ss_skb_realloc_headroom(struct sk_buff *skb)
 {
 	int delta = MAX_TCP_HEADER - skb_headroom(skb);
+	bool skb_has_owner = !!TFW_SKB_CB(skb)->opaque_data;
 	unsigned int old_truesize;
 	int r;
 
 	if (likely(delta <= 0))
 		return 0;
 
-	if (TFW_SKB_CB(skb)->opaque_data)
+	if (WARN_ON(skb_has_owner && !ss_skb_has_dflt_destructor(skb)))
+		return -EINVAL;
+
+	if (skb_has_owner)
 		old_truesize = skb->truesize;
 
 	r = pskb_expand_head(skb, SKB_DATA_ALIGN(delta), 0, GFP_ATOMIC);
 	if (unlikely(r))
 		return r;
 
-	if (TFW_SKB_CB(skb)->opaque_data)
+	if (skb_has_owner)
 		ss_skb_adjust_client_mem(skb, skb->truesize - old_truesize);
 
 	return 0;
@@ -1774,15 +1788,12 @@ void
 ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
 		 TfwClientMem *owner, unsigned int mem)
 {
-	TfwClientMem *cli_mem = (TfwClientMem *)owner;
-
-	if (!cli_mem || !tfw_client_mem_get(cli_mem))
+	if (!owner || !tfw_client_mem_get(owner))
 		return;
 
-	WARN_ON(TFW_SKB_CB(skb)->opaque_data);
 	WARN_ON(TFW_SKB_CB(skb)->mem != 0);
-	TFW_SKB_CB(skb)->opaque_data = cli_mem;
-	TFW_SKB_CB(skb)->destructor = destructor;
+	WARN_ON(TFW_SKB_CB(skb)->destructor || TFW_SKB_CB(skb)->opaque_data);
+	__ss_skb_set_owner(skb, destructor, owner);
 	ss_skb_adjust_client_mem(skb, mem);
 }
 

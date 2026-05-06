@@ -66,6 +66,20 @@ void ss_skb_dflt_destructor(struct sk_buff *skb);
 void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
 
 static inline bool
+ss_skb_has_dflt_destructor(struct sk_buff *skb)
+{
+	return TFW_SKB_CB(skb)->destructor == ss_skb_dflt_destructor;
+}
+
+static inline void
+__ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
+		   void *owner)
+{
+	TFW_SKB_CB(skb)->destructor = destructor;
+	TFW_SKB_CB(skb)->opaque_data = owner;
+}
+
+static inline bool
 ss_skb_is_within_fragment(char *begin_fragment, char *position,
                           char *end_fragment)
 {
