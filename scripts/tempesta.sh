@@ -61,7 +61,7 @@ lib_mod=tempesta_lib
 tls_mod=tempesta_tls
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
-rgx_mod=xdp_rex
+rgx_mod=tempesta_regex
 declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload,output-time"
 # We should setup network queues for all existing network interfaces
 # to prevent socket CPU migration, which leads to response reordering
