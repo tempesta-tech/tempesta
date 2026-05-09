@@ -9,36 +9,42 @@ Internal state used during transitions. Ensures safe updates of shared data (via
 **Connection Count Tracking**
 In`TfwClient` structure we additionally store `unsigned int conn_max`, `int conn_curr` and `unsigned int conn_training_epoch`. We don't need any lock here, because all this fields updated under private `ra->lock` in frang.
 We use new implemented function `tfw_client_training_adjust_conn_num` both for training and  defence mode.
+
 **Training mode**
 `conn_curr` is incremented/decremented.
 Track maximum concurrent connections (`conn_max`). When max increases - compute `delta1 = new_max - old_max` and `delta2 = new_max² - old_max²` and use this values to update `sum` and `sumsq`.
+
 **Defence mode**
 Track `conn_curr` on each new opened connection. Calculate `z = (conn_curr - mean) / std` if `z > threshold` reject connection and block client by IP if necessary.
+
 **Epoch handling**
 Each connection tagged with training_epoch to prevents mixing old and new training data (we add new field to `tempesta_sock` and save epoch in this field). When connection closing we don't update `conn_curr` in case when connection belongs to previous epoch. (When connection is opening it always belongs to new epoch if trainging enabled!).
+
 **Current method and alternatives**
 In current approach during trainging mode we track maximum concurrent connections per client, in defence mode we compare current connections count (`conn_curr`) against a distribution of per-client maximum.
-✔ effective for burst detection
-❌ max vs current mismatch
-❌ sensitivity to outliers (one client opens 10000 connections other clients 1 connection during trainging.)
-❌ Not good against syn flood. If client open/close connections very fast, such client will not be blocked, because current connection count will be low.
+* ✔ effective for burst detection
+* ❌ max vs current mismatch
+* ❌ sensitivity to outliers (one client opens 10000 connections other clients 1 connection during trainging.)
+* ❌ Not good against syn flood. If client open/close connections very fast, such client will not be blocked, because current connection count will be low.
 **Alternatives:**
+
 1. Use distribution of current concurrent connections - in trainging mode every `conn_curr` update stats, in defence mode compare `conn_curr` against this distribution. 
-✔ Consistent model (same metric
-❌ Noisy signal
-❌ Dominated by low values (many idle clients, if they close there connections durig training)
+* ✔ Consistent model (same metric
+* ❌ Noisy signal
+* ❌ Dominated by low values (many idle clients, if they close there connections durig training)
+
 2. Z-score on max, check only max
-✔ Fully consistent model
-✔ Low false positives
-❌ Slow reaction
-❌ Attack can stay just below max
+* ✔ Fully consistent model
+* ✔ Low false positives
+* ❌ Slow reaction
+* ❌ Attack can stay just below max
 
 In all this cases we don't take into account time awareness (100 connections for 1 second, 100 connections for 1 hour).
 May be it will be good to calculate z-score for connection rate also (or we rely on frang for this case?).
 
 **Request Count Tracking (Non-idempotent)**
 We implement `TfwTrainingStat` structure to track all trainging events except connections.
-```
+```C
 /*
  * max		- maximum observed value of the tracked metric within the
  *		  current training epoch (e.g. peak number of in-flight
@@ -58,19 +64,23 @@ typedef struct {
 } TfwTrainingStat;
 ```
 We use new implemented function `tfw_client_training_adjust_req_num` both for training and  defence mode.
+
 **Training mode**
 Track `curr` - current in-flight non-idempotent requests. Increment `curr` in `tfw_http_req_enlist`, decrement in  `tfw_http_req_nip_delist`. Also track `max` maximum count  in-flight non-idempotent requests per client. When max increases update global trainging stats, same as we do it for connections (`delta1 = new_max - old_max` and `delta2 = new_max² - old_max²`).
+
 **Defence mode**
 Change signature for `tfw_http_req_enlist` from `void` to `bool`.  Call `tfw_client_training_adjust_req_num` on each new non-idempotent request, calculate z-score, return false if `z > threshold`. `tfw_http_req_enlist` is called from `tfw_http_req_fwd` and `tfw_http_req_fwd_resched`, this functions now return T_BLOCK if `tfw_http_req_enlist` fails.
 Callers of `tfw_http_req_fwd` and `tfw_http_req_fwd_resched` send 403 error response, drop client connection with TCP RST and block client by IP if these functions return T_BLOCK.
+
 **Epoch handling**
 Each request tagged with `training_epoch` to prevent mixing old and new training data (we add new field to `request` structure and save epoch in this field). When request removed from server connection queue we don't update `curr` field in case when request belongs to previous epoch. (When request added to server connection queue it always belongs to new epoch if trainging enabled!).
+
 **Current method and alternatives**
 The same problems and altgernatives as for connections.
 
 **CPU Tracking**
 In addition to `TfwTrainingStat` implement structure and per-cpu array of this structures.
-```
+```C
 /**
  * Exponential moving average (EMA) tracker for per-CPU time usage.
  *
@@ -90,9 +100,10 @@ typedef struct {
 } TfwCpuEma;
 ```
 Save time at the beginning of SoftIRQ shot and  check CPU usage at the end of SoftIRQ shot (to prevent perfomance regression in case when we do it on each request) .
+
 **Training mode**
 Calculate `delta_cpu = now - begin_time;`, update CPU ema.
-```
+```C
 /**
  * Update per-client CPU usage EMA.
  * @cpu_ema: per-CPU EMA state for the client.
@@ -138,17 +149,19 @@ tfw_client_update_cpu_ema(TfwCpuEma *cpu_ema, u64 delta_cpu)
 }
 ```
 Pass `delta = new_ema - prev_ema` to  `tfw_client_training_adjust_cpu_num` which do the same as ` `tfw_client_training_adjust_req_num`.
+
 **Defence mode**
 In defence mode use `delta_ema` on each SoftIRQ shot to calculate `z = (delta_ema - mean) / std` and if calculated `z > threshold` reject connection with TCP RST and block client by IP if necessary.
+
 **Current method and alternatives**
 
 **Alternatives**
 1. Use raw CPU time
-✔ simple
-✔ accuracy
-❌ very noisy
-❌ strong peaks
-❌ Bad normalization
+* ✔ simple
+* ✔ accuracy
+* ❌ very noisy
+* ❌ strong peaks
+* ❌ Bad normalization
 2. Sliding window average (store CPU usage for the last N ms)
 3. Use `ema` directly. Currently we measure change, not level (constant high CPU → delta ≈ 0 → no detection).  
 
