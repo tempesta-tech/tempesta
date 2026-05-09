@@ -1,8 +1,10 @@
 **Training Mode:**
 Collects per-client metrics on each new event aggregates global statistics: number of samples (num of clients),  sum of values (sum), sum of squares (sumsq). At the end of training computes mean and standard deviation, which will be used for z-score calculation in defence mode.
+
 **Defence Mode**
 Each new observation is evaluated using z=std / (x−mean). If z > configured_threshold he event is considered anomalous. 
 Reject request / connection, drop connection with TCP RST and optionally block client by IP.
+
 **Disabled Mode**
 Internal state used during transitions. Ensures safe updates of shared data (via RCU synchronization). May be it's better to implement this state also, not only as internal state, to prevent any additional calculations, when it is not necessary.
 
