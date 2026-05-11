@@ -114,6 +114,25 @@ tfw_cli_mem_pool_free(TfwClientMem *cli_mem)
 }
 
 /*
+ * Workqueue handler for asynchronous cli_mem destruction.
+ *
+ * This function initiates final teardown of a TfwClientMem object:
+ *  - percpu_ref_kill() marks the refcount as dead, preventing any new
+ *    users from acquiring references.
+ *  - percpu_ref_put() drops the caller’s reference, which may trigger
+ *    final release via cli_mem_release() once all outstanding users
+ *    are gone.
+ */
+static void
+tfw_cli_mem_kill_work_fn(struct work_struct *work)
+{
+	TfwClientMem *cli_mem = container_of(work, TfwClientMem, kill_work);
+
+	percpu_ref_kill(&cli_mem->refcnt);
+	percpu_ref_put(&cli_mem->refcnt);
+}
+
+/*
  * Get `TfwClientMem` object from pool if present.
  * Object was already initialized during pool creation or
  * releasing to pool.
@@ -130,6 +149,12 @@ tfw_cli_mem_pool_alloc(void)
 
 	cli_mem = cli_mem_pool.free_list;
 	cli_mem_pool.free_list = cli_mem->next_free;
+	/*
+	 * Should be called only after `free_list` initialization
+	 * using `next_free` pointer, because `next_free` and
+	 * `kill_work` members belong to the same union.
+	 */
+	INIT_WORK(&cli_mem->kill_work, tfw_cli_mem_kill_work_fn);
 
 	return cli_mem;
 }
@@ -158,25 +183,6 @@ cli_mem_release(struct percpu_ref *ref)
 		wake_up(&shutdown_wq);
 }
 
-/*
- * Workqueue handler for asynchronous cli_mem destruction.
- *
- * This function initiates final teardown of a TfwClientMem object:
- *  - percpu_ref_kill() marks the refcount as dead, preventing any new
- *    users from acquiring references.
- *  - percpu_ref_put() drops the caller’s reference, which may trigger
- *    final release via cli_mem_release() once all outstanding users
- *    are gone.
- */
-static void
-tfw_cli_mem_kill_work_fn(struct work_struct *work)
-{
-	TfwClientMem *cli_mem = container_of(work, TfwClientMem, kill_work);
-
-	percpu_ref_kill(&cli_mem->refcnt);
-	percpu_ref_put(&cli_mem->refcnt);
-}
-
 static inline int
 tfw_cli_mem_init(TfwClientMem *cli_mem, gfp_t flags)
 {
@@ -190,9 +196,6 @@ tfw_cli_mem_init(TfwClientMem *cli_mem, gfp_t flags)
 				PERCPU_REF_ALLOW_REINIT, flags);
 	if (unlikely(r))
 		goto free_per_cpu_mem;
-
-	cli_mem->next_free = NULL;
-	INIT_WORK(&cli_mem->kill_work, tfw_cli_mem_kill_work_fn);
 
 	return 0;
 
@@ -276,6 +279,7 @@ tfw_cli_mem_pool_init(void)
 		else
 			tail->next_free = &block[i];
 
+		block[i].next_free = NULL;
 		tail = &block[i];
 		cli_mem_pool.size++;
 	}
@@ -418,6 +422,7 @@ tfw_cli_mem_alloc_from_cache(void)
 	if (unlikely(tfw_cli_mem_init(cli_mem, GFP_ATOMIC)))
 		goto free_cli_mem;
 
+	INIT_WORK(&cli_mem->kill_work, tfw_cli_mem_kill_work_fn);
 	return cli_mem;
 
 free_cli_mem:
