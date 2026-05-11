@@ -24,11 +24,24 @@
 #include "http_limits.h"
 #include "connection.h"
 
+/*
+ * Client memory accounting structure for Tempesta FW.
+ * 
+ * @kill_work	- Workqueue item used for asynchronous structure
+ *		  cleanup/destruction;
+ * @next_free	- Pointer to the next free object in the freelist;
+ * @refcnt	- Per-CPU reference counter. Provides scalable and
+ *		  thread-safe reference tracking on SMP systems with
+ *		  minimal contention;
+ * @mem		- Per-CPU memory accounting storage.
+ */
 typedef struct tfw_client_mem_t {
+	union {
+		struct work_struct	kill_work;
+		struct tfw_client_mem_t	*next_free;
+	};
 	struct percpu_ref	refcnt;
-	struct work_struct	kill_work;
    	long __percpu		*mem;
-	struct tfw_client_mem_t	*next_free;
 } TfwClientMem;
 
 /**
