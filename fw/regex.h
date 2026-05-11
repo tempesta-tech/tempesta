@@ -28,4 +28,5 @@ void tfw_regex_exit(void);
 int tfw_write_regex(const char *arg, unsigned short *out_db_num);
 bool tfw_match_regex(const char *cstr, const TfwStr *arg);
 
+int tfw_regex_start(void);
 #endif /* __TFW_REGEX_H__ */

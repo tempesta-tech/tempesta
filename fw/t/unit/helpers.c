@@ -528,10 +528,4 @@ tfh_get_records_rate(HttpTfh fingerprint)
 
 TfwCfgSpec tf_hash_specs[0];
 
-int
-rex_scan_tfwstr(const TfwStr *str, struct rex_scan_attr *attr)
-{
-	return 0;
-}
-
 unsigned int cache_default_ttl = 60;

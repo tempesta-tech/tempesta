@@ -124,8 +124,8 @@ http_match_suite_teardown(void)
 }
 
 static void
-test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
-			const char *in_val, const char *in_arg)
+__test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field, bool regex,
+			  const char *in_val, const char *in_arg)
 {
 	MatchEntry *e;
 	unsigned int hid = TFW_HTTP_HDR_RAW;
@@ -144,8 +144,8 @@ test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
 		tfw_http_verify_hdr_field(field, &in_val, &hid);
 	}
 	val = tfw_http_val_adjust(in_val, field, &val_len, &val_type, &op_val);
-	arg = tfw_http_arg_adjust(in_arg, field, in_val, 0, &arg_size, &name_size,
-				  &type, &op);
+	arg = tfw_http_arg_adjust(in_arg, field, in_val, regex, &arg_size,
+				  &name_size, &type, &op);
 	EXPECT_NOT_NULL(arg);
 	if (!arg)
 		return;
@@ -175,6 +175,20 @@ test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
 err:
 	kfree(arg);
 	kfree(val);
+}
+
+static void
+test_chain_add_rule_regex(int test_id, tfw_http_match_fld_t field,
+			  const char *in_val, const char *in_arg)
+{
+	__test_chain_add_rule_str(test_id, field, true, in_val, in_arg);
+}
+
+static void
+test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
+			const char *in_val, const char *in_arg)
+{
+	__test_chain_add_rule_str(test_id, field, false, in_val, in_arg);
 }
 
 static int
@@ -326,6 +340,25 @@ TEST(http_match, host_eq)
 	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HOST, NULL,
 				"NATSYS-LAB.COM");
 	set_tfw_str(&test_req->host, "natsys-lab.com");
+	match_id = test_chain_match();
+	EXPECT_EQ(3, match_id);
+}
+
+TEST(http_match, host_eq_regex)
+{
+	int match_id;
+
+	/* kmalloc with GFP_KERNEL calls from tfw_write_regex. */
+	kernel_fpu_end();
+	test_chain_add_rule_regex(1, TFW_HTTP_MATCH_F_HOST, NULL,
+				  "/bad_host/");
+	test_chain_add_rule_regex(2, TFW_HTTP_MATCH_F_HOST, NULL,
+				  "/just_host/");
+	test_chain_add_rule_regex(3, TFW_HTTP_MATCH_F_HOST, NULL,
+				  "/^[a-z]+-[a-z]+-\\d+$/");
+	tfw_regex_start();
+	kernel_fpu_begin();
+	set_tfw_str(&test_req->host, "new-test-99");
 	match_id = test_chain_match();
 	EXPECT_EQ(3, match_id);
 }
@@ -560,6 +593,44 @@ TEST(http_match, raw_header_eq_chunked)
 	 */
 	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR,
 				"via", "test_proxy 1.0");
+
+	set_raw_hdr(&hdr);
+	match_id = test_chain_match();
+	EXPECT_EQ(2, match_id);
+}
+
+TEST(http_match, raw_header_eq_chunked_regex)
+{
+	int match_id;
+	TfwStr hdr = {
+		.chunks = (TfwStr []) {
+			{ .data = "V", .len = 1 },
+			{ .data = "i", .len = 1 },
+			{ .data = "a", .len = 1 },
+			{ .data = ":", .len = 1 },
+			{ .data = " ", .len = 1, .flags = TFW_STR_OWS },
+			{ .data = "t", .len = 1, .flags = TFW_STR_VALUE },
+			{ .data = "e", .len = 1, .flags = TFW_STR_VALUE },
+			{ .data = "st_proxy 1.", .len = 11,
+			  .flags = TFW_STR_VALUE },
+			{ .data = "0", .len = 1, .flags = TFW_STR_VALUE }
+		},
+		.len = 19,
+		.nchunks = 9
+	};
+
+	/* kmalloc with GFP_KERNEL calls from tfw_write_regex. */
+	kernel_fpu_end();
+	test_chain_add_rule_regex(1, TFW_HTTP_MATCH_F_HDR,
+				  "user-Agent", "/U880D/");
+	/*
+	 * Use only lowercase for header name, pattern always converted
+	 * to lowercase during rule creation.
+	 */
+	test_chain_add_rule_regex(2, TFW_HTTP_MATCH_F_HDR,
+				  "via", "/^test/");
+	tfw_regex_start();
+	kernel_fpu_begin();
 
 	set_raw_hdr(&hdr);
 	match_id = test_chain_match();
@@ -1010,12 +1081,14 @@ TEST_SUITE(http_match)
 	TEST_RUN(http_match, uri_suffix);
 	TEST_RUN(http_match, uri_wc_escaped);
 	TEST_RUN(http_match, host_eq);
+	TEST_RUN(http_match, host_eq_regex);
 	TEST_RUN(http_match, headers_eq);
 	TEST_RUN(http_match, headers_duplicated_eq);
 	TEST_RUN(http_match, hdr_host_prefix);
 	TEST_RUN(http_match, hdr_host_suffix);
 	TEST_RUN(http_match, raw_header_eq);
 	TEST_RUN(http_match, raw_header_eq_chunked);
+	TEST_RUN(http_match, raw_header_eq_chunked_regex);
 	TEST_RUN(http_match, raw_header_eq_ws);
 	TEST_RUN(http_match, raw_header_eq_nows);
 	TEST_RUN(http_match, method_eq);
