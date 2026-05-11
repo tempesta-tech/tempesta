@@ -164,7 +164,7 @@ tfw_match_regex(const char *cstr, const TfwStr *arg)
 	return (!r && attr.nr_events && attr.last_event.expression);
 }
 
-static int
+int
 tfw_regex_start(void)
 {
 	int ret;
