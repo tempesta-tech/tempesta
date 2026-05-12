@@ -28,7 +28,7 @@
 #include "str.h"
 
 typedef int (*on_send_cb_t)(void *conn, struct sk_buff **skb_head);
-typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
+typedef int (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
 typedef void (*on_send_fail_cb_t)(void *conn, struct sk_buff *skb_head);
 typedef struct tfw_client_mem_t TfwClientMem;
 
@@ -66,6 +66,8 @@ void ss_skb_dflt_destructor(struct sk_buff *skb);
 void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
 void ss_skb_copy_owner(struct sk_buff *to, struct sk_buff *from,
 		       unsigned int delta);
+void ss_skb_copy_cb(struct sk_buff *to, struct sk_buff *from,
+		    unsigned int delta);
 
 static inline bool
 ss_skb_has_dflt_destructor(struct sk_buff *skb)
@@ -115,13 +117,14 @@ ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 	return r;
 }
 
-static inline void
+static inline int
 ss_skb_on_tcp_entail(void *conn, struct sk_buff *skb_head)
 {
 	on_tcp_entail_t on_tcp_entail = TFW_SKB_CB(skb_head)->on_tcp_entail;
 
 	if (on_tcp_entail)
-		on_tcp_entail(conn, skb_head);
+		return on_tcp_entail(conn, skb_head);
+	return 0;
 }
 
 typedef int ss_skb_actor_t(void *conn, unsigned char *data, unsigned int len,

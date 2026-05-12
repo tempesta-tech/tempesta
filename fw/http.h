@@ -815,5 +815,6 @@ void tfw_http_extract_request_authority(TfwHttpReq *req);
 bool tfw_http_mark_is_in_whitlist(unsigned int mark);
 char *tfw_http_resp_status_line(int status, size_t *len);
 int tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head);
+void tfw_http_req_skb_destructor(struct sk_buff *skb);
 
 #endif /* __TFW_HTTP_H__ */

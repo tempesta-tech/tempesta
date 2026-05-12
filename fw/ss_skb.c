@@ -1835,6 +1835,11 @@ ss_skb_copy_owner(struct sk_buff *to, struct sk_buff *from,
 
 		cli_mem = CLIENT_MEM_FROM_CONN(resp->req->conn);
 		__ss_skb_set_owner(from, ss_skb_dflt_destructor, cli_mem);
+	} else if (destructor == tfw_http_req_skb_destructor) {
+		TfwHttpReq *req = (TfwHttpReq *)owner;
+
+		cli_mem = CLIENT_MEM_FROM_CONN(req->conn);
+		__ss_skb_set_owner(from, ss_skb_dflt_destructor, cli_mem);
 	} else {
 		cli_mem = owner;
 	}
@@ -1843,4 +1848,18 @@ ss_skb_copy_owner(struct sk_buff *to, struct sk_buff *from,
 		return;
 	__ss_skb_set_owner(to, destructor, owner);
 	__ss_skb_adjust_client_mem(to, cli_mem, delta);
+}
+
+void
+ss_skb_copy_cb(struct sk_buff *to, struct sk_buff *from,
+	       unsigned int delta)
+{
+	/*
+	 * Do not copy `mem` (it should be set during copy owner).
+	 */
+	ss_skb_copy_owner(to, from, delta);
+	TFW_SKB_CB(to)->on_send = TFW_SKB_CB(from)->on_send;
+	TFW_SKB_CB(to)->on_tcp_entail = TFW_SKB_CB(from)->on_tcp_entail;
+	TFW_SKB_CB(to)->stream_id = TFW_SKB_CB(from)->stream_id;
+	TFW_SKB_CB(to)->is_head = TFW_SKB_CB(from)->is_head;
 }
