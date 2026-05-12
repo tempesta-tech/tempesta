@@ -28,7 +28,7 @@
 #include "str.h"
 
 typedef int (*on_send_cb_t)(void *conn, struct sk_buff **skb_head);
-typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
+typedef int (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
 typedef void (*on_send_fail_cb_t)(void *conn, struct sk_buff *skb_head);
 typedef struct tfw_client_mem_t TfwClientMem;
 
@@ -48,13 +48,21 @@ typedef struct tfw_client_mem_t TfwClientMem;
  * @is_head		- flag indicates that this is a head of skb list;
  */
 struct tfw_skb_cb {
-	void 		*opaque_data;
-	void 		(*destructor)(struct sk_buff *);
-	on_send_cb_t	on_send;
-	on_tcp_entail_t on_tcp_entail;
-	long int	mem;
-	unsigned int 	stream_id;
-	bool		is_head;
+	void	 		*opaque_data;
+	void	 		(*destructor)(struct sk_buff *);
+	long int		mem;
+	struct_group (copy,
+		union {
+			void		*on_tcp_entail_data;
+			on_send_cb_t	on_send;
+		};
+		union {
+			void		*on_send_data;
+			on_tcp_entail_t on_tcp_entail;
+		};
+		unsigned int 	stream_id;
+		bool		is_head;
+	);
 };
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
@@ -64,6 +72,8 @@ void ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
 void ss_skb_adjust_client_mem(struct sk_buff *skb, int delta);
 void ss_skb_dflt_destructor(struct sk_buff *skb);
 void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
+bool ss_skb_copy_cb(struct sk_buff *to, struct sk_buff *from,
+		    unsigned int delta);
 
 static inline bool
 ss_skb_has_dflt_destructor(struct sk_buff *skb)
@@ -113,13 +123,14 @@ ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 	return r;
 }
 
-static inline void
+static inline int
 ss_skb_on_tcp_entail(void *conn, struct sk_buff *skb_head)
 {
 	on_tcp_entail_t on_tcp_entail = TFW_SKB_CB(skb_head)->on_tcp_entail;
 
 	if (on_tcp_entail)
-		on_tcp_entail(conn, skb_head);
+		return on_tcp_entail(conn, skb_head);
+	return 0;
 }
 
 typedef int ss_skb_actor_t(void *conn, unsigned char *data, unsigned int len,

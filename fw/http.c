@@ -1338,15 +1338,6 @@ tfw_http_req_init_ss_flags(TfwSrvConn *srv_conn, TfwHttpReq *req)
 	((TfwMsg *)req)->ss_flags |= SS_F_KEEP_SKB;
 }
 
-static inline void
-tfw_http_resp_init_ss_flags(TfwHttpResp *resp)
-{
-	if (test_bit(TFW_HTTP_B_CONN_CLOSE, resp->req->flags))
-		resp->msg.ss_flags |= SS_F_CONN_CLOSE;
-	if (test_bit(TFW_HTTP_B_CONN_CLOSE_FORCE, resp->req->flags))
-		resp->msg.ss_flags |= __SS_F_FORCE;
-}
-
 /*
  * Reset the flag saying that @srv_conn has non-idempotent requests.
  */
@@ -1355,18 +1346,6 @@ tfw_http_conn_nip_reset(TfwSrvConn *srv_conn)
 {
 	if (list_empty(&srv_conn->nip_queue))
 		clear_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
-}
-
-/*
- * Put @req on the list of non-idempotent requests in @srv_conn.
- * Raise the flag saying that @srv_conn has non-idempotent requests.
- */
-static inline void
-tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
-{
-	BUG_ON(!list_empty(&req->nip_list));
-	list_add_tail(&req->nip_list, &srv_conn->nip_queue);
-	set_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
 }
 
 /*
@@ -1383,6 +1362,163 @@ tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 		list_del_init(&req->nip_list);
 		tfw_http_conn_nip_reset(srv_conn);
 	}
+}
+
+/**
+ * Remove @req from the server connection's forwarding queue.
+ * Caller must care about @srv_conn->last_msg_sent on it's own to keep the
+ * queue state consistent.
+ */
+static inline void
+tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
+{
+	tfw_http_req_nip_delist(srv_conn, req);
+	list_del_init(&req->fwd_list);
+	srv_conn->qsize--;
+}
+
+/*
+ * Get the request that is previous to @msg.
+ */
+static inline TfwMsg *
+__tfw_http_conn_msg_sent_prev(TfwSrvConn *srv_conn, TfwMsg *msg)
+{
+	TfwHttpReq *req_sent = (TfwHttpReq *)msg;
+
+	/*
+	 * There is list_is_last() function in the Linux kernel,
+	 * but there is no list_is_first(). The condition below
+	 * is an implementation of list_is_first().
+	 */
+	return (srv_conn->fwd_queue.next == &req_sent->fwd_list) ?
+		NULL : (TfwMsg *)list_prev_entry(req_sent, fwd_list);
+}
+
+static inline TfwMsg *
+__tfw_http_conn_curr_msg_sent_prev(TfwSrvConn *srv_conn)
+{
+	if (unlikely(!srv_conn->curr_msg_sent))
+		return NULL;
+
+	return __tfw_http_conn_msg_sent_prev(srv_conn,
+					     srv_conn->curr_msg_sent);
+}
+
+static inline TfwMsg *
+__tfw_http_conn_last_msg_sent_prev(TfwSrvConn *srv_conn)
+{
+	if (unlikely(!srv_conn->last_msg_sent))
+		return NULL;
+
+	return __tfw_http_conn_msg_sent_prev(srv_conn,
+					     srv_conn->last_msg_sent);
+}
+
+static inline bool
+tfw_http_req_is_valid(TfwHttpReq *req)
+{
+	return ((TFW_MSG_H2(req) && req->stream)
+		|| (!TFW_MSG_H2(req)
+		    && !test_bit(TFW_HTTP_B_REQ_DROP, req->flags)));
+}
+
+static int
+tfw_http_on_tcp_entail_req(void *conn, struct sk_buff *skb)
+{
+	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+	TfwHttpReq *req;
+
+	/*
+	 * We can safely access `req` pointer here.
+	 * - request is never deleted on the client side if it was already
+	 *   sent to backend server.
+	 * - on the server side request can be deleted during rescheduling
+	 *   (after server connection reestablishing) or during server
+	 *   connection released. In both these cases server connection
+	 *   queue was already purged (see tfw_srv_conn_release`), so
+	 *   this function will never called.
+	 */ 
+	req = (TfwHttpReq *)TFW_SKB_CB(skb)->on_tcp_entail_data;
+
+	if (unlikely(!tfw_http_req_is_valid(req))) {
+		spin_lock_bh(&srv_conn->fwd_qlock);
+		/*
+		 * Should be called before removing request from the
+		 * server connection queue.
+		 */
+		if ((TfwMsg *)req == srv_conn->last_msg_sent) {
+			srv_conn->last_msg_sent =
+				__tfw_http_conn_last_msg_sent_prev(srv_conn);
+		}
+		if ((TfwMsg *)req == srv_conn->curr_msg_sent) {
+			srv_conn->curr_msg_sent =
+				__tfw_http_conn_curr_msg_sent_prev(srv_conn);
+		}
+		tfw_http_req_delist(srv_conn, req);
+		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+
+		spin_unlock_bh(&srv_conn->fwd_qlock);
+
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int
+tfw_http_on_send_req(void *conn, struct sk_buff **skb_head)
+{
+	TfwHttpReq *req;
+
+	/*
+	 * We can safely access `req` pointer here.
+	 * - request is never deleted on the client side if it was already
+	 *   sent to backend server.
+	 * - on the server side request can be deleted during rescheduling
+	 *   (after server connection reestablishing) or during server
+	 *   connection released. In both these cases server connection
+	 *   queue was already purged (see tfw_srv_conn_release`), so
+	 *   this function will never called.
+	 */
+	req = TFW_SKB_CB(*skb_head)->on_send_data;
+
+	TFW_SKB_CB(*skb_head)->on_tcp_entail = tfw_http_on_tcp_entail_req;
+	TFW_SKB_CB(*skb_head)->on_tcp_entail_data = req;
+	ss_skb_on_send_dflt(conn, skb_head);
+
+	return 0;
+}
+
+static inline void
+tfw_http_req_init_for_send(TfwSrvConn *srv_conn, TfwHttpReq *req)
+{
+	tfw_http_req_init_ss_flags(srv_conn, req);
+	if (unlikely(test_bit(TFW_HTTP_B_HMONITOR, req->flags)))
+		return;
+
+	TFW_SKB_CB(req->msg.skb_head)->on_send = tfw_http_on_send_req;
+	TFW_SKB_CB(req->msg.skb_head)->on_send_data = req;
+}
+
+static inline void
+tfw_http_resp_init_ss_flags(TfwHttpResp *resp)
+{
+	if (test_bit(TFW_HTTP_B_CONN_CLOSE, resp->req->flags))
+		resp->msg.ss_flags |= SS_F_CONN_CLOSE;
+	if (test_bit(TFW_HTTP_B_CONN_CLOSE_FORCE, resp->req->flags))
+		resp->msg.ss_flags |= __SS_F_FORCE;
+}
+
+/*
+ * Put @req on the list of non-idempotent requests in @srv_conn.
+ * Raise the flag saying that @srv_conn has non-idempotent requests.
+ */
+static inline void
+tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
+{
+	BUG_ON(!list_empty(&req->nip_list));
+	list_add_tail(&req->nip_list, &srv_conn->nip_queue);
+	set_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
 }
 
 /*
@@ -1454,23 +1590,6 @@ tfw_http_conn_need_fwd(TfwSrvConn *srv_conn)
 }
 
 /*
- * Get the request that is previous to @srv_conn->last_msg_sent.
- */
-static inline TfwMsg *
-__tfw_http_conn_msg_sent_prev(TfwSrvConn *srv_conn)
-{
-	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->last_msg_sent;
-
-	/*
-	 * There is list_is_last() function in the Linux kernel,
-	 * but there is no list_is_first(). The condition below
-	 * is an implementation of list_is_first().
-	 */
-	return (srv_conn->fwd_queue.next == &req_sent->fwd_list) ?
-		NULL : (TfwMsg *)list_prev_entry(req_sent, fwd_list);
-}
-
-/*
  * Reset server connection's @fwd_queue and move all requests
  * to @dst list.
  */
@@ -1494,19 +1613,6 @@ tfw_http_req_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 	srv_conn->qsize++;
 	if (tfw_http_req_is_nip(req))
 		tfw_http_req_nip_enlist(srv_conn, req);
-}
-
-/**
- * Remove @req from the server connection's forwarding queue.
- * Caller must care about @srv_conn->last_msg_sent on it's own to keep the
- * queue state consistent.
- */
-static inline void
-tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
-{
-	tfw_http_req_nip_delist(srv_conn, req);
-	list_del_init(&req->fwd_list);
-	srv_conn->qsize--;
 }
 
 /*
@@ -1953,14 +2059,10 @@ tfw_http_req_zap_error(struct list_head *eq)
 
 	list_for_each_entry_safe(req, tmp, eq, fwd_list) {
 		list_del_init(&req->fwd_list);
-		if ((TFW_MSG_H2(req) && req->stream)
-		    || (!TFW_MSG_H2(req)
-			&& !test_bit(TFW_HTTP_B_REQ_DROP, req->flags)))
-		{
+		if (tfw_http_req_is_valid(req)) {
 			tfw_http_send_err_resp(req, req->httperr.status,
 					       req->httperr.reason);
-		}
-		else {
+		} else {
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		}
 
@@ -2075,7 +2177,6 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 	int r;
 
 	req->jtxtstamp = jiffies;
-	tfw_http_req_init_ss_flags(srv_conn, req);
 
 	/*
 	 * We set TFW_CONN_B_UNSCHED on server connection. New requests must
@@ -2098,6 +2199,8 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		 */
 		return -EBADF;
 	}
+
+	tfw_http_req_init_for_send(srv_conn, req);
 
 	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)))
 		return 0;
@@ -2287,8 +2390,16 @@ tfw_http_conn_treatnip(TfwSrvConn *srv_conn, struct list_head *eq)
 	    && !(srv->sg->flags & TFW_SRV_RETRY_NIP))
 	{
 		BUG_ON(list_empty(&req_sent->nip_list));
+		/*
+		 * This function is called during connection repair,
+		 * so `srv_conn->curr_msg_sent` is set to NULL.
+		 * If it is not NULL and we don't update it here
+		 * (when we update `last_msg_sent`), we catch BUG_ON
+		 * later during requests rescheduling.
+		 */
+		BUG_ON(srv_conn->curr_msg_sent);
 		srv_conn->last_msg_sent =
-			__tfw_http_conn_msg_sent_prev(srv_conn);
+			__tfw_http_conn_last_msg_sent_prev(srv_conn);
 		tfw_http_nip_req_resched_err(srv_conn, req_sent, eq);
 	}
 }
@@ -2620,6 +2731,12 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 		return;
 	}
 
+	/*
+	 * This function is called during connection repairing,
+	 * `curr_msg_sent` was set to NULL. If it is not NULL
+	 * and we don't update it during updating `last_msg_sent`
+	 * we catch BUG_ON.
+	 */
 	BUG_ON(srv_conn->curr_msg_sent);
 
 	/*
@@ -2644,7 +2761,7 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 		 * reassign @srv_conn->last_msg_sent in case it is evicted.
 		 * @req is now the same as @srv_conn->last_msg_sent.
 		 */
-		msg_sent_prev = __tfw_http_conn_msg_sent_prev(srv_conn);
+		msg_sent_prev = __tfw_http_conn_last_msg_sent_prev(srv_conn);
 		if (tfw_http_req_evict_stale_req(srv_conn, srv, req, &eq))
 			srv_conn->last_msg_sent = msg_sent_prev;
 	}
@@ -7470,11 +7587,7 @@ next_msg:
 
 	/* `cli_conn` is equal to zero for health monitor requests. */
 	if (likely(cli_conn)) {
-		if (TFW_FSM_TYPE(cli_conn->proto.type) == TFW_FSM_H2)
-			conn_stop = !hmresp->req->stream;
-		else
-			conn_stop = test_bit(TFW_HTTP_B_REQ_DROP,
-					     hmresp->req->flags);
+		conn_stop = !tfw_http_req_is_valid(hmresp->req);
 		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
 				 CLIENT_MEM_FROM_CONN(cli_conn),
 				 skb->truesize);

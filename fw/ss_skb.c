@@ -235,6 +235,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 						 TFW_SKB_CB(skb)->opaque_data,
 						 nskb->truesize);
 			}
+
 			skb_shinfo(nskb)->flags = skb_shinfo(skb)->flags;
 			ss_skb_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
@@ -1784,17 +1785,29 @@ ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head)
 	sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
 }
 
+static inline void
+__ss_skb_adjust_client_mem(struct sk_buff *skb, TfwClientMem *cli_mem,
+			   int delta)
+{
+	TFW_SKB_CB(skb)->mem += delta;
+	WARN_ON(TFW_SKB_CB(skb)->mem < 0);
+	tfw_client_adjust_mem(cli_mem, delta);
+}
+
 void
 ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
 		 TfwClientMem *owner, unsigned int mem)
 {
+	if (WARN_ON(skb_tfw_is_in_socket_write_queue(skb)))
+		return;
+
 	if (!owner || !tfw_client_mem_get(owner))
 		return;
 
 	WARN_ON(TFW_SKB_CB(skb)->mem != 0);
 	WARN_ON(TFW_SKB_CB(skb)->destructor || TFW_SKB_CB(skb)->opaque_data);
 	__ss_skb_set_owner(skb, destructor, owner);
-	ss_skb_adjust_client_mem(skb, mem);
+	__ss_skb_adjust_client_mem(skb, owner, mem);
 }
 
 void
@@ -1806,9 +1819,63 @@ ss_skb_adjust_client_mem(struct sk_buff *skb, int delta)
 		return;
 
 	cli_mem = (TfwClientMem *)TFW_SKB_CB(skb)->opaque_data;
-	if (cli_mem) {
-		TFW_SKB_CB(skb)->mem += delta;
-		WARN_ON(TFW_SKB_CB(skb)->mem < 0);
-		tfw_client_adjust_mem(cli_mem, delta);
+	if (cli_mem)
+		__ss_skb_adjust_client_mem(skb, cli_mem, delta);
+}
+
+static bool
+ss_skb_copy_owner(struct sk_buff *to, struct sk_buff *from,
+		  unsigned int delta)
+{
+	void (*destructor)(struct sk_buff *) = TFW_SKB_CB(from)->destructor;
+	TfwClientMem *cli_mem;
+	void *owner;
+
+	if (!destructor)
+		return true;
+
+	owner = TFW_SKB_CB(from)->opaque_data;
+	/*
+	 * If skb has not default destructor, it means that
+	 * owner is not a TfwClientMem structure. In this
+	 * case we should get TfwClientMem structure from
+	 * the real owner and set to source skb default
+	 * destructor with default owner, because only
+	 * TfwClientMem structure allow to be owned by
+	 * several skbs.
+	 */
+	if (destructor == tfw_h2_stream_skb_destructor) {
+		TfwHttpResp *resp = (TfwHttpResp *)owner;
+
+		cli_mem = CLIENT_MEM_FROM_CONN(resp->req->conn);
+	} else {
+		cli_mem = owner;
 	}
+
+	if (unlikely(!tfw_client_mem_get(cli_mem)))
+		return false;
+
+	__ss_skb_set_owner(from, ss_skb_dflt_destructor, cli_mem);
+	__ss_skb_set_owner(to, destructor, owner);
+	__ss_skb_adjust_client_mem(to, cli_mem, delta);
+
+	return true;
+}
+
+bool
+ss_skb_copy_cb(struct sk_buff *to, struct sk_buff *from,
+	       unsigned int delta)
+{
+	/*
+	 * Do not copy `mem` (it should be set during copy owner).
+	 */
+	if (unlikely(!ss_skb_copy_owner(to, from, delta)))
+		return false;
+	
+	memcpy(&TFW_SKB_CB(to)->copy, &TFW_SKB_CB(from)->copy,
+	       sizeof(TFW_SKB_CB(from)->copy));
+	bzero_fast(&TFW_SKB_CB(from)->copy,
+		   sizeof(TFW_SKB_CB(from)->copy));
+
+	return true;
 }
