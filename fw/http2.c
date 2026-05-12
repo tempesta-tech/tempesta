@@ -721,7 +721,16 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwStream *stream,
 	struct sk_buff *skb, *split;
 	int r = 0;
 
-	BUG_ON(!TFW_SKB_CB(stream->xmit.skb_head)->is_head);
+	/*
+	 * Currently we use this function only for sending HEADERS, DATA
+	 * or TRAILER frames for http2 response. `on_tcp_entail` callback
+	 * is not implemented for responses. For it's implementation
+	 * we should rework this function.
+	 */
+	if (WARN_ON(!TFW_SKB_CB(stream->xmit.skb_head)->is_head
+		    || TFW_SKB_CB(stream->xmit.skb_head)->on_tcp_entail))
+		return -EINVAL;
+
 	while (*len) {
 		skb = ss_skb_dequeue(&stream->xmit.skb_head);
 		BUG_ON(!skb);

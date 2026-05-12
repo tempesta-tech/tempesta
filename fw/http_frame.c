@@ -227,13 +227,15 @@ ctx_new_settings_flags[] = {
 	[HTTP2_SETTINGS_MAX_HDR_LIST_SIZE]	= 0x20
 };
 
-static void
+static int
 tfw_h2_on_tcp_entail_ack(void *conn, struct sk_buff *skb_head)
 {
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 
 	if (test_bit(HTTP2_SETTINGS_NEED_TO_APPLY, ctx->settings_to_apply))
 		tfw_h2_apply_new_settings(ctx);
+
+	return 0;
 }
 
 static int
