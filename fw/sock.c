@@ -467,7 +467,6 @@ ss_skb_tcp_entail(struct sock *sk, struct sk_buff *skb, unsigned int mark,
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
-	ss_skb_on_tcp_entail(sk->sk_user_data, skb);
 	T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
 	       " truesize=%u mark=%u tls_type=%x\n",
 	       smp_processor_id(), __func__, sk, skb, skb->data_len,
@@ -493,6 +492,7 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 	struct sk_buff *tail, *next, *to_destroy;
 	unsigned char tls_type = 0;
 	unsigned int mark = 0;
+	bool skip_list = false;
 	int r;
 
 	while ((*snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now))) {
@@ -508,16 +508,24 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 		 * belongs.
 		 */
 		if (TFW_SKB_CB(skb)->is_head) {
+			skip_list = false;
 			tls_type = skb_tfw_tls_type(skb);
 			mark = skb->mark;
 			tail = tcp_write_queue_tail(sk);
 		}
+
+		if (!skip_list
+		    && ss_skb_on_tcp_entail(sk->sk_user_data, skb))
+			skip_list = true;
+
 		/*
 		 * Zero-sized SKBs may appear when the message headers (or any
 		 * other contents) are modified or deleted by Tempesta. Drop
 		 * these SKBs.
+		 * If `on_tcp_entail` callback fails we also free all skbs from
+		 * the list.
 		 */
-		if (!skb->len) {
+		if (skip_list || !skb->len) {
 			T_DBG3("[%d]: %s: drop skb=%pK data_len=%u len=%u\n",
 			       smp_processor_id(), __func__,
 			       skb, skb->data_len, skb->len);
@@ -663,7 +671,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 			twin_skb = __pskb_copy_fclone(skb, MAX_TCP_HEADER,
 						      GFP_ATOMIC, true);
 			if (!twin_skb) {
-				T_WARN("Unable to copy an egress SKB.\n");
+				T_WARN("Unable to copy an egress skb.\n");
 				r = -ENOMEM;
 				goto err;
 			}
@@ -676,6 +684,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 			ss_skb_set_owner(twin_skb, ss_skb_dflt_destructor,
 					 TFW_SKB_CB(skb)->cli_mem,
 					 copied_truesize);
+			ss_skb_copy_cb(twin_skb, skb);
 			ss_skb_queue_tail(&sw.skb_head, twin_skb);
 			skb = skb->next;
 		} while (skb != *skb_head);
