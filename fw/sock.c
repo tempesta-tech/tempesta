@@ -489,7 +489,6 @@ int
 ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 		       unsigned int mss_now, unsigned long *snd_wnd)
 {
-	struct sk_buff *tail, *next, *to_destroy;
 	unsigned char tls_type = 0;
 	unsigned int mark = 0;
 	bool skip_list = false;
@@ -511,7 +510,6 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 			skip_list = false;
 			tls_type = skb_tfw_tls_type(skb);
 			mark = skb->mark;
-			tail = tcp_write_queue_tail(sk);
 		}
 
 		if (!skip_list
@@ -535,8 +533,8 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 
 		r = ss_skb_realloc_headroom(skb);
 		if (unlikely(r)) {
-			ss_skb_queue_head(skb_head, skb);
-			goto restore_sk_write_queue;
+			ss_kfree_skb(skb);
+			return r;
 		}
 
 		ss_skb_tcp_entail(sk, skb, mark, tls_type);
@@ -546,19 +544,6 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 		ss_skb_setup_head_of_list(*skb_head, mark, tls_type);
 
 	return 0;
-
-restore_sk_write_queue:
-	to_destroy = tail ? tail->next : tcp_send_head(sk);
-	if (to_destroy) {
-		tcp_for_write_queue_from_safe(to_destroy, next, sk) {
-			tcp_unlink_write_queue(to_destroy, sk);
-			tcp_wmem_free_skb(sk, to_destroy);
-		}
-	}
-	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head)
-		ss_skb_setup_head_of_list(*skb_head, mark, tls_type);
-
-	return r;
 }
 
 /**
