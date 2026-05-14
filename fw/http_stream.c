@@ -158,10 +158,10 @@ tfw_h2_stream_purge_send_queue(TfwStream *stream)
 void
 tfw_h2_stream_purge_all_and_free_response(TfwStream *stream)
 {
-	TfwHttpResp*resp = stream->xmit.resp;
+	TfwHttpResp *resp = stream->xmit.resp;
 
 	if (resp) {
-		tfw_http_resp_pair_free_and_put_conn(resp);
+		tfw_http_resp_pair_free_and_put_conn(resp, __func__);
 		stream->xmit.resp = NULL;
 	}
 	tfw_h2_stream_purge_all(stream);
@@ -817,9 +817,11 @@ tfw_h2_stream_skb_destructor(struct sk_buff *skb)
 {
 	TfwHttpResp *resp = (TfwHttpResp *)TFW_SKB_CB(skb)->opaque_data;
 
+	printk(KERN_ALERT "tfw_h2_stream_skb_destructor %px %px %px\n",
+		skb, resp, resp->msg.skb_head);
 	TFW_SKB_CB(skb)->opaque_data = CLIENT_MEM_FROM_CONN(resp->req->conn);
 	ss_skb_dflt_destructor(skb);
-	tfw_http_resp_pair_free_and_put_conn(resp);
+	tfw_http_resp_pair_free_and_put_conn(resp, __func__);
 }
 
 int

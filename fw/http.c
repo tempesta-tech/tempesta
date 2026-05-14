@@ -1039,11 +1039,13 @@ tfw_http_resp_pair_free(TfwHttpReq *req)
 }
 
 void
-tfw_http_resp_pair_free_and_put_conn(void *opaque_data)
+tfw_http_resp_pair_free_and_put_conn(void *opaque_data, const char *from)
 {
 	TfwHttpResp *resp = (TfwHttpResp *)(opaque_data);
 	TfwHttpReq *req = resp->req;
 
+	printk(KERN_ALERT "tfw_http_resp_pair_free_and_put_conn %px %px %s\n",
+		resp, req, from);
 	BUG_ON(!req || !req->conn);
 	tfw_connection_put(req->conn);
 	tfw_http_resp_pair_free(req);
@@ -1186,7 +1188,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	}
 
 	if (!resp_in_xmit)
-		tfw_http_resp_pair_free_and_put_conn(resp);
+		tfw_http_resp_pair_free_and_put_conn(resp, __func__);
 	if (need_extra_put)
 		tfw_connection_put(conn);
 }
@@ -2878,10 +2880,12 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	hm->stream = stream;
 	hm->cache_ctl.default_ttl = cache_default_ttl;
 
-	if (type & Conn_Clnt)
+	if (type & Conn_Clnt) {
 		tfw_http_init_parser_req((TfwHttpReq *)hm);
-	else
+	} else {
+		printk(KERN_ALERT "msg alloc %px\n", hm);
 		tfw_http_init_parser_resp((TfwHttpResp *)hm);
+	}
 
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2) {
 		TfwHttpReq *req = (TfwHttpReq *)hm;
@@ -5480,8 +5484,10 @@ tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 	 * stream was canceled by RST STREAM from the client
 	 * before ss_do_send was called.
 	 */
-	if (unlikely(!stream))
+	if (unlikely(!stream)) {
+		printk(KERN_ALERT "DESTRUCTOR %px %px\n", *skb_head, resp);
 		return -EPIPE;
+	}
 
 	if (WARN_ON(stream->xmit.skb_head || stream->xmit.resp))
 		return -EINVAL;

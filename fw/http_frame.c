@@ -2239,8 +2239,10 @@ do {									\
 	T_FSM_STATE(HTTP2_RELEASE_RESPONSE) {
 		TfwHttpResp *resp = stream->xmit.resp;
 
+		BUG_ON(resp->msg.skb_head);
+		BUG_ON(TFW_SKB_CB(stream->xmit.skb_head)->destructor == tfw_h2_stream_skb_destructor); 
 		BUG_ON(!resp || !resp->req || !resp->req->conn);
-		tfw_http_resp_pair_free_and_put_conn(resp);
+		tfw_http_resp_pair_free_and_put_conn(resp, __func__);
 		stream->xmit.resp = NULL;
 		/* Error during headers encoding. */
 		if (unlikely(r))

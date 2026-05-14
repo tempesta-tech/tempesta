@@ -93,6 +93,7 @@ __tfw_http_msg_alloc_resp(TfwHttpReq *req, bool full)
 	if (resp)
 		tfw_http_msg_pair(resp, req);
 
+	printk(KERN_ALERT "__tfw_http_msg_alloc_resp %px\n", resp);
 	return resp;
 }
 
