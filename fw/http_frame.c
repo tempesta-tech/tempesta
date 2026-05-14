@@ -2400,12 +2400,6 @@ do {									\
 		}
 		if (stream == ctx->error)
 			ctx->error = NULL;
-		/*
-		 * Don't put exclusive streams in closed queue it
-		 * will be immediately deleted in the caller function.
-		 */
-		if (!stream_is_exclusive)
-			tfw_h2_stream_add_closed(ctx, stream);
 		T_FSM_EXIT();
 	}
 
@@ -2562,6 +2556,8 @@ tfw_h2_make_frames(struct sock *sk, TfwH2Ctx *ctx, unsigned int mss_now,
 				if (stream_is_exclusive) {
 					tfw_h2_stream_clean(ctx, stream);
 				} else {
+					tfw_h2_stream_add_closed(ctx, stream);
+
 					TfwStreamSchedEntry *parent =
 						stream->sched->parent;
 
