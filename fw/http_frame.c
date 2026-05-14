@@ -877,6 +877,7 @@ tfw_h2_goaway_process(TfwH2Ctx *ctx)
 		T_DBG("HTTP/2 connection is closed by client with error code:"
 		      " %u, ID of last processed stream: %u\n", err_code,
 		      last_id);
+	WARN_ON(err_code == HTTP2_ECODE_COMPRESSION);
 	SET_TO_READ(ctx);
 	return 0;
 }
