@@ -2419,6 +2419,13 @@ do {									\
 		case STREAM_FSM_RES_IGNORE:
 			fallthrough;
 		case STREAM_FSM_RES_TERM_STREAM:
+			/*
+			 * In this case r is positive, set it to zero to not
+			 * return positive r from this function. That doesn't
+			 * reset connection but stops stream scheduling even
+			 * if we have enough send window.
+			 */
+			r = 0;
 			/* Send previosly successfully prepared frames if exist. */
 			if (stream->xmit.frame_length) {
 				r = tfw_h2_entail_stream_skb(sk, stream,
