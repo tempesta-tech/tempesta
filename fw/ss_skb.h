@@ -204,8 +204,7 @@ ss_skb_orphan(struct sk_buff *skb)
 		 */
 		BUG_ON(!TFW_SKB_CB(skb)->opaque_data);
 		destructor(skb);
-		TFW_SKB_CB(skb)->destructor = NULL;
-		TFW_SKB_CB(skb)->opaque_data = NULL;
+		__ss_skb_set_owner(skb, NULL, NULL);
 	} else {
 		/*
 		 * The same BUG_ON is present in linux kernel in
@@ -220,6 +219,13 @@ __ss_kfree_skb(struct sk_buff *skb)
 {
 	if (!skb)
 		return;
+	/*
+	 * Not default destructor can be set only for the head of skb list,
+	 * which belongs to some data structure and should be called in a
+	 * special way from `ss_skb_queue_purge` to prevent memory corruption.
+	 */
+	BUG_ON(TFW_SKB_CB(skb)->destructor
+	       && !ss_skb_has_dflt_destructor(skb));
 	ss_skb_orphan(skb);
 	__kfree_skb(skb);
 }
@@ -229,6 +235,13 @@ ss_kfree_skb(struct sk_buff *skb)
 {
 	if (!skb)
 		return;
+	/*
+	 * Not default destructor can be set only for the head of skb list,
+	 * which belongs to some data structure and should be called in a
+	 * special way from `ss_skb_queue_purge` to prevent memory corruption.
+	 */
+	BUG_ON(TFW_SKB_CB(skb)->destructor
+	       && !ss_skb_has_dflt_destructor(skb));
 	ss_skb_orphan(skb);
 	kfree_skb(skb);
 }
@@ -340,9 +353,26 @@ ss_skb_dequeue(struct sk_buff **skb_head)
 static inline void
 ss_skb_queue_purge(struct sk_buff **skb_head)
 {
-	struct sk_buff *skb;
+	struct sk_buff *skb, *head;
+
+	if (!(head = ss_skb_dequeue(skb_head)))
+		return;	
+
 	while ((skb = ss_skb_dequeue(skb_head)) != NULL)
 		ss_kfree_skb(skb);
+
+	/*
+	 * We implement a special handling of deleting `head` of the list
+	 * to prevent memory corruption during calling not default skb
+	 * destructor. For example if `head` opaque data points to `response`
+	 * such response can be freed from skb destructor. But `skb_head`
+	 * can also belong to response, so we can't access it after calling
+	 * skb_destructor - so first we should remove `head` from the list,
+	 * destroy all other skbs in the list and after all free the `head`
+	 * of the list.
+	 */
+	ss_skb_orphan(head);
+	kfree_skb(head);
 }
 
 static inline void
