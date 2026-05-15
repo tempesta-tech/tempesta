@@ -1164,7 +1164,6 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	/*
 	 * `tfw_h2_stream_init_for_xmit` should be called for
 	 * response before send it to the client.
-	 *
 	 */
 	if (WARN_ON(!TFW_SKB_CB(resp->msg.skb_head)->stream_id
 		    || !tfw_http_resp_check_skb_head_owner(resp)))
