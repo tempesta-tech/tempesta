@@ -1672,7 +1672,6 @@ ss_tx_action(void)
 {
 	SsWork sw;
 	int budget;
-	struct sk_buff *skb;
 	TfwRBQueue *wq = this_cpu_ptr(&si_wq);
 	long ticket = 0;
 
@@ -1777,9 +1776,7 @@ ss_tx_action(void)
 		}
 dead_sock:
 		sock_put(sk); /* paired with push() calls */
-
-		while ((skb = ss_skb_dequeue(&sw.skb_head)))
-			ss_kfree_skb(skb);
+		ss_skb_queue_purge(&sw.skb_head);
 	}
 
 	/*
