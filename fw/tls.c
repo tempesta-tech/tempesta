@@ -51,10 +51,7 @@ static bool allow_any_sni_reconfig;
 static inline void
 tfw_tls_purge_io_ctx(TlsIOCtx *io)
 {
-	struct sk_buff *skb;
-
-	while ((skb = ss_skb_dequeue(&io->skb_list)))
-		ss_kfree_skb(skb);
+	ss_skb_queue_purge(&io->skb_list);
 	ttls_reset_io_ctx(io);
 }
 
@@ -635,7 +632,6 @@ out:
 static void
 tfw_tls_conn_dtor(void *c)
 {
-	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
 
 	if (TFW_CONN_PROTO((TfwConn *)c) == TFW_FSM_H2) {
@@ -648,10 +644,8 @@ tfw_tls_conn_dtor(void *c)
 	}
 
 	if (tls) {
-		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
-			ss_kfree_skb(skb);
-		while ((skb = ss_skb_dequeue(&tls->io_out.skb_list)))
-			ss_kfree_skb(skb);
+		ss_skb_queue_purge(&tls->io_in.skb_list);
+		ss_skb_queue_purge(&tls->io_out.skb_list);
 
 		if (tls->peer_conf)
 			tfw_vhost_put(tfw_vhost_from_tls_conf(tls->peer_conf));
