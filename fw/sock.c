@@ -60,6 +60,7 @@ struct sock_bug {
 	int stage2;
 	int stage3;
 	int stage4;
+	int from;
 };
 
 static DEFINE_PER_CPU(struct sock_bug, bug);
@@ -1653,9 +1654,10 @@ tfw_sk_bug_report(void)
 	int cpu = smp_processor_id();
 	struct sock_bug *b = per_cpu_ptr(&bug, cpu);
 
-	printk(KERN_ALERT "sock_bug %d: %px %px %px %d %d %d %d %d %d",
+	printk(KERN_ALERT "sock_bug %d: %px %px %px %d %d %d %d %d %d %d",
 		cpu, b->sk, b->sk->sk_user_data, b->conn, b->active,
-		b->stage, b->stage1, b->stage2, b->stage3, b->stage4);
+		b->stage, b->stage1, b->stage2, b->stage3, b->stage4,
+		b->from);
 }
 
 void
@@ -1666,13 +1668,14 @@ tfw_bug_reporter(void)
 }
 
 static void
-__sk_close_locked(struct sock *sk, int flags)
+__sk_close_locked(struct sock *sk, int flags, int from)
 {
 	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	int cpu = smp_processor_id();
 	struct sock_bug *b = per_cpu_ptr(&bug, cpu);
 
 	b->sk = sk;
+	b->from = from;
 	if (sk->sk_fill_write_queue(sk, mss_now)) {
 		printk(KERN_ALERT "FAILED %px\n", sk);
 		ss_linkerror(sk, 0);
@@ -1786,7 +1789,7 @@ ss_tx_action(void)
 			switch(sw.flags & SS_F_CLOSE_FORCE) {
 			case SS_F_CLOSE_FORCE:
 				/* paired with bh_lock_sock() */
-				__sk_close_locked(sk, sw.flags);
+				__sk_close_locked(sk, sw.flags, 1);
 				break;
 			case SS_F_CONN_CLOSE:
 				ss_do_shutdown(sk);
@@ -1824,7 +1827,7 @@ ss_tx_action(void)
 				break;
 			}
 			/* paired with bh_lock_sock() */
-			__sk_close_locked(sk, sw.flags);
+			__sk_close_locked(sk, sw.flags, 2);
 			break;
 		default:
 			BUG();

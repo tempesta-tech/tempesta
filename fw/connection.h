@@ -257,6 +257,8 @@ typedef struct {
 	bool			in_soft_irq;
 	bool			tut;
 	bool			tut1;
+	int			rc[10];
+	atomic_t		xxx;
 } TfwSrvConn;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
@@ -486,12 +488,23 @@ static inline void
 tfw_connection_put(TfwConn *conn)
 {
 	int rc;
+	int yyy;
 
 	if (unlikely(!conn))
 		return;
 
 	rc = atomic_dec_return(&conn->refcnt);
-	BUG_ON(rc < TFW_CONN_DEATHCNT);
+	BUG_ON(rc == -1 || rc < TFW_CONN_DEATHCNT);
+
+	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
+		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+
+		if (srv_conn->tut || srv_conn->tut1) {
+			yyy = atomic_fetch_add(1, &srv_conn->xxx);
+			if (yyy < 10)
+				srv_conn->rc[yyy] = rc + 1;
+		}
+	}
 
 	if (likely(rc && rc != TFW_CONN_DEATHCNT))
 		return;

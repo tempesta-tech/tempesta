@@ -285,10 +285,16 @@ tfw_conn_bug_report(void)
 		TFW_CONN_TYPE(b->conn) & Conn_Srv);
 	if (TFW_CONN_TYPE(b->conn) & Conn_Srv) {
 		TfwSrvConn *conn = (TfwSrvConn *)b->conn;
-		printk(KERN_ALERT "conn_bug %px %d %ps %ps %llu %llu %d %d\n",
+		printk(KERN_ALERT "conn_bug %px %d %ps %ps %llu %llu %d %d %d %d\n",
 			conn->last_unlinked, conn->cpu, conn->from1,
 			conn->from2, conn->t, ktime_get_ns(), conn->in_task,
-			conn->in_soft_irq);
+			conn->in_soft_irq, atomic_read(&conn->refcnt),
+			conn->tut1);
+		printk(KERN_ALERT "conn_bug %d %d %d %d %d %d %d %d %d %d",
+			conn->rc[0], conn->rc[1], conn->rc[2],
+			conn->rc[3], conn->rc[4], conn->rc[5],
+			conn->rc[6], conn->rc[7], conn->rc[8],
+			conn->rc[9]);
 	}	
 }
 
