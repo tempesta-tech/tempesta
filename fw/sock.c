@@ -53,6 +53,13 @@ typedef struct {
 
 struct sock_bug {
 	struct sock *sk;
+	void *conn;
+	bool active;
+	int stage;
+	int stage1;
+	int stage2;
+	int stage3;
+	int stage4;
 };
 
 static DEFINE_PER_CPU(struct sock_bug, bug);
@@ -562,6 +569,16 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	void *conn = sk->sk_user_data;
 	unsigned char tls_type = flags & SS_F_ENCRYPT ?
 		SS_SKB_F2TYPE(flags) : 0;
+	int cpu = smp_processor_id();
+	struct sock_bug *b = per_cpu_ptr(&bug, cpu);
+
+	b->stage = 1;
+	b->stage1 = 1;
+	b->stage2 = 1;
+	b->stage3 = 1;
+	b->stage4 = 1;
+	b->conn = conn;
+	b->active = ss_sock_active(sk);
 
 	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
 	       " sk_state=%d\n",
@@ -570,16 +587,26 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	       sk->sk_state);
 
 	/* If the socket is inactive, there's no recourse. Drop the data. */
-	if (unlikely(!conn || !ss_sock_active(sk)))
+	if (unlikely(!conn || !ss_sock_active(sk))) {
+		b->stage1++;
 		goto cleanup;
+	}
 
+	b->stage++;
 	ss_skb_setup_head_of_list(*skb_head, (*skb_head)->mark, tls_type);
+	b->stage++;
 
-	if (ss_skb_on_send(conn, skb_head))
+	if (ss_skb_on_send(conn, skb_head)) {
+		b->stage2++;
 		goto cleanup;
+	}
 
-	if (flags & SS_F_CONN_CLOSE)
+	b->stage++;
+	if (flags & SS_F_CONN_CLOSE) {
+		b->stage3++;
 		return;
+	}
+	b->stage++;
 
 	/*
 	 * We set SOCK_TEMPESTA_HAS_DATA when we add some skb in our
@@ -603,12 +630,15 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	SS_IN_USE_PROTECT({
 		tcp_push_pending_frames(sk);
 	});
+	b->stage++;
 
 	SS_STATE_PROCESS_RETURN(sk);
+	b->stage++;
 
 	return;
 
 cleanup:
+	b->stage4++;
 	ss_skb_queue_purge(skb_head);
 }
 
@@ -1623,7 +1653,9 @@ tfw_sk_bug_report(void)
 	int cpu = smp_processor_id();
 	struct sock_bug *b = per_cpu_ptr(&bug, cpu);
 
-	printk(KERN_ALERT "sock_bug %d: %px %px", cpu, b->sk, b->sk->sk_user_data);
+	printk(KERN_ALERT "sock_bug %d: %px %px %px %d %d %d %d %d %d",
+		cpu, b->sk, b->sk->sk_user_data, b->conn, b->active,
+		b->stage, b->stage1, b->stage2, b->stage3, b->stage4);
 }
 
 void
@@ -1646,7 +1678,7 @@ __sk_close_locked(struct sock *sk, int flags)
 		ss_linkerror(sk, 0);
 		printk(KERN_ALERT "FAILED %px AAA\n", sk);
 		bh_unlock_sock(sk);
-		b->sk = NULL;
+		bzero_fast(b, sizeof(struct sock_bug));
 		return;
 	}
 	ss_do_close(sk, flags);
@@ -1664,7 +1696,7 @@ __sk_close_locked(struct sock *sk, int flags)
 	}
 	bh_unlock_sock(sk);
 
-	b->sk = NULL;
+	bzero_fast(b, sizeof(struct sock_bug));
 	sock_put(sk); /* paired with ss_do_close() */
 }
 

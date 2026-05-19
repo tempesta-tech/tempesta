@@ -251,8 +251,12 @@ typedef struct {
 	struct sock 		*last_unlinked;
 	int			cpu;
 	void 			*from1;
-	void 			*from2;
+	void			*from2;
 	u64			t;
+	bool			in_task;
+	bool			in_soft_irq;
+	bool			tut;
+	bool			tut1;
 } TfwSrvConn;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)

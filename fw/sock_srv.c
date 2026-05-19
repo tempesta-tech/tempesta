@@ -432,8 +432,11 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 		srv_conn->last_unlinked = srv_conn->sk;
 		srv_conn->cpu = smp_processor_id();
 		srv_conn->from1 = __builtin_return_address(0);
-		srv_conn->from2 = __builtin_return_address(1);
 		srv_conn->t = ktime_get_ns();
+		srv_conn->in_task = in_task();
+		srv_conn->in_soft_irq = in_softirq();
+		if (srv_conn->tut)
+			srv_conn->tut1 = true;
 		tfw_connection_unlink_to_sk((TfwConn *)srv_conn);
 	}
 	/*
@@ -847,8 +850,10 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 			} else {
 				r = tfw_connection_close(conn, true);
 			}
-
+			
+			srv_conn->tut = true;
 			tfw_connection_put(conn);
+			srv_conn->tut = false;
 			return r;
 		}
 		/*
