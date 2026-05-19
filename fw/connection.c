@@ -28,6 +28,19 @@
 #include "websocket.h"
 #include "tcp.h"
 
+struct conn_bug {
+	TfwConn *conn;
+	int stage;
+	int stage1;
+	int stage11;
+	int stage111;
+	int stage2;
+	int stage22;
+	int stage222;
+};
+
+static DEFINE_PER_CPU(struct conn_bug, bug);
+
 TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 
 /*
@@ -258,6 +271,20 @@ tfw_connection_shutdown(TfwConn *conn)
 	return 0;
 }
 
+void
+tfw_conn_bug_report(void)
+{
+	int cpu = smp_processor_id();
+	struct conn_bug *b = per_cpu_ptr(&bug, cpu);
+
+	printk(KERN_ALERT "conn_bug %d: %px %d %d %d %d %d %d %d",
+		cpu, b->conn, b->stage, b->stage1, b->stage11, b->stage111,
+		b->stage2, b->stage22, b->stage222);
+	printk(KERN_ALERT "conn_bug %d: %px %px %d %d",
+		cpu, b->conn, b->conn->sk, TFW_CONN_TYPE(b->conn) & Conn_Clnt,
+		TFW_CONN_TYPE(b->conn) & Conn_Srv);
+}
+
 int
 tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now)
 {
@@ -265,15 +292,28 @@ tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now)
 	TfwH2Ctx *h2;
 	unsigned long snd_wnd;
 	int r;
+	int cpu = smp_processor_id();
+	struct conn_bug *b = per_cpu_ptr(&bug, cpu);
 
+	b->conn = conn;
+	b->stage = 1;
+	b->stage1 = 1;
+	b->stage11 = 1;
+	b->stage111 = 1;
+	b->stage2 = 1;
+	b->stage22 = 1;
+	b->stage222 = 1;
 	assert_spin_locked(&sk->sk_lock.slock);
+	b->stage++;
 	WARN_ON(SS_CONN_TYPE(sk) & Conn_Closing);
+	b->stage++;
 
 	/*
 	 * Update snd_cwnd if nedeed, to correct caclulation
 	 * of count of bytes to send.
 	 */
 	tcp_slow_start_after_idle_check(sk);
+	b->stage++;
 
 	/*
 	 * First of all Tempesta FW entails skb from connection write queue
@@ -282,8 +322,11 @@ tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now)
 	 */
 	r = ss_skb_tcp_entail_list(sk, &conn->write_queue,
 				   mss_now, &snd_wnd);
-	if (unlikely(r))
+	b->stage++;
+	if (unlikely(r)) {
+		bzero_fast(b, sizeof(struct conn_bug));
 		return r;
+	}
 
 	/*
 	 * This function can be called both for HTTP1 and HTTP2 connections.
@@ -292,20 +335,35 @@ tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now)
 	 */
 	h2 = TFW_CONN_PROTO(conn) == TFW_FSM_H2 ?
 		tfw_h2_context_safe(conn) : NULL;
+	b->stage++;
 	if (!h2) {
+		b->stage1++;
 		if (unlikely(!conn->write_queue)) {
+			b->stage11++;
 			sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);
-			if (unlikely(SS_CONN_TYPE(sk) & Conn_Shutdown))
+			b->stage11++;
+			if (unlikely(SS_CONN_TYPE(sk) & Conn_Shutdown)) {
+				b->stage111++;
 				r = tfw_connection_shutdown(conn);
+				b->stage111++;
+			}
 		}
+		b->stage1++;
+		bzero_fast(b, sizeof(struct conn_bug));
 		return r;
 	}
 
+	b->stage2++;
 	r = tfw_h2_make_frames(sk, h2, mss_now, snd_wnd);
-	if (unlikely(r))
+	b->stage2++;
+	if (unlikely(r)) {
+		bzero_fast(b, sizeof(struct conn_bug));
 		return r;
+	}
 
+	b->stage2++;
 	if (unlikely(!conn->write_queue)) {
+		b->stage2++;
 		/*
 		 * If connection is shutdowned and error responce was sent
 		 * shutdown the whole connection.
@@ -313,11 +371,18 @@ tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now)
 		if (unlikely(SS_CONN_TYPE(sk) & Conn_Shutdown)
 		    && (!h2->error
 			|| tfw_h2_conn_or_stream_wnd_is_exceeded(h2,
-								 h2->error)))
+								 h2->error))) {
+			b->stage22++;
 			r = tfw_connection_shutdown(conn);
-		if (!tfw_h2_is_ready_to_send(h2))
+			b->stage22++;
+		}
+		if (!tfw_h2_is_ready_to_send(h2)) {
+			b->stage222++;
 			sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+			b->stage222++;
+		}
 	}
 
+	bzero_fast(b, sizeof(struct conn_bug));
 	return r;
 }

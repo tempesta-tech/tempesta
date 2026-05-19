@@ -126,4 +126,6 @@ tfw_srv_loop_sched_rcu(void)
 	rcu_barrier();
 }
 
+void tfw_bug_reporter(void);
+
 #endif /* __TEMPESTA_FW_H__ */

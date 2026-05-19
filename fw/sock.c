@@ -51,6 +51,12 @@ typedef struct {
 	unsigned long	__unused[1];
 } SsWork;
 
+struct sock_bug {
+	struct sock *sk;
+};
+
+static DEFINE_PER_CPU(struct sock_bug, bug);
+
 /**
  * Backlog for synchronous close operations. Uses turnstile to keep order with
  * ring-buffer work queue. The work queue tail is used as a ticket for the
@@ -1611,14 +1617,36 @@ ss_getpeername(struct sock *sk, TfwAddr *addr)
 }
 EXPORT_SYMBOL(ss_getpeername);
 
+void
+tfw_sk_bug_report(void)
+{
+	int cpu = smp_processor_id();
+	struct sock_bug *b = per_cpu_ptr(&bug, cpu);
+
+	printk(KERN_ALERT "sock_bug %d: %px %px", cpu, b->sk, b->sk->sk_user_data);
+}
+
+void
+tfw_bug_reporter(void)
+{
+	tfw_sk_bug_report();
+	tfw_conn_bug_report();
+}
+
 static void
 __sk_close_locked(struct sock *sk, int flags)
 {
 	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
+	int cpu = smp_processor_id();
+	struct sock_bug *b = per_cpu_ptr(&bug, cpu);
 
+	b->sk = sk;
 	if (sk->sk_fill_write_queue(sk, mss_now)) {
+		printk(KERN_ALERT "FAILED %px\n", sk);
 		ss_linkerror(sk, 0);
+		printk(KERN_ALERT "FAILED %px AAA\n", sk);
 		bh_unlock_sock(sk);
+		b->sk = NULL;
 		return;
 	}
 	ss_do_close(sk, flags);
@@ -1635,6 +1663,8 @@ __sk_close_locked(struct sock *sk, int flags)
 		SS_CONN_TYPE(sk) |= Conn_Closing;
 	}
 	bh_unlock_sock(sk);
+
+	b->sk = NULL;
 	sock_put(sk); /* paired with ss_do_close() */
 }
 

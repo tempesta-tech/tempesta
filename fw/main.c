@@ -479,6 +479,8 @@ tfw_exit(void)
 		exit_hooks[i]();
 
 	unregister_net_sysctl_table(tfw_sysctl_hdr);
+
+	tfw_reporter = NULL;
 }
 
 static int __init
@@ -529,6 +531,8 @@ tfw_init(void)
 	DO_INIT(http_tbl);
 	DO_INIT(sched_hash);
 	DO_INIT(sched_ratio);
+
+	tfw_reporter = tfw_bug_reporter;
 
 	return 0;
 err:

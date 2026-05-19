@@ -228,4 +228,7 @@ do {									\
  */
 void ss_close_not_connected_socket(struct sock *sk);
 
+void tfw_sk_bug_report(void);
+void tfw_conn_bug_report(void);
+
 #endif /* __SS_SOCK_H__ */
