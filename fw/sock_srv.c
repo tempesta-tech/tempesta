@@ -428,8 +428,14 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 	 * connect attempt. In that case no connection has been
 	 * established yet, and conn->sk has not been set.
 	 */
-	if (likely(srv_conn->sk))
+	if (likely(srv_conn->sk)) {
+		srv_conn->last_unlinked = srv_conn->sk;
+		srv_conn->cpu = smp_processor_id();
+		srv_conn->from1 = __builtin_return_address(0);
+		srv_conn->from2 = __builtin_return_address(1);
+		srv_conn->t = ktime_get_ns();
 		tfw_connection_unlink_to_sk((TfwConn *)srv_conn);
+	}
 	/*
 	 * After a disconnect, new connect attempts are started
 	 * in deferred context after a short pause (in a timer

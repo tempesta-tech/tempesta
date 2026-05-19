@@ -1459,6 +1459,8 @@ tfw_http_req_on_tcp_entail(void *conn, struct sk_buff *skb)
 
 	if (unlikely(!tfw_http_req_is_valid(req))) {
 		spin_lock_bh(&srv_conn->fwd_qlock);
+		printk(KERN_ALERT "DELETE REQ conn %px %px req %px: %d\n",
+			srv_conn, srv_conn->sk, req, smp_processor_id());
 		/*
 		 * Should be called before removing request from the
 		 * server connection queue.
@@ -1473,6 +1475,9 @@ tfw_http_req_on_tcp_entail(void *conn, struct sk_buff *skb)
 		}
 		tfw_http_req_delist(srv_conn, req);
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+
+		printk(KERN_ALERT "DELETE REQ AAA conn %px %px %d\n",
+			srv_conn, srv_conn->sk, smp_processor_id());
 
 		spin_unlock_bh(&srv_conn->fwd_qlock);
 

@@ -248,6 +248,11 @@ typedef struct {
 	TfwMsg			*last_msg_sent;
 	TfwMsg			*curr_msg_sent;
 	unsigned long		jbusytstamp;
+	struct sock 		*last_unlinked;
+	int			cpu;
+	void 			*from1;
+	void 			*from2;
+	u64			t;
 } TfwSrvConn;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
@@ -591,7 +596,10 @@ tfw_connection_validate_cleanup(TfwConn *conn)
 	BUG_ON(conn->write_queue);
 
 	rc = atomic_read(&conn->refcnt);
-	BUG_ON(rc && rc != TFW_CONN_DEATHCNT);
+	if (WARN_ON(rc && rc != TFW_CONN_DEATHCNT)) {
+		printk(KERN_ALERT "rc %d\n", rc);
+		BUG();
+	}
 }
 
 static inline int
