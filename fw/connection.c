@@ -294,11 +294,11 @@ tfw_conn_bug_report(void)
 			conn->in_soft_irq, atomic_read(&conn->refcnt),
 			conn->tut1, max_put, max_get);
 		for (i = 0; i < max_put; i++) {
-			printk(KERN_ALERT "%d: conn_bug %d %px\n",
+			printk(KERN_ALERT "%d: conn_bug %d %ps\n",
 				i, conn->rc_put[i].rc, conn->rc_put[i].f);
 		}
 		for (i = 0; i < max_get; i++) {
-			printk(KERN_ALERT "%d: conn_bug %d %px\n",
+			printk(KERN_ALERT "%d: conn_bug %d %ps\n",
 				i, conn->rc_get[i].rc, conn->rc_put[i].f);
 		}
 	}	
