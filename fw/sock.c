@@ -578,9 +578,6 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	if (ss_skb_on_send(conn, skb_head))
 		goto cleanup;
 
-	if (flags & SS_F_CONN_CLOSE)
-		return;
-
 	/*
 	 * We set SOCK_TEMPESTA_HAS_DATA when we add some skb in our
 	 * scheduler tree or connection write queue.
@@ -1622,13 +1619,6 @@ EXPORT_SYMBOL(ss_getpeername);
 static void
 __sk_close_locked(struct sock *sk, int flags)
 {
-	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
-
-	if (sk->sk_fill_write_queue(sk, mss_now)) {
-		ss_linkerror(sk, 0);
-		bh_unlock_sock(sk);
-		return;
-	}
 	ss_do_close(sk, flags);
 	if (!sk_stream_closing(sk)) {
 		ss_conn_drop_guard_exit(sk);
