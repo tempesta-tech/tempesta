@@ -603,11 +603,6 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	}
 
 	b->stage++;
-	if (flags & SS_F_CONN_CLOSE) {
-		b->stage3++;
-		return;
-	}
-	b->stage++;
 
 	/*
 	 * We set SOCK_TEMPESTA_HAS_DATA when we add some skb in our
@@ -1670,20 +1665,11 @@ tfw_bug_reporter(void)
 static void
 __sk_close_locked(struct sock *sk, int flags, int from)
 {
-	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	int cpu = smp_processor_id();
 	struct sock_bug *b = per_cpu_ptr(&bug, cpu);
 
 	b->sk = sk;
 	b->from = from;
-	if (sk->sk_fill_write_queue(sk, mss_now)) {
-		printk(KERN_ALERT "FAILED %px\n", sk);
-		ss_linkerror(sk, 0);
-		printk(KERN_ALERT "FAILED %px AAA\n", sk);
-		bh_unlock_sock(sk);
-		bzero_fast(b, sizeof(struct sock_bug));
-		return;
-	}
 	ss_do_close(sk, flags);
 	if (!sk_stream_closing(sk)) {
 		ss_conn_drop_guard_exit(sk);

@@ -526,6 +526,12 @@ tfh_get_records_rate(HttpTfh fingerprint)
 	return 0;
 }
 
+void
+tfw_bug_reporter(void)
+{
+	
+}
+
 TfwCfgSpec tf_hash_specs[0];
 
 unsigned int cache_default_ttl = 60;

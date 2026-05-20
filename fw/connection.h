@@ -539,7 +539,10 @@ tfw_connection_put(TfwConn *conn)
 		}
 	}
 
-	BUG_ON(rc == -1 || rc < TFW_CONN_DEATHCNT);
+	if (WARN_ON(rc == -1 || rc < TFW_CONN_DEATHCNT)) {
+		tfw_bug_reporter();
+		BUG();
+	}
 
 	if (likely(rc && rc != TFW_CONN_DEATHCNT))
 		return;
@@ -591,7 +594,15 @@ tfw_connection_revive(TfwConn *conn)
 static inline void
 tfw_srv_conn_init_as_dead(TfwSrvConn *srv_conn)
 {
+	int xxx;
+	
 	atomic_set(&srv_conn->refcnt, TFW_CONN_DEATHCNT + 1);
+
+	xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
+	if (xxx < RC_COUNT) {
+		srv_conn->rc_get[xxx].rc = TFW_CONN_DEATHCNT + 1;
+		srv_conn->rc_get[xxx].f = __builtin_return_address(0);
+	}
 }
 
 /*

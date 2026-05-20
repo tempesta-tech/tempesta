@@ -991,6 +991,15 @@ tfw_srv_conn_alloc(void)
 	 * of taken server's reference counter on connection removing.
 	 */
 	atomic_set(&srv_conn->refcnt, TFW_CONN_DEATHCNT);
+	{
+		int xxx;
+
+		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
+		if (xxx < RC_COUNT) {
+			srv_conn->rc_get[xxx].rc = TFW_CONN_DEATHCNT;
+			srv_conn->rc_get[xxx].f = __builtin_return_address(0);
+		}
+	}
 	srv_conn->recns = 0;
 
 	ss_proto_init(&srv_conn->proto, &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
