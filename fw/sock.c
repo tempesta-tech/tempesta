@@ -1644,22 +1644,8 @@ ss_getpeername(struct sock *sk, TfwAddr *addr)
 EXPORT_SYMBOL(ss_getpeername);
 
 void
-tfw_sk_bug_report(void)
-{
-	int cpu = smp_processor_id();
-	struct sock_bug *b = per_cpu_ptr(&bug, cpu);
-
-	printk(KERN_ALERT "sock_bug %d: %px %px %px %d %d %d %d %d %d %d",
-		cpu, b->sk, b->sk->sk_user_data, b->conn, b->active,
-		b->stage, b->stage1, b->stage2, b->stage3, b->stage4,
-		b->from);
-}
-
-void
 tfw_bug_reporter(void)
 {
-	tfw_sk_bug_report();
-	tfw_conn_bug_report();
 }
 
 static void

@@ -272,34 +272,25 @@ tfw_connection_shutdown(TfwConn *conn)
 }
 
 void
-tfw_conn_bug_report(void)
+tfw_conn_bug_report(TfwConn *conn)
 {
-	int cpu = smp_processor_id();
-	struct conn_bug *b = per_cpu_ptr(&bug, cpu);
+	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
+		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+		int i, max_put = atomic_read(&srv_conn->xxx_put);
+		int max_get = atomic_read(&srv_conn->xxx_get);
 
-	printk(KERN_ALERT "conn_bug %d: %px %d %d %d %d %d %d %d",
-		cpu, b->conn, b->stage, b->stage1, b->stage11, b->stage111,
-		b->stage2, b->stage22, b->stage222);
-	printk(KERN_ALERT "conn_bug %d: %px %px %d %d",
-		cpu, b->conn, b->conn->sk, TFW_CONN_TYPE(b->conn) & Conn_Clnt,
-		TFW_CONN_TYPE(b->conn) & Conn_Srv);
-	if (TFW_CONN_TYPE(b->conn) & Conn_Srv) {
-		TfwSrvConn *conn = (TfwSrvConn *)b->conn;
-		int i, max_put = atomic_read(&conn->xxx_put);
-		int max_get = atomic_read(&conn->xxx_get);
-
-		printk(KERN_ALERT "conn_bug %px %d %ps %ps %llu %llu %d %d %d %d %d %d\n",
-			conn->last_unlinked, conn->cpu, conn->from1,
-			conn->from2, conn->t, ktime_get_ns(), conn->in_task,
-			conn->in_soft_irq, atomic_read(&conn->refcnt),
-			conn->tut1, max_put, max_get);
+		printk(KERN_ALERT "conn_bug %px %llu %llu %d %d %d %d %d %d\n",
+			srv_conn->last_unlinked,
+			srv_conn->t, ktime_get_ns(), srv_conn->in_task,
+			srv_conn->in_soft_irq, atomic_read(&conn->refcnt),
+			srv_conn->tut1, max_put, max_get);
 		for (i = 0; i < max_put; i++) {
 			printk(KERN_ALERT "%d: conn_bug %d %ps\n",
-				i, conn->rc_put[i].rc, conn->rc_put[i].f);
+				i, srv_conn->rc_put[i].rc, srv_conn->rc_put[i].f);
 		}
 		for (i = 0; i < max_get; i++) {
 			printk(KERN_ALERT "%d: conn_bug %d %ps\n",
-				i, conn->rc_get[i].rc, conn->rc_put[i].f);
+				i, srv_conn->rc_get[i].rc, srv_conn->rc_put[i].f);
 		}
 	}	
 }

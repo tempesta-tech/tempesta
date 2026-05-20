@@ -540,7 +540,7 @@ tfw_connection_put(TfwConn *conn)
 	}
 
 	if (WARN_ON(rc == -1 || rc < TFW_CONN_DEATHCNT)) {
-		tfw_bug_reporter();
+		tfw_conn_bug_report(conn);
 		BUG();
 	}
 

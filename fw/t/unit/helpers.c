@@ -529,6 +529,12 @@ tfh_get_records_rate(HttpTfh fingerprint)
 void
 tfw_bug_reporter(void)
 {
+
+}
+
+void
+tfw_conn_bug_report(TfwConn *conn)
+{
 	
 }
 
