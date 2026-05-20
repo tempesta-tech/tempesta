@@ -217,6 +217,11 @@ tfw_cli_conn_inc_js_max_misses(TfwCliConn *conn, unsigned int freq)
 
 #define RC_COUNT 100
 
+typedef struct {
+	int rc;
+	void *f;
+} rc_t;
+
 /*
  * These are specific properties that are relevant to server connections.
  * See the description of special features of this structure in sock_srv.c.
@@ -259,8 +264,8 @@ typedef struct {
 	bool			in_soft_irq;
 	bool			tut;
 	bool			tut1;
-	int			rc_put[RC_COUNT];
-	int 			rc_get[RC_COUNT];
+	rc_t			rc_put[RC_COUNT];
+	rc_t 			rc_get[RC_COUNT];
 	atomic_t		xxx_put;
 	atomic_t		xxx_get;
 } TfwSrvConn;
@@ -463,8 +468,10 @@ tfw_connection_get_many(TfwConn *conn, int cnt)
 		int xxx;
 
 		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
-		if (xxx < RC_COUNT)
-			srv_conn->rc_get[xxx] = rc;
+		if (xxx < RC_COUNT) {
+			srv_conn->rc_get[xxx].rc = rc;
+			srv_conn->rc_get[xxx].f = __builtin_return_address(0);
+		}
 	}
 
 }
@@ -496,8 +503,10 @@ __tfw_connection_get_if_##name(TfwConn *conn)				\
 		int xxx;						\
 									\
 		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);		\
-		if (xxx < RC_COUNT)					\
-			srv_conn->rc_get[xxx] = result ? rc + 1: rc;	\
+		if (xxx < RC_COUNT) {					\
+			srv_conn->rc_get[xxx].rc = result ? rc + 1: rc;	\
+			srv_conn->rc_get[xxx].f = __builtin_return_address(0); \
+		}							\
 	}								\
 	return result;							\
 }
@@ -524,8 +533,10 @@ tfw_connection_put(TfwConn *conn)
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
 		xxx = atomic_fetch_add(1, &srv_conn->xxx_put);
-		if (xxx < RC_COUNT)
-			srv_conn->rc_put[xxx] = rc;
+		if (xxx < RC_COUNT) {
+			srv_conn->rc_put[xxx].rc = rc;
+			srv_conn->rc_put[xxx].f = __builtin_return_address(0);
+		}
 	}
 
 	BUG_ON(rc == -1 || rc < TFW_CONN_DEATHCNT);
@@ -548,8 +559,10 @@ tfw_connection_put_to_death(TfwConn *conn)
 		int xxx;
 
 		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
-		if (xxx < RC_COUNT)
-			srv_conn->rc_get[xxx] = rc;
+		if (xxx < RC_COUNT) {
+			srv_conn->rc_get[xxx].rc = rc;
+			srv_conn->rc_get[xxx].f = __builtin_return_address(0);
+		}
 	}
 }
 
@@ -562,8 +575,10 @@ tfw_connection_revive(TfwConn *conn)
 		int xxx;
 
 		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
-		if (xxx < RC_COUNT)
-			srv_conn->rc_get[xxx] = 1;
+		if (xxx < RC_COUNT) {
+			srv_conn->rc_get[xxx].rc = 1;
+			srv_conn->rc_get[xxx].f = __builtin_return_address(0);
+		}
 	}
 }
 
