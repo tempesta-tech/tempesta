@@ -215,6 +215,8 @@ tfw_cli_conn_inc_js_max_misses(TfwCliConn *conn, unsigned int freq)
 	conn->js_histoty[freq]++;
 }
 
+#define RC_COUNT 100
+
 /*
  * These are specific properties that are relevant to server connections.
  * See the description of special features of this structure in sock_srv.c.
@@ -257,8 +259,10 @@ typedef struct {
 	bool			in_soft_irq;
 	bool			tut;
 	bool			tut1;
-	int			rc[10];
-	atomic_t		xxx;
+	int			rc_put[RC_COUNT];
+	int 			rc_get[RC_COUNT];
+	atomic_t		xxx_put;
+	atomic_t		xxx_get;
 } TfwSrvConn;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
@@ -452,7 +456,17 @@ tfw_connection_live(TfwConn *conn)
 static inline void
 tfw_connection_get_many(TfwConn *conn, int cnt)
 {
-	atomic_add(cnt, &conn->refcnt);
+	int rc = atomic_add_return(cnt, &conn->refcnt);
+
+	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
+		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+		int xxx;
+
+		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
+		if (xxx < RC_COUNT)
+			srv_conn->rc_get[xxx] = rc;
+	}
+
 }
 
 static inline void
@@ -466,15 +480,26 @@ static inline bool							\
 __tfw_connection_get_if_##name(TfwConn *conn)				\
 {									\
 	int old, rc = atomic_read(&conn->refcnt);			\
+	bool result = false;						\
 									\
 	while (likely(cond)) {						\
 		old = atomic_cmpxchg(&conn->refcnt, rc, rc + 1);	\
-		if (likely(old == rc))					\
-			return true;					\
+		if (likely(old == rc)) {				\
+			result = true;					\
+			break;						\
+		}							\
 		rc = old;						\
 	}								\
 									\
-	return false;							\
+	if (TFW_CONN_TYPE(conn) & Conn_Srv) {				\
+		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;		\
+		int xxx;						\
+									\
+		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);		\
+		if (xxx < RC_COUNT)					\
+			srv_conn->rc_get[xxx] = result ? rc + 1: rc;	\
+	}								\
+	return result;							\
 }
 
 TFW_CONNETION_GET_IF(last_ref, (rc == TFW_CONN_DEATHCNT + 1 || rc == 1));
@@ -488,23 +513,22 @@ static inline void
 tfw_connection_put(TfwConn *conn)
 {
 	int rc;
-	int yyy;
+	int xxx;
 
 	if (unlikely(!conn))
 		return;
 
 	rc = atomic_dec_return(&conn->refcnt);
-	BUG_ON(rc == -1 || rc < TFW_CONN_DEATHCNT);
 
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
-		if (srv_conn->tut || srv_conn->tut1) {
-			yyy = atomic_fetch_add(1, &srv_conn->xxx);
-			if (yyy < 10)
-				srv_conn->rc[yyy] = rc + 1;
-		}
+		xxx = atomic_fetch_add(1, &srv_conn->xxx_put);
+		if (xxx < RC_COUNT)
+			srv_conn->rc_put[xxx] = rc;
 	}
+
+	BUG_ON(rc == -1 || rc < TFW_CONN_DEATHCNT);
 
 	if (likely(rc && rc != TFW_CONN_DEATHCNT))
 		return;
@@ -517,13 +541,30 @@ tfw_connection_put(TfwConn *conn)
 static inline void
 tfw_connection_put_to_death(TfwConn *conn)
 {
-	atomic_add(TFW_CONN_DEATHCNT, &conn->refcnt);
+	int rc = atomic_add_return(TFW_CONN_DEATHCNT, &conn->refcnt);
+
+	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
+		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+		int xxx;
+
+		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
+		if (xxx < RC_COUNT)
+			srv_conn->rc_get[xxx] = rc;
+	}
 }
 
 static inline void
 tfw_connection_revive(TfwConn *conn)
 {
 	atomic_set(&conn->refcnt, 1);
+	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
+		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+		int xxx;
+
+		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
+		if (xxx < RC_COUNT)
+			srv_conn->rc_get[xxx] = 1;
+	}
 }
 
 /*

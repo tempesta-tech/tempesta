@@ -285,16 +285,22 @@ tfw_conn_bug_report(void)
 		TFW_CONN_TYPE(b->conn) & Conn_Srv);
 	if (TFW_CONN_TYPE(b->conn) & Conn_Srv) {
 		TfwSrvConn *conn = (TfwSrvConn *)b->conn;
-		printk(KERN_ALERT "conn_bug %px %d %ps %ps %llu %llu %d %d %d %d\n",
+		int i, max_put = atomic_read(&conn->xxx_put);
+		int max_get = atomic_read(&conn->xxx_get);
+
+		printk(KERN_ALERT "conn_bug %px %d %ps %ps %llu %llu %d %d %d %d %d %d\n",
 			conn->last_unlinked, conn->cpu, conn->from1,
 			conn->from2, conn->t, ktime_get_ns(), conn->in_task,
 			conn->in_soft_irq, atomic_read(&conn->refcnt),
-			conn->tut1);
-		printk(KERN_ALERT "conn_bug %d %d %d %d %d %d %d %d %d %d",
-			conn->rc[0], conn->rc[1], conn->rc[2],
-			conn->rc[3], conn->rc[4], conn->rc[5],
-			conn->rc[6], conn->rc[7], conn->rc[8],
-			conn->rc[9]);
+			conn->tut1, max_put, max_get);
+		for (i = 0; i < max_put; i++) {
+			printk(KERN_ALERT "%d: conn_bug %d\n",
+				i, conn->rc_put[i]);
+		}
+		for (i = 0; i < max_get; i++) {
+			printk(KERN_ALERT "%d: conn_bug %d\n",
+				i, conn->rc_get[i]);
+		}
 	}	
 }
 
