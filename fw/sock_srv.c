@@ -316,6 +316,28 @@ tfw_srv_reset_cfg_actions(TfwServer *srv)
 	} while (cmpxchg(&srv->flags, flags, new_flags) != flags);
 }
 
+static inline void
+tfw_sock_srv_connection_revive(TfwConn *conn)
+{
+	int rc;
+
+	/*
+	 * When we try to establish new connection we set connection reference
+	 * counting using `tfw_srv_conn_init_as_dead`. If server is shutdown we
+	 * increment connection reference counter (tfw_sock_srv_disconnect->
+	 * __tfw_connection_get_if_not_death). If connection will be established
+	 * on other cpu at the same time and we just set connection reference
+	 * counter to 1 using `tfw_connection_revive`, later we put connection
+	 * reference counter in tfw_sock_srv_disconnect and release such
+	 * connection. Later when we drop connection, we decrement connection
+	 * reference counter again, so it became -1. Releasing connection before
+	 * dropping can lead to different bugs. So here we adjust all previous
+	 * connection reference counter incrementation.
+	 */
+	rc = atomic_sub_return(TFW_CONN_DEATHCNT, &conn->refcnt);
+	BUG_ON(rc < 1);
+}
+
 /**
  * The hook is executed when a server connection is established.
  */
@@ -336,7 +358,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	}
 
 	/* Let schedulers use the connection hereafter. */
-	tfw_connection_revive(conn);
+	tfw_sock_srv_connection_revive(conn);
 
 	/* Repair the connection if necessary. */
 	if (unlikely(tfw_srv_conn_restricted(srv_conn)))
