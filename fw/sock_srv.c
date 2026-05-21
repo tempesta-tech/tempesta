@@ -653,6 +653,25 @@ tfw_srv_reset_cfg_actions(TfwServer *srv)
 	} while (cmpxchg(&srv->flags, flags, new_flags) != flags);
 }
 
+static void
+tfw_sock_srv_connection_revive(TfwConn *conn)
+{
+	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
+	int rc = atomic_sub_return(TFW_CONN_DEATHCNT, &conn->refcnt);
+	int xxx;
+
+	BUG_ON(rc < 1);
+	if (rc != 1)
+		printk(KERN_ALERT "GREATE THEN ONE %d!!!!!!!!!!!!!\n", rc);
+
+	xxx = atomic_fetch_add(1, &srv_conn->xxx);
+	if (xxx < RC_COUNT) {
+		srv_conn->rc[xxx].rc = rc;
+		srv_conn->rc[xxx].f = __builtin_return_address(0);
+		strcpy(srv_conn->rc[xxx].name, "tfw_sock_srv_connection_revive");
+	}	
+}
+
 /**
  * The hook is executed when a server connection is established.
  */
@@ -673,7 +692,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	}
 
 	/* Let schedulers use the connection hereafter. */
-	tfw_connection_revive(conn);
+	tfw_sock_srv_connection_revive(conn);
 
 	/* Repair the connection if necessary. */
 	if (unlikely(tfw_srv_conn_restricted(srv_conn)))
