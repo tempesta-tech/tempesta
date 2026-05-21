@@ -267,6 +267,7 @@ typedef struct {
 	bool			tut1;
 	rc_t			rc[RC_COUNT];
 	atomic_t		xxx;
+	bool			see;
 } TfwSrvConn;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
@@ -466,6 +467,12 @@ tfw_connection_get_many(TfwConn *conn, int cnt)
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		int xxx;
 
+		if (srv_conn->see) {
+			printk(KERN_ALERT "get %px %ps %d",
+				srv_conn, __builtin_return_address(0),
+				rc);
+		}
+
 		xxx = atomic_fetch_add(1, &srv_conn->xxx);
 		if (xxx < RC_COUNT) {
 			srv_conn->rc[xxx].rc = rc;
@@ -502,6 +509,11 @@ __tfw_connection_get_if_##name_1(TfwConn *conn)				\
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;		\
 		int xxx;						\
 									\
+		if (srv_conn->see) {					\
+			printk(KERN_ALERT "%s %px %d",			\
+				#name_1, srv_conn, (result ? rc + 1 : rc)); \
+		}							\
+									\
 		xxx = atomic_fetch_add(1, &srv_conn->xxx);		\
 		if (xxx < RC_COUNT) {					\
 			srv_conn->rc[xxx].rc = result ? rc + 1: rc;	\
@@ -533,6 +545,10 @@ tfw_connection_put(TfwConn *conn)
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
+		if (srv_conn->see)
+			printk(KERN_ALERT "put %px %ps %d", srv_conn,
+				__builtin_return_address(0), rc);
+
 		xxx = atomic_fetch_add(1, &srv_conn->xxx);
 		if (xxx < RC_COUNT) {
 			srv_conn->rc[xxx].rc = rc;
@@ -563,6 +579,10 @@ tfw_connection_put_to_death(TfwConn *conn)
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		int xxx;
 
+		if (srv_conn->see)
+			printk(KERN_ALERT "put_to_death %px %ps %d", srv_conn,
+				__builtin_return_address(0), rc);
+
 		xxx = atomic_fetch_add(1, &srv_conn->xxx);
 		if (xxx < RC_COUNT) {
 			srv_conn->rc[xxx].rc = rc;
@@ -579,6 +599,10 @@ tfw_connection_revive(TfwConn *conn)
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		int xxx;
+
+		if (srv_conn->see)
+			printk(KERN_ALERT "revive %px %ps %d", srv_conn,
+				__builtin_return_address(0), 1);
 
 		xxx = atomic_fetch_add(1, &srv_conn->xxx);
 		if (xxx < RC_COUNT) {
@@ -601,6 +625,10 @@ tfw_srv_conn_init_as_dead(TfwSrvConn *srv_conn)
 	int xxx;
 	
 	atomic_set(&srv_conn->refcnt, TFW_CONN_DEATHCNT + 1);
+
+	if (srv_conn->see)
+		printk(KERN_ALERT "revive %px %ps %d", srv_conn,
+			__builtin_return_address(0), TFW_CONN_DEATHCNT + 1);
 
 	xxx = atomic_fetch_add(1, &srv_conn->xxx);
 	if (xxx < RC_COUNT) {

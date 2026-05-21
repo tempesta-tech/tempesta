@@ -661,8 +661,11 @@ tfw_sock_srv_connection_revive(TfwConn *conn)
 	int xxx;
 
 	BUG_ON(rc < 1);
-	if (rc != 1)
-		printk(KERN_ALERT "GREATE THEN ONE %d!!!!!!!!!!!!!\n", rc);
+	if (rc != 1) {
+		printk(KERN_ALERT "GREATE THEN ONE %px %d!!!!!!!!!!!!!\n",
+			srv_conn, rc);
+		srv_conn->see = true;
+	}
 
 	xxx = atomic_fetch_add(1, &srv_conn->xxx);
 	if (xxx < RC_COUNT) {
@@ -1012,6 +1015,9 @@ tfw_srv_conn_alloc(void)
 	atomic_set(&srv_conn->refcnt, TFW_CONN_DEATHCNT);
 	{
 		int xxx;
+
+		if (srv_conn->see)
+			printk(KERN_ALERT "%px %d", srv_conn, TFW_CONN_DEATHCNT);
 
 		xxx = atomic_fetch_add(1, &srv_conn->xxx);
 		if (xxx < RC_COUNT) {
