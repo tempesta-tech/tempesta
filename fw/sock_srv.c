@@ -994,10 +994,11 @@ tfw_srv_conn_alloc(void)
 	{
 		int xxx;
 
-		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
+		xxx = atomic_fetch_add(1, &srv_conn->xxx);
 		if (xxx < RC_COUNT) {
-			srv_conn->rc_get[xxx].rc = TFW_CONN_DEATHCNT;
-			srv_conn->rc_get[xxx].f = __builtin_return_address(0);
+			srv_conn->rc[xxx].rc = TFW_CONN_DEATHCNT;
+			srv_conn->rc[xxx].f = __builtin_return_address(0);
+			strcpy(srv_conn->rc[xxx].name, "alloc");
 		}
 	}
 	srv_conn->recns = 0;

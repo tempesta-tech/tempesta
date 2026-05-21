@@ -276,21 +276,17 @@ tfw_conn_bug_report(TfwConn *conn)
 {
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
-		int i, max_put = atomic_read(&srv_conn->xxx_put);
-		int max_get = atomic_read(&srv_conn->xxx_get);
+		int i, max = atomic_read(&srv_conn->xxx);
 
-		printk(KERN_ALERT "conn_bug %px %llu %llu %d %d %d %d %d %d\n",
+		printk(KERN_ALERT "conn_bug %px %llu %llu %d %d %d %d %d\n",
 			srv_conn->last_unlinked,
 			srv_conn->t, ktime_get_ns(), srv_conn->in_task,
 			srv_conn->in_soft_irq, atomic_read(&conn->refcnt),
-			srv_conn->tut1, max_put, max_get);
-		for (i = 0; i < max_put; i++) {
-			printk(KERN_ALERT "%d: conn_bug %d %ps\n",
-				i, srv_conn->rc_put[i].rc, srv_conn->rc_put[i].f);
-		}
-		for (i = 0; i < max_get; i++) {
-			printk(KERN_ALERT "%d: conn_bug %d %ps\n",
-				i, srv_conn->rc_get[i].rc, srv_conn->rc_put[i].f);
+			srv_conn->tut1, max);
+		for (i = 0; i < max; i++) {
+			printk(KERN_ALERT "%d: conn_bug %d %ps %s\n",
+				i, srv_conn->rc[i].rc, srv_conn->rc[i].f,
+				srv_conn->rc[i].name);
 		}
 	}	
 }

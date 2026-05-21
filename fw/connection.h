@@ -215,10 +215,11 @@ tfw_cli_conn_inc_js_max_misses(TfwCliConn *conn, unsigned int freq)
 	conn->js_histoty[freq]++;
 }
 
-#define RC_COUNT 100
+#define RC_COUNT 200
 
 typedef struct {
 	int rc;
+	char name[50];
 	void *f;
 } rc_t;
 
@@ -264,10 +265,8 @@ typedef struct {
 	bool			in_soft_irq;
 	bool			tut;
 	bool			tut1;
-	rc_t			rc_put[RC_COUNT];
-	rc_t 			rc_get[RC_COUNT];
-	atomic_t		xxx_put;
-	atomic_t		xxx_get;
+	rc_t			rc[RC_COUNT];
+	atomic_t		xxx;
 } TfwSrvConn;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
@@ -467,10 +466,11 @@ tfw_connection_get_many(TfwConn *conn, int cnt)
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		int xxx;
 
-		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
+		xxx = atomic_fetch_add(1, &srv_conn->xxx);
 		if (xxx < RC_COUNT) {
-			srv_conn->rc_get[xxx].rc = rc;
-			srv_conn->rc_get[xxx].f = __builtin_return_address(0);
+			srv_conn->rc[xxx].rc = rc;
+			srv_conn->rc[xxx].f = __builtin_return_address(0);
+			strcpy(srv_conn->rc[xxx].name, "get");
 		}
 	}
 
@@ -482,9 +482,9 @@ tfw_connection_get(TfwConn *conn)
 	tfw_connection_get_many(conn, 1);
 }
 
-#define TFW_CONNETION_GET_IF(name, cond)				\
+#define TFW_CONNETION_GET_IF(name_1, cond)				\
 static inline bool							\
-__tfw_connection_get_if_##name(TfwConn *conn)				\
+__tfw_connection_get_if_##name_1(TfwConn *conn)				\
 {									\
 	int old, rc = atomic_read(&conn->refcnt);			\
 	bool result = false;						\
@@ -502,10 +502,11 @@ __tfw_connection_get_if_##name(TfwConn *conn)				\
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;		\
 		int xxx;						\
 									\
-		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);		\
+		xxx = atomic_fetch_add(1, &srv_conn->xxx);		\
 		if (xxx < RC_COUNT) {					\
-			srv_conn->rc_get[xxx].rc = result ? rc + 1: rc;	\
-			srv_conn->rc_get[xxx].f = __builtin_return_address(0); \
+			srv_conn->rc[xxx].rc = result ? rc + 1: rc;	\
+			srv_conn->rc[xxx].f = __builtin_return_address(0); \
+			strcpy(srv_conn->rc[xxx].name, #name_1);		\
 		}							\
 	}								\
 	return result;							\
@@ -532,10 +533,11 @@ tfw_connection_put(TfwConn *conn)
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
-		xxx = atomic_fetch_add(1, &srv_conn->xxx_put);
+		xxx = atomic_fetch_add(1, &srv_conn->xxx);
 		if (xxx < RC_COUNT) {
-			srv_conn->rc_put[xxx].rc = rc;
-			srv_conn->rc_put[xxx].f = __builtin_return_address(0);
+			srv_conn->rc[xxx].rc = rc;
+			srv_conn->rc[xxx].f = __builtin_return_address(0);
+			strcpy(srv_conn->rc[xxx].name, "put");
 		}
 	}
 
@@ -561,10 +563,11 @@ tfw_connection_put_to_death(TfwConn *conn)
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		int xxx;
 
-		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
+		xxx = atomic_fetch_add(1, &srv_conn->xxx);
 		if (xxx < RC_COUNT) {
-			srv_conn->rc_get[xxx].rc = rc;
-			srv_conn->rc_get[xxx].f = __builtin_return_address(0);
+			srv_conn->rc[xxx].rc = rc;
+			srv_conn->rc[xxx].f = __builtin_return_address(0);
+			strcpy(srv_conn->rc[xxx].name, "put_to_death");
 		}
 	}
 }
@@ -577,10 +580,11 @@ tfw_connection_revive(TfwConn *conn)
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		int xxx;
 
-		xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
+		xxx = atomic_fetch_add(1, &srv_conn->xxx);
 		if (xxx < RC_COUNT) {
-			srv_conn->rc_get[xxx].rc = 1;
-			srv_conn->rc_get[xxx].f = __builtin_return_address(0);
+			srv_conn->rc[xxx].rc = 1;
+			srv_conn->rc[xxx].f = __builtin_return_address(0);
+			strcpy(srv_conn->rc[xxx].name, "revive");
 		}
 	}
 }
@@ -598,10 +602,11 @@ tfw_srv_conn_init_as_dead(TfwSrvConn *srv_conn)
 	
 	atomic_set(&srv_conn->refcnt, TFW_CONN_DEATHCNT + 1);
 
-	xxx = atomic_fetch_add(1, &srv_conn->xxx_get);
+	xxx = atomic_fetch_add(1, &srv_conn->xxx);
 	if (xxx < RC_COUNT) {
-		srv_conn->rc_get[xxx].rc = TFW_CONN_DEATHCNT + 1;
-		srv_conn->rc_get[xxx].f = __builtin_return_address(0);
+		srv_conn->rc[xxx].rc = TFW_CONN_DEATHCNT + 1;
+		srv_conn->rc[xxx].f = __builtin_return_address(0);
+		strcpy(srv_conn->rc[xxx].name, "init_as_dead");
 	}
 }
 
