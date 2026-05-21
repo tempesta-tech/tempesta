@@ -458,7 +458,7 @@ tfw_connection_put(TfwConn *conn)
 		return;
 
 	rc = atomic_dec_return(&conn->refcnt);
-	BUG_ON(rc < TFW_CONN_DEATHCNT);
+	BUG_ON(rc == -1 || rc < TFW_CONN_DEATHCNT);
 
 	if (likely(rc && rc != TFW_CONN_DEATHCNT))
 		return;
