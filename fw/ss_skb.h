@@ -27,16 +27,18 @@
 
 #include "str.h"
 
-typedef int (*on_send_cb_t)(void *conn, struct sk_buff **skb_head);
+typedef int (*on_send_cb_t)(void *conn, struct sk_buff **skb_head,
+			    void *on_send_data);
 typedef void (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
 typedef void (*on_send_fail_cb_t)(void *conn, struct sk_buff *skb_head);
 typedef struct tfw_client_mem_t TfwClientMem;
 
 /*
  * Tempesta FW sk_buff private data.
- * @opaque_data 	- pointer to some private data (typically TfwClientMem);
- * @destructor		- destructor of the opaque data, should be set if data is
- *                        not NULL;
+ * @cli_mem 		- pointer to TfwClientMem structure for memory
+ *			  accountion;
+ * @destructor		- destructor to adjust memory when skb is freed, should
+ *			  be set if `cli_mem` is not NULL;
  * @on_send		- callback to special handling this skb before sending;
  * @on_tcp_entail 	- callback to special handling this skb before pushing
  *                        to socket write queue;
@@ -50,7 +52,7 @@ typedef struct tfw_client_mem_t TfwClientMem;
  * @is_head		- flag indicates that this is a head of skb list;
  */
 struct tfw_skb_cb {
-	void 			*opaque_data;
+	TfwClientMem 		*cli_mem;
 	void 			(*destructor)(struct sk_buff *);
 	union {
 		on_send_cb_t	on_send;
@@ -73,18 +75,12 @@ void ss_skb_adjust_client_mem(struct sk_buff *skb, int delta);
 void ss_skb_dflt_destructor(struct sk_buff *skb);
 void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
 
-static inline bool
-ss_skb_has_dflt_destructor(struct sk_buff *skb)
-{
-	return TFW_SKB_CB(skb)->destructor == ss_skb_dflt_destructor;
-}
-
 static inline void
 __ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
-		   void *owner)
+		   TfwClientMem *owner)
 {
 	TFW_SKB_CB(skb)->destructor = destructor;
-	TFW_SKB_CB(skb)->opaque_data = owner;
+	TFW_SKB_CB(skb)->cli_mem = owner;
 }
 
 static inline bool
@@ -111,6 +107,7 @@ static inline int
 ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 {
 	on_send_cb_t on_send = TFW_SKB_CB(*skb_head)->on_send;
+	void *on_send_data = TFW_SKB_CB(*skb_head)->on_send_data;
 	int r = 0;
 
 	/*
@@ -121,8 +118,9 @@ ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 	TFW_SKB_CB(*skb_head)->on_send = NULL;
 	TFW_SKB_CB(*skb_head)->on_send_data = NULL;
 	if (on_send)
-		r = on_send(conn, skb_head);
-	if (!r && *skb_head)
+		r = on_send(conn, skb_head, on_send_data);
+
+	if (!r && conn && *skb_head)
 		ss_skb_on_send_dflt(conn, skb_head);
 
 	return r;
@@ -214,10 +212,10 @@ ss_skb_orphan(struct sk_buff *skb)
 	if (destructor) {
 		/*
 		 * The same BUG_ON is present in linux kernel in `skb_orphan`.
-		 * `skb->opaque_data` will be used inside destructor, so if it
+		 * `skb->cli_mem` will be used inside destructor, so if it
 		 * is NULL, we still catch BUG later.
 		 */
-		BUG_ON(!TFW_SKB_CB(skb)->opaque_data);
+		BUG_ON(!TFW_SKB_CB(skb)->cli_mem);
 		destructor(skb);
 		__ss_skb_set_owner(skb, NULL, NULL);
 	} else {
@@ -225,7 +223,7 @@ ss_skb_orphan(struct sk_buff *skb)
 		 * The same BUG_ON is present in linux kernel in
 		 * `skb_orphan`.
 		 */
-		BUG_ON(TFW_SKB_CB(skb)->opaque_data);
+		BUG_ON(TFW_SKB_CB(skb)->cli_mem);
 	}
 }
 
@@ -234,13 +232,6 @@ __ss_kfree_skb(struct sk_buff *skb)
 {
 	if (!skb)
 		return;
-	/*
-	 * Not default destructor can be set only for the head of skb list,
-	 * which belongs to some data structure and should be called in a
-	 * special way from `ss_skb_queue_purge` to prevent memory corruption.
-	 */
-	BUG_ON(TFW_SKB_CB(skb)->destructor
-	       && !ss_skb_has_dflt_destructor(skb));
 	ss_skb_orphan(skb);
 	__kfree_skb(skb);
 }
@@ -250,13 +241,7 @@ ss_kfree_skb(struct sk_buff *skb)
 {
 	if (!skb)
 		return;
-	/*
-	 * Not default destructor can be set only for the head of skb list,
-	 * which belongs to some data structure and should be called in a
-	 * special way from `ss_skb_queue_purge` to prevent memory corruption.
-	 */
-	BUG_ON(TFW_SKB_CB(skb)->destructor
-	       && !ss_skb_has_dflt_destructor(skb));
+
 	ss_skb_orphan(skb);
 	kfree_skb(skb);
 }
@@ -368,26 +353,10 @@ ss_skb_dequeue(struct sk_buff **skb_head)
 static inline void
 ss_skb_queue_purge(struct sk_buff **skb_head)
 {
-	struct sk_buff *skb, *head;
-
-	if (!(head = ss_skb_dequeue(skb_head)))
-		return;	
+	struct sk_buff *skb;
 
 	while ((skb = ss_skb_dequeue(skb_head)) != NULL)
 		ss_kfree_skb(skb);
-
-	/*
-	 * We implement a special handling of deleting `head` of the list
-	 * to prevent memory corruption during calling not default skb
-	 * destructor. For example if `head` opaque data points to `response`
-	 * such response can be freed from skb destructor. But `skb_head`
-	 * can also belong to response, so we can't access it after calling
-	 * skb_destructor - so first we should remove `head` from the list,
-	 * destroy all other skbs in the list and after all free the `head`
-	 * of the list.
-	 */
-	ss_skb_orphan(head);
-	kfree_skb(head);
 }
 
 static inline void

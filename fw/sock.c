@@ -562,6 +562,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	void *conn = sk->sk_user_data;
 	unsigned char tls_type = flags & SS_F_ENCRYPT ?
 		SS_SKB_F2TYPE(flags) : 0;
+	bool send_is_allowed = conn && ss_sock_active(sk);
 
 	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
 	       " sk_state=%d\n",
@@ -569,13 +570,9 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
 	       sk->sk_state);
 
-	/* If the socket is inactive, there's no recourse. Drop the data. */
-	if (unlikely(!conn || !ss_sock_active(sk)))
-		goto cleanup;
-
 	ss_skb_setup_head_of_list(*skb_head, (*skb_head)->mark, tls_type);
 
-	if (ss_skb_on_send(conn, skb_head))
+	if (ss_skb_on_send(likely(send_is_allowed) ? conn : NULL, skb_head))
 		goto cleanup;
 
 	/*
@@ -674,7 +671,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 				SKB_DATA_ALIGN(head_data +
 					       sizeof(struct skb_shared_info));
 			ss_skb_set_owner(twin_skb, ss_skb_dflt_destructor,
-					 TFW_SKB_CB(skb)->opaque_data,
+					 TFW_SKB_CB(skb)->cli_mem,
 					 copied_truesize);
 			ss_skb_queue_tail(&sw.skb_head, twin_skb);
 			skb = skb->next;
@@ -1770,6 +1767,8 @@ ss_tx_action(void)
 		}
 dead_sock:
 		sock_put(sk); /* paired with push() calls */
+		if (sw.skb_head)
+			ss_skb_on_send(NULL, &sw.skb_head);
 		ss_skb_queue_purge(&sw.skb_head);
 	}
 

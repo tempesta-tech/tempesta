@@ -237,10 +237,15 @@ tfw_h2_on_tcp_entail_ack(void *conn, struct sk_buff *skb_head)
 }
 
 static int
-tfw_h2_on_send_goaway(void *conn, struct sk_buff **skb_head)
+tfw_h2_on_send_goaway(void *conn, struct sk_buff **skb_head,
+		      void *on_send_data)
 {
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	TfwH2Ctx *ctx;
 
+	if (unlikely(!conn))
+		return -EPIPE;
+
+	ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 	if (ctx->error && ctx->error->xmit.skb_head) {
 		ss_skb_queue_splice(&ctx->error->xmit.skb_head, skb_head);
 	} else if (ctx->cur_send_headers) {
@@ -257,12 +262,18 @@ tfw_h2_on_send_goaway(void *conn, struct sk_buff **skb_head)
 }
 
 static int
-tfw_h2_on_send_rst_stream(void *conn, struct sk_buff **skb_head)
+tfw_h2_on_send_rst_stream(void *conn, struct sk_buff **skb_head,
+			  void *on_send_data)
 {
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
-	unsigned int stream_id = TFW_SKB_CB(*skb_head)->stream_id;
+	TfwH2Ctx *ctx;
+	unsigned int stream_id;
 	TfwStream *stream;
 
+	if (unlikely(!conn))
+		return -EPIPE;
+
+	ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	stream_id = TFW_SKB_CB(*skb_head)->stream_id;
 	stream = tfw_h2_find_not_closed_stream(ctx, stream_id, false);
 
 	/*
@@ -282,10 +293,15 @@ tfw_h2_on_send_rst_stream(void *conn, struct sk_buff **skb_head)
 }
 
 static int
-tfw_h2_on_send_dflt(void *conn, struct sk_buff **skb_head)
+tfw_h2_on_send_dflt(void *conn, struct sk_buff **skb_head,
+		    void *on_send_data)
 {
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	TfwH2Ctx *ctx;
 
+	if (unlikely(!conn))
+		return -EPIPE;
+
+	ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 	if (ctx->cur_send_headers) {
 		ss_skb_queue_splice(&ctx->cur_send_headers->xmit.postponed,
 				    skb_head);
@@ -295,10 +311,14 @@ tfw_h2_on_send_dflt(void *conn, struct sk_buff **skb_head)
 }
 
 static int
-tfw_h2_on_send_ack(void *conn, struct sk_buff** skb_head)
+tfw_h2_on_send_ack(void *conn, struct sk_buff** skb_head,
+		   void *on_send_data)
 {
+	if (unlikely(!conn))
+		return -EPIPE;
+
 	TFW_SKB_CB(*skb_head)->on_tcp_entail = tfw_h2_on_tcp_entail_ack;
-	tfw_h2_on_send_dflt(conn, skb_head);
+	tfw_h2_on_send_dflt(conn, skb_head, on_send_data);
 
 	return 0;
 }

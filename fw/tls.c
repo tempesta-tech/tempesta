@@ -503,9 +503,13 @@ tfw_tls_close_msg_flags(TlsIOCtx *io)
 }
 
 static inline int
-tfw_tls_on_send_alert(void *conn, struct sk_buff **skb_head)
+tfw_tls_on_send_alert(void *conn, struct sk_buff **skb_head,
+		      void *on_send_data)
 {
 	TfwH2Ctx *ctx;
+
+	if (unlikely(!conn))
+		return -EPIPE;
 
 	BUG_ON(TFW_CONN_PROTO((TfwConn *)conn) != TFW_FSM_H2);
 	ctx = tfw_h2_context_safe((TfwConn *)conn);
