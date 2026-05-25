@@ -812,16 +812,6 @@ tfw_h2_delete_stream(TfwH2Ctx *ctx, TfwStream *stream)
 	kmem_cache_free(stream_cache, stream);
 }
 
-void
-tfw_h2_stream_skb_destructor(struct sk_buff *skb)
-{
-	TfwHttpResp *resp = (TfwHttpResp *)TFW_SKB_CB(skb)->opaque_data;
-
-	TFW_SKB_CB(skb)->opaque_data = CLIENT_MEM_FROM_CONN(resp->req->conn);
-	ss_skb_dflt_destructor(skb);
-	tfw_http_resp_pair_free_and_put_conn(resp);
-}
-
 int
 tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 			    unsigned long h_len, unsigned long b_len)
@@ -839,6 +829,7 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 	}
 
 	TFW_SKB_CB(skb_head)->on_send = tfw_h2_on_send_resp;
+	TFW_SKB_CB(skb_head)->on_send_data = resp;
 	TFW_SKB_CB(skb_head)->stream_id = stream->id;
 
 	stream->xmit.resp = NULL;
