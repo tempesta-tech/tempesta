@@ -1146,14 +1146,6 @@ tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
 	return 0;
 }
 
-static inline bool
-tfw_http_resp_check_skb_head_owner(TfwHttpResp *resp)
-{
-	return (TFW_SKB_CB(resp->msg.skb_head)->opaque_data ==
-		CLIENT_MEM_FROM_CONN(resp->req->conn))
-	        && ss_skb_has_dflt_destructor(resp->msg.skb_head);
-}
-
 void
 tfw_h2_resp_fwd(TfwHttpResp *resp)
 {
@@ -1165,30 +1157,26 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	 * `tfw_h2_stream_init_for_xmit` should be called for
 	 * response before send it to the client.
 	 */
-	if (WARN_ON(!TFW_SKB_CB(resp->msg.skb_head)->stream_id
-		    || !tfw_http_resp_check_skb_head_owner(resp)))
+	if (WARN_ON(!TFW_SKB_CB(resp->msg.skb_head)->stream_id))
 		return;
 
 	/*
-	 * We need this extra get, because if send fails, connection
-	 * will be put during freeing skbs of sending response (in
-	 * skb destructor).
+	 * Connection reference counter will be decremented and response will
+	 * be freed in `on_send` callback, if it fails or after encoding headers
+	 * in `tfw_h2_stream_xmit_process`.
 	 */
-	tfw_connection_get_many(conn, 2);
-	__ss_skb_set_owner(resp->msg.skb_head, tfw_h2_stream_skb_destructor,
-			   resp);
+	tfw_connection_get(conn);
 	do_access_log(resp);
 
 	if (tfw_cli_conn_send((TfwCliConn *)conn, (TfwMsg *)resp)) {
 		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		tfw_connection_close(conn, true);
+		tfw_http_resp_pair_free_and_put_conn(resp);
 	} else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 		tfw_inc_global_hm_stats(status);
 	}
-
-	tfw_connection_put(conn);
 }
 
 /*
@@ -4626,19 +4614,16 @@ tfw_http_resp_get_conn_flags(TfwHttpResp *resp)
 static int
 tfw_http_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
 {
-	void *opaque_data = TFW_SKB_CB(resp->msg.skb_head)->opaque_data;
+	TfwClientMem *cli_mem = TFW_SKB_CB(resp->msg.skb_head)->cli_mem;
 	TfwMsgIter *iter = &resp->iter;
 	struct sk_buff *nskb;
-
-	if (WARN_ON(!tfw_http_resp_check_skb_head_owner(resp)))
-		return -EINVAL;
 
 	nskb = ss_skb_alloc(0);
 	if (unlikely(!nskb))
 		return -ENOMEM;
 
 	ss_skb_set_owner(nskb, ss_skb_dflt_destructor,
-			 opaque_data, nskb->truesize);
+			 cli_mem, nskb->truesize);
 	nskb->mark = resp->msg.skb_head->mark;
 	cleanup->skb_head = resp->msg.skb_head;
 	resp->msg.skb_head = NULL;
@@ -5469,13 +5454,19 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 ALLOW_ERROR_INJECTION(tfw_h2_append_predefined_body, ERRNO);
 
 int
-tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
+tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head,
+		    void *on_send_data)
 {
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
-	TfwHttpResp *resp = TFW_SKB_CB(*skb_head)->opaque_data;
-	unsigned int stream_id = TFW_SKB_CB(*skb_head)->stream_id;
+	TfwHttpResp *resp = (TfwHttpResp *)on_send_data;
+	TfwH2Ctx *ctx;
+	unsigned int stream_id;
 	TfwStream *stream;
 
+	if (unlikely(!conn))
+		goto fail;
+
+	ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	stream_id = TFW_SKB_CB(*skb_head)->stream_id;
 	stream = tfw_h2_find_not_closed_stream(ctx, stream_id, false);
 	/*
 	 * Very unlikely case. We check that stream is active, before
@@ -5484,7 +5475,7 @@ tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 	 * before ss_do_send was called.
 	 */
 	if (unlikely(!stream))
-		return -EPIPE;
+		goto fail;
 
 	/*
 	 * These pointers are zeroed in `tfw_h2_stream_init_for_xmit`.
@@ -5492,14 +5483,10 @@ tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 	 * that we can catch memory corruption. During client stream or
 	 * connection closing we check stream->xmit.resp in
 	 * `tfw_h2_stream_purge_all_and_free_response` and if it is
-	 * not zero free it). If this function returns error we also
-	 * free response in skb destructor, so if stream or connection
-	 * is already closed here catch double free of response.
+	 * not zero free it). In case of invalid response pointer we
+	 * catch BUG later.
 	 */
 	BUG_ON(stream->xmit.skb_head || stream->xmit.resp);
-
-	__ss_skb_set_owner(*skb_head, ss_skb_dflt_destructor,
-			   CLIENT_MEM_FROM_CONN(resp->req->conn));
 	stream->xmit.resp = resp;
 
 	if (test_bit(TFW_HTTP_B_CLOSE_ERROR_RESPONSE, stream->xmit.resp->flags))
@@ -5510,6 +5497,10 @@ tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 		tfw_h2_sched_activate_stream(&ctx->sched, stream);
 
 	return 0;
+
+fail:
+	tfw_http_resp_pair_free_and_put_conn(resp);
+	return -EPIPE;
 }
 
 /**
@@ -6627,7 +6618,7 @@ next_msg:
 	 * For tls connections we already set `skb->owner` before
 	 * tls decryption.
 	 */
-	if (!TFW_SKB_CB(skb)->opaque_data) {
+	if (!TFW_SKB_CB(skb)->cli_mem) {
 		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
 				 CLIENT_MEM_FROM_CONN(conn),
 				 skb->truesize);
