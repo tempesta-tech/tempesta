@@ -294,6 +294,15 @@ tfw_h2_on_send_dflt(void *conn, struct sk_buff **skb_head)
 	return 0;
 }
 
+static int
+tfw_h2_on_send_ack(void *conn, struct sk_buff** skb_head)
+{
+	TFW_SKB_CB(*skb_head)->on_tcp_entail = tfw_h2_on_tcp_entail_ack;
+	tfw_h2_on_send_dflt(conn, skb_head);
+
+	return 0;
+}
+
 /**
  * Prepare and send HTTP/2 frame to the client; @hdr must contain
  * the valid data to fill in the frame's header; @data may carry
@@ -349,13 +358,10 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	} else if (hdr->type == HTTP2_RST_STREAM) {
 		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_rst_stream;
 		TFW_SKB_CB(msg.skb_head)->stream_id = hdr->stream_id;
+	} else if (hdr->type == HTTP2_SETTINGS && hdr->flags == HTTP2_F_ACK) {
+		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_ack;
 	} else {
 		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_dflt;
-	}
-
-	if (hdr->type == HTTP2_SETTINGS && hdr->flags == HTTP2_F_ACK) {
-		TFW_SKB_CB(msg.skb_head)->on_tcp_entail =
-			tfw_h2_on_tcp_entail_ack;
 	}
 
 	if ((r = tfw_connection_send(conn, &msg)))

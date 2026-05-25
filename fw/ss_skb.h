@@ -34,12 +34,14 @@ typedef struct tfw_client_mem_t TfwClientMem;
 
 /*
  * Tempesta FW sk_buff private data.
- * @opaque_data 	- pointer to some private data (typically http response);
+ * @opaque_data 	- pointer to some private data (typically TfwClientMem);
  * @destructor		- destructor of the opaque data, should be set if data is
- *                        not NULL
+ *                        not NULL;
  * @on_send		- callback to special handling this skb before sending;
  * @on_tcp_entail 	- callback to special handling this skb before pushing
  *                        to socket write queue;
+ * @on_send_data	- pointer to some private data for `on_send` callback;
+ * @on_tcp_entail_data	- pointer to some private data for `on_tcp_entail` callback;
  * @mem			- memory used for this skb, used to account appropriate
  *			  client memory;
  * @stream_id		- id of sender stream;
@@ -48,13 +50,19 @@ typedef struct tfw_client_mem_t TfwClientMem;
  * @is_head		- flag indicates that this is a head of skb list;
  */
 struct tfw_skb_cb {
-	void 		*opaque_data;
-	void 		(*destructor)(struct sk_buff *);
-	on_send_cb_t	on_send;
-	on_tcp_entail_t on_tcp_entail;
-	long int	mem;
-	unsigned int 	stream_id;
-	bool		is_head;
+	void 			*opaque_data;
+	void 			(*destructor)(struct sk_buff *);
+	union {
+		on_send_cb_t	on_send;
+		on_tcp_entail_t on_tcp_entail;
+	};
+	union {
+		void		*on_send_data;
+		void		*on_tcp_entail_data;
+	};
+	long int		mem;
+	unsigned int 		stream_id;
+	bool			is_head;
 };
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
@@ -105,6 +113,13 @@ ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 	on_send_cb_t on_send = TFW_SKB_CB(*skb_head)->on_send;
 	int r = 0;
 
+	/*
+	 * `on_send` pointer is located inside the union with `on_tcp_entail`
+	 * callback, so we should zero it. For the same reason, we reset
+	 * `on_send_data` pointer here.
+	 */
+	TFW_SKB_CB(*skb_head)->on_send = NULL;
+	TFW_SKB_CB(*skb_head)->on_send_data = NULL;
 	if (on_send)
 		r = on_send(conn, skb_head);
 	if (!r && *skb_head)
