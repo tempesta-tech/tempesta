@@ -141,7 +141,7 @@ void
 tfw_h2_stream_purge_send_queue(TfwStream *stream)
 {
 	unsigned long len = stream->xmit.h_len + stream->xmit.b_len +
-		stream->xmit.t_len + stream->xmit.frame_length;
+		stream->xmit.t_len + stream->xmit.bytes_to_send;
 	struct sk_buff *skb;
 
 	while (len) {
@@ -152,7 +152,7 @@ tfw_h2_stream_purge_send_queue(TfwStream *stream)
 		ss_kfree_skb(skb);
 	}
 	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.t_len
-		= stream->xmit.frame_length = 0;
+		= stream->xmit.bytes_to_send = 0;
 }
 
 void
@@ -503,7 +503,6 @@ do {									\
 				 * should be DATA frame.
 				 */
 				if (send) {
-					ctx->cur_send_headers = NULL;
 					if (tfw_h2_stream_is_eos_sent(stream)) {
 						new_state =
 							HTTP2_STREAM_LOC_HALF_CLOSED;
@@ -518,9 +517,7 @@ do {									\
 					}
 				}
 			} else {
-				if (send)
-					ctx->cur_send_headers = stream;
-				else
+				if (!send)
 					ctx->cur_recv_headers = stream;
 			}
 			break;
@@ -533,7 +530,6 @@ do {									\
 			    && flags & HTTP2_F_END_STREAM)
 			{
 				if (send) {
-					ctx->cur_send_headers = NULL;
 					new_state =
 						HTTP2_STREAM_LOC_HALF_CLOSED;
 				} else {
@@ -553,7 +549,6 @@ do {									\
 				 * frame.
 				 */
 				if (send) {
-					ctx->cur_send_headers = stream;
 					stream->state |=
 						HTTP2_STREAM_SEND_END_OF_STREAM;
 				} else {
@@ -563,9 +558,7 @@ do {									\
 				}
 			}
 			else {
-				if (send)
-					ctx->cur_send_headers = stream;
-				else
+				if (!send)
 					ctx->cur_recv_headers = stream;
 			}
 			break;
@@ -669,12 +662,10 @@ do {									\
 				 * END_STREAM flag set.
 				 */
 				case HTTP2_F_END_STREAM:
-					ctx->cur_send_headers = stream;
 					stream->state |=
 						HTTP2_STREAM_SEND_END_OF_STREAM;
 					break;
 				case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
-					ctx->cur_send_headers = NULL;
 					SET_STATE(HTTP2_STREAM_CLOSED);
 					break;
 				case HTTP2_F_END_HEADERS:
@@ -682,11 +673,9 @@ do {									\
 					 * Headers are ended, next frame in the
 					 * stream should be DATA frame.
 					 */
-					ctx->cur_send_headers = NULL;
 					break;
 
 				default:
-					ctx->cur_send_headers = stream;
 					break;
 				}
 			} else if (type == HTTP2_DATA) {
@@ -752,7 +741,7 @@ do {									\
 		break;
 
 	case HTTP2_STREAM_CLOSED:
-		T_WARN("%s, stream fully closed: stream->id=%u, type=%hhu,"
+		T_DBG3("%s, stream fully closed: stream->id=%u, type=%hhu,"
 		       " flags=0x%hhx\n", __func__, stream->id, type, flags);
 		if (send) {
 			res = STREAM_FSM_RES_IGNORE;
@@ -842,7 +831,8 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 	stream->xmit.b_len = b_len;
 	stream->xmit.t_len = 0;
 	stream->xmit.state = state;
-	stream->xmit.frame_length = 0;
+	stream->xmit.bytes_to_send = 0;
+	stream->xmit.headers_frame_length = 0;
 	stream->xmit.is_blocked = false;
 
 	spin_unlock(&ctx->lock);
