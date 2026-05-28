@@ -62,10 +62,10 @@ typedef enum {
 	HTTP2_RELEASE_RESPONSE,
 	HTTP2_MAKE_HEADERS_FRAMES,
 	HTTP2_MAKE_CONTINUATION_FRAMES,
+	HTTP2_SEND_HEADERS_FRAME,
 	HTTP2_MAKE_DATA_FRAMES,
 	HTTP2_MAKE_TRAILER_FRAMES,
-	HTTP2_MAKE_TRAILER_CONTINUATION_FRAMES,
-	HTTP2_SEND_FRAMES,
+	HTTP2_SEND_DATA_FRAMES,
 	HTTP2_MAKE_FRAMES_FINISH,
 	HTTP2_FRAMING_FAILED
 } TfwStreamXmitState;
@@ -117,31 +117,34 @@ typedef enum {
  * Last http2 response info, used to prepare frames
  * in `xmit` callbacks.
  *
- * @resp		- responce, that should be sent;
- * @skb_head		- head of skb list that must be sent;
- * @postponed		- head of skb list that must be sent
- *			  after sending headers for this stream;
- * @h_len		- length of headers in http2 response;
- * @t_len		- length of trailer headers in http2 response;
- * @frame_length	- length of current sending frame, or 0
- *			  if we send some service frames (for
- *			  example RST STREAM after all pending data);
- * @b_len		- length of body in http2 response;
- * @is_blocked		- stream is blocked;
- * @state		- current stream xmit state (what type of
- * 			  frame should be made for this stream);
- * @is_trailer_cont	- need to send trailer CONTINUATION frames;
+ * @resp		 - response, that should be sent;
+ * @skb_head		 - head of skb list that must be sent;
+ * @postponed		 - head of skb list that must be sent
+ *			   after sending headers for this stream;
+ * @h_len		 - length of headers in http2 response;
+ * @t_len		 - length of trailer headers in http2 response;
+ * @bytes_to_send	 - length of current sending data, or 0
+ *			   if we send some service frames (for
+ *			   example RST_STREAM after all pending data);
+ * @b_len		 - length of body in http2 response;
+ * @is_blocked		 - stream is blocked;
+ * @state		 - current stream xmit state (what type of
+ *			   frame should be made for this stream);
+ * @is_trailer_cont	 - need to send trailer CONTINUATION frames;
+ * @headers_frame_length - length of the current framed HEADERS/CONTINUATION
+ *			   frame;
  */
 typedef struct {
 	TfwHttpResp 		*resp;
 	struct sk_buff		*skb_head;
 	struct sk_buff		*postponed;
 	unsigned int		h_len;
-	unsigned int		frame_length;
+	unsigned int		bytes_to_send;
 	u64			b_len : 59;
 	u64			is_blocked : 1;
 	u64			state : 4;
 	unsigned int		t_len;
+	unsigned int		headers_frame_length;
 } TfwHttpXmit;
 
 /**
