@@ -42,7 +42,12 @@ MODULE_LICENSE("GPL");
 #define T_SYSCTL_STBUF_LEN		32UL
 
 typedef void (*exit_fn)(void);
-exit_fn exit_hooks[32];
+struct hook_t {
+	exit_fn fn;
+	char name [50];
+};
+
+struct hook_t exit_hooks[32];
 size_t  exit_hooks_n;
 
 typedef enum {
@@ -445,14 +450,16 @@ do {								\
 	extern int tfw_##mod##_init(void);			\
 	extern void tfw_##mod##_exit(void);			\
 	BUG_ON(exit_hooks_n >= ARRAY_SIZE(exit_hooks));		\
-	T_DBG("init: %s\n", #mod);				\
+	printk(KERN_ALERT "init: %s\n", #mod);			\
 	r = tfw_##mod##_init();					\
 	if (r) {						\
 		T_ERR_NL("can't initialize Tempesta FW module: '%s' (%d)\n", \
 			   #mod, r);				\
 		goto err;					\
 	}							\
-	exit_hooks[exit_hooks_n++] = tfw_##mod##_exit;		\
+	exit_hooks[exit_hooks_n].fn = tfw_##mod##_exit;		\
+	strcpy(exit_hooks[exit_hooks_n].name, #mod);		\
+	exit_hooks_n++;						\
 } while (0)
 
 static void
@@ -475,8 +482,10 @@ tfw_exit(void)
 	/* Wait for outstanding RCU callbacks to complete. */
 	rcu_barrier();
 
-	for (i = exit_hooks_n - 1; i >= 0; --i)
-		exit_hooks[i]();
+	for (i = exit_hooks_n - 1; i >= 0; --i) {
+		printk(KERN_ALERT "exit %s\n", exit_hooks[i].name);
+		exit_hooks[i].fn();
+	}		
 
 	unregister_net_sysctl_table(tfw_sysctl_hdr);
 }

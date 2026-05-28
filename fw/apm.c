@@ -1066,6 +1066,7 @@ tfw_apm_prcntl_tmfn(struct timer_list *t)
 	TfwApmRBuf *rbuf = &data->rbuf;
 	TfwApmRBEnt *rbent = rbuf->rbent;
 
+	printk(KERN_ALERT "data %px %d", data, data == tfw_apm_global_data);
 	/*
 	 * Increment the counter and make the updates use the other array
 	 * of the two that are available. In the meanwhile, use the array
