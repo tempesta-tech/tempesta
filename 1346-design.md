@@ -1,12 +1,57 @@
 **Training Mode:**
-Collects per-client metrics on each new event aggregates global statistics: number of samples (num of clients),  sum of values (sum), sum of squares (sumsq). At the end of training computes mean and standard deviation, which will be used for z-score calculation in defence mode.
+During the training phase the system collects per-client metrics for each new event and aggregates global statistics required for subsequent z-score calculation in defence mode. For each client only the current maximum number of connections/requests is stored. Global statistics include:
+
+- number of samples ("n", i.e. number of active clients),
+- sum of values ("sum"),
+- sum of squared values ("sumsq").
+
+At the end of the training phase the mean and standard deviation are computed and later used for z-score calculation during anomaly detection.
+
+Several approaches for online variance calculation were evaluated, including Welford’s algorithm and the sum/sumsq method.
+
+The classical Welford algorithm was found to be unsuitable for this workload. In its original form Welford assumes an append-only stream of samples, where each new observation increases the total sample count. In our case, however, "n" represents the number of clients rather than the number of events. For each client we continuously update the current maximum number of connections or requests. Therefore, when a client metric changes, the previous value must first be removed from the statistics and only then the new value can be added (we need replace operation). This requires a modified reversible version of Welford’s algorithm, which significantly complicates the implementation.
+
+In addition, kernel-space constraints prohibit floating-point arithmetic, requiring the use of fixed-point integer arithmetic instead. While Welford’s algorithm is known for its excellent numerical stability with floating-point arithmetic, its fixed-point implementation introduces truncation errors during repeated division operations. In workloads where metric values remain relatively small and close to each other (e.g. connection/request maxima), these rounding errors accumulate over time and may lead to noticeable precision degradation.
+
+Benchmarking (see `benchmark_training` folder) also demonstrated that the modified fixed-point Welford implementation is slower than the alternative approach due to additional arithmetic operations, divisions, and the need to perform sofisticated replace operation for each update.
+
+Benchmark                       Time             CPU   Iterations
+BM_welford_fixed_point       6.75 ns         6.75 ns    102297118
+BM_sum_sumsq                 4.55 ns         4.55 ns    151356982
+
+Accuracy was also calculated for three different cases.
+client maximum increases +1 on each iteration (same as for connection tracking).
+accuracy (exact, sum_sumsq): ( 8.33333e+06, 8.33333e+06 )
+accuracy (exact, welford): ( 8.33333e+06, 8.33334e+06 )
+client maximum randomly increases in a range (1 - 10) on each iteration (possible for non idempodent request tracking, since we use algorithm at the end of the `ss_tcp_process_data`, when we can already process several requests). 
+accuracy (exact, sum_sumsq): ( 2.55257e+08, 2.55257e+08 )
+accuracy (exact, welford): ( 2.55257e+08, 2.55257e+08 )
+client maximum randomly increases in a range (1 - 10) on each iteration
+accuracy (exact, sum_sumsq): ( 2.11362e+10, 2.11362e+10 )
+accuracy (exact, welford): ( 2.11362e+10, 2.11362e+10 )
+
+As a result, the implementation uses the sum of values / sum of squares method (sum/sumsq method). This approach maintains:
+
+- the sum of all values,
+- the sum of squared values,
+- the total number of clients.
+
+The variance is then computed using the standard relation:
+
+[
+Var(X) = E[X^2] - E[X]^2
+]
+
+This method is generally considered less numerically stable than Welford’s algorithm because subtracting two large close values may lead to catastrophic cancellation and precision loss. However, this issue primarily affects workloads with very large numbers and extremely small variance.
+
+For the considered workload, where client metrics are bounded and remain relatively small, the sum/sumsq approach provides sufficient numerical accuracy while being substantially simpler and faster. It also maps naturally to the mutable per-client update model used by the system and avoids the complexity of reversible online variance algorithms.
+(It should also be noted that accurate and stable calculation of memory and CPU consumption in streaming or long-running workloads may require the use of Welford’s algorithm).
 
 **Defence Mode**
-Each new observation is evaluated using z=std / (x−mean). If z > configured_threshold he event is considered anomalous. 
-Reject request / connection, drop connection with TCP RST and optionally block client by IP.
+Each new observation is evaluated using z = ((x−mean) << SCALE_SHIFT) / std (Where SCALE_SHIFT = 10 - fixed-point scaling factor used for integer arithmetic. Kernel code avoids floating point operations, so all fractional calculations (e.g. mean, variance, z-score) are performed using scaled integers). If z > configured_threshold he event is considered anomalous. Reject request / connection, drop connection with TCP RST and optionally block client by IP.
 
 **Disabled Mode**
-Internal state used during transitions. Ensures safe updates of shared data (via RCU synchronization). May be it's better to implement this state also, not only as internal state, to prevent any additional calculations, when it is not necessary.
+Internal state used during transitions. Ensures safe updates of shared data (via RCU synchronization). Also I think it's better to implement this state also, not only as internal state, to prevent any additional calculations, when it is not necessary (for example administrator don't need this security feature at all).
 
 **Connection Count Tracking**
 In`TfwClient` structure we additionally store `unsigned int conn_max`, `int conn_curr` and `unsigned int conn_training_epoch`. We don't need any lock here, because all this fields updated under private `ra->lock` in frang.
@@ -15,34 +60,48 @@ We use new implemented function `tfw_client_training_adjust_conn_num` both for t
 **Training mode**
 `conn_curr` is incremented/decremented.
 Track maximum concurrent connections (`conn_max`). When max increases - compute `delta1 = new_max - old_max` and `delta2 = new_max² - old_max²` and use this values to update `sum` and `sumsq`.
+"sum" and "sumsq" are accumulated values used for online calculation of the mean and standard deviation without storing the full history of samples.
+
+The algorithm keeps:
+
+- "sum = Σx"
+- "sumsq = Σx²"
+
+which allows computing:
+
+- mean:
+- variance:
+
+This is a classic streaming statistics approach commonly referred to as the “sum/squared-sum” method or “naive variance algorithm” (Wikipedia — “Algorithms for calculating variance”)
+This approach is efficient because:
+
+- O(1) update cost,
+- no historical samples must be stored,
+- naturally supports per-CPU counters and lockless aggregation,
+- very cheap for hot-path telemetry.
+
+However, the algorithm may become numerically unstable when:
+
+- the mean is very large,
+- variance is very small,
+- or values are extremely close relative to the magnitude of the mean.
+
+For example, the following dataset (1000000000, 1000000001, 999999999, 1000000000) may become problematic. In this case - mean ≈ 1,000,000,000, standard deviation ≈ 1.
+The variance computation subtracts two extremely large nearly identical numbers, which can cause catastrophic cancellation and precision loss. In contrast, a connection telemetry workload such as (100,
+105, 103, 98, 110) is generally safe because:
+
+- values are integer-based,
+- the variance is reasonably large relative to the mean,
+- the dynamic range is moderate,
+
+According to our investigation (described at the beginning of the document for connections and requests this simplest algorithm is better both in terms of performance and accuracy).
 
 **Defence mode**
-Track `conn_curr` on each new opened connection. Calculate `z = (conn_curr - mean) / std` if `z > threshold` reject connection and block client by IP if necessary.
+Track `conn_curr` on each new opened connection. Calculate `z = ((conn_curr - mean) << SCALE_SHIFT) / std` if `z > threshold` reject connection and block client by IP if necessary.
 
 **Epoch handling**
-Each connection tagged with training_epoch to prevents mixing old and new training data (we add new field to `tempesta_sock` and save epoch in this field). When connection closing we don't update `conn_curr` in case when connection belongs to previous epoch. (When connection is opening it always belongs to new epoch if trainging enabled!).
-
-**Current method and alternatives**
-In current approach during trainging mode we track maximum concurrent connections per client, in defence mode we compare current connections count (`conn_curr`) against a distribution of per-client maximum.
-* ✔ effective for burst detection
-* ❌ max vs current mismatch
-* ❌ sensitivity to outliers (one client opens 10000 connections other clients 1 connection during trainging.)
-* ❌ Not good against syn flood. If client open/close connections very fast, such client will not be blocked, because current connection count will be low.
-**Alternatives:**
-
-1. Use distribution of current concurrent connections - in trainging mode every `conn_curr` update stats, in defence mode compare `conn_curr` against this distribution. 
-* ✔ Consistent model (same metric
-* ❌ Noisy signal
-* ❌ Dominated by low values (many idle clients, if they close there connections durig training)
-
-2. Z-score on max, check only max
-* ✔ Fully consistent model
-* ✔ Low false positives
-* ❌ Slow reaction
-* ❌ Attack can stay just below max
-
-In all this cases we don't take into account time awareness (100 connections for 1 second, 100 connections for 1 hour).
-May be it will be good to calculate z-score for connection rate also (or we rely on frang for this case?).
+Each connection tagged with training_epoch (we add new field to `tempesta_sock` and save epoch in this field) and also we add `conn_training_epoch` to the `TfwClient` structure. We need epoch handling  to zero history from previous trainging and prevent mixing old and new training data. When we call `tfw_client_training_adjust_conn_num` (function for both trainging and defence mode) first of all we check `if (delta < 0 && *training_epoch < g_training_epoch)` and immediately return if condition is true (`delta < 0` means that connection is dropped and belongs to previous epoch). If `delta > 0` we set `*training_epoch = g_training_epoch` to the new established connection (when connection is opening it always belongs to the new epoch if trainging enabled!). In trainging mode we also check
+`if (cli->conn_training_epoch < g_training_epoch)` to zero all client training data (`conn_curr` and `conn_max`).
 
 **Request Count Tracking (Non-idempotent)**
 We implement `TfwTrainingStat` structure to track all trainging events except connections.
