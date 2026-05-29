@@ -4729,8 +4729,7 @@ tfw_http_resp_set_empty_skb_head(TfwHttpResp *resp, TfwHttpMsgCleanup *cleanup)
 	if (unlikely(!nskb))
 		return -ENOMEM;
 
-	ss_skb_set_owner(nskb, ss_skb_dflt_destructor,
-			 cli_mem, nskb->truesize);
+	ss_skb_set_owner(nskb, cli_mem, nskb->truesize);
 	nskb->mark = resp->msg.skb_head->mark;
 	cleanup->skb_head = resp->msg.skb_head;
 	resp->msg.skb_head = NULL;
@@ -6722,8 +6721,7 @@ next_msg:
 	 * tls decryption.
 	 */
 	if (!TFW_SKB_CB(skb)->cli_mem) {
-		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
-				 CLIENT_MEM_FROM_CONN(conn),
+		ss_skb_set_owner(skb, CLIENT_MEM_FROM_CONN(conn),
 				 skb->truesize);
 	}
 
@@ -7565,8 +7563,7 @@ next_msg:
 	/* `cli_conn` is equal to zero for health monitor requests. */
 	if (likely(cli_conn)) {
 		conn_stop = !tfw_http_req_is_valid(hmresp->req);
-		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
-				 CLIENT_MEM_FROM_CONN(cli_conn),
+		ss_skb_set_owner(skb, CLIENT_MEM_FROM_CONN(cli_conn),
 				 skb->truesize);
 
 		r = frang_client_mem_limit(cli_conn, false);

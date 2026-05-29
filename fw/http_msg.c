@@ -938,8 +938,7 @@ this_chunk:
 			if (!(it->skb = ss_skb_alloc(SKB_MAX_HEADER)))
 				return -ENOMEM;
 
-			ss_skb_set_owner(it->skb, ss_skb_dflt_destructor,
-					 tfw_http_msg_client_mem(hm),
+			ss_skb_set_owner(it->skb, tfw_http_msg_client_mem(hm),
 					 it->skb->truesize);
 			ss_skb_queue_tail(skb_head, it->skb);
 			it->frag = -1;
@@ -1204,15 +1203,14 @@ __tfw_http_msg_expand_from_pool(TfwHttpMsg *hm, const TfwStr *str,
 			if (unlikely(skb_room == 0 || nr_frags == MAX_SKB_FRAGS))
 			{
 				struct sk_buff *nskb = ss_skb_alloc(0);
+				TfwClientMem *cli_mem = tfw_http_msg_client_mem(hm);
 				bool body_was_moved = false;
 				int frag;
 
 				if (!nskb)
 					return -ENOMEM;
 
-				ss_skb_set_owner(nskb, ss_skb_dflt_destructor,
-						 tfw_http_msg_client_mem(hm),
-						 nskb->truesize);
+				ss_skb_set_owner(nskb, cli_mem, nskb->truesize);
 				/*
 				 * TODO #2136: Remove this flag during reworking
 				 * this function. Try to process headers and

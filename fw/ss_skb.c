@@ -120,8 +120,7 @@ ss_skb_alloc_data(struct sk_buff **skb_head, TfwClientMem *owner, size_t len)
 		skb = ss_skb_alloc_pages(n);
 		if (!skb)
 			return -ENOMEM;
-		ss_skb_set_owner(skb, ss_skb_dflt_destructor,
-				 owner, skb->truesize);
+		ss_skb_set_owner(skb, owner, skb->truesize);
 		ss_skb_queue_tail(skb_head, skb);
 	}
 
@@ -221,8 +220,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 				return -ENOMEM;
 
 			if (!skb_tfw_is_in_socket_write_queue(skb)) {
-				ss_skb_set_owner(nskb, ss_skb_dflt_destructor,
-						 TFW_SKB_CB(skb)->cli_mem,
+				ss_skb_set_owner(nskb, TFW_SKB_CB(skb)->cli_mem,
 						 nskb->truesize);
 			}
 			skb_shinfo(nskb)->flags = skb_shinfo(skb)->flags;
@@ -1772,15 +1770,16 @@ ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head)
 }
 
 void
-ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
-		 TfwClientMem *owner, unsigned int mem)
+ss_skb_set_owner(struct sk_buff *skb, TfwClientMem *owner,
+		 unsigned int mem)
 {
 	if (!owner || !tfw_client_mem_get(owner))
 		return;
 
 	WARN_ON(TFW_SKB_CB(skb)->mem != 0);
-	WARN_ON(TFW_SKB_CB(skb)->destructor || TFW_SKB_CB(skb)->cli_mem);
-	__ss_skb_set_owner(skb, destructor, owner);
+	WARN_ON(TFW_SKB_CB(skb)->cli_mem);
+
+	TFW_SKB_CB(skb)->cli_mem = owner;
 	ss_skb_adjust_client_mem(skb, mem);
 }
 
