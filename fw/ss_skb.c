@@ -1799,11 +1799,3 @@ ss_skb_adjust_client_mem(struct sk_buff *skb, int delta)
 		tfw_client_adjust_mem(cli_mem, delta);
 	}
 }
-
-void
-ss_skb_copy_cb(struct sk_buff *to, struct sk_buff *from)
-{
-	memcpy(&TFW_SKB_CB(to)->copy, &TFW_SKB_CB(from)->copy,
-	       sizeof(TFW_SKB_CB(from)->copy));
-	bzero_fast(&TFW_SKB_CB(from)->copy, sizeof(TFW_SKB_CB(from)->copy));
-}

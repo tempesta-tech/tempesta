@@ -228,7 +228,7 @@ ctx_new_settings_flags[] = {
 };
 
 static int
-tfw_h2_on_tcp_entail_ack(void *conn, struct sk_buff *skb_head)
+tfw_h2_on_tcp_entail_setting_ack(void *conn, struct sk_buff *skb_head)
 {
 	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 
@@ -239,15 +239,10 @@ tfw_h2_on_tcp_entail_ack(void *conn, struct sk_buff *skb_head)
 }
 
 static int
-tfw_h2_on_send_goaway(void *conn, struct sk_buff **skb_head,
-		      void *on_send_data)
+tfw_h2_on_send_goaway(void *conn, struct sk_buff **skb_head)
 {
-	TfwH2Ctx *ctx;
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 
-	if (unlikely(!conn))
-		return -EPIPE;
-
-	ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 	if (ctx->error && ctx->error->xmit.skb_head) {
 		ss_skb_queue_splice(&ctx->error->xmit.skb_head, skb_head);
 	} else if (ctx->cur_send_headers) {
@@ -264,18 +259,12 @@ tfw_h2_on_send_goaway(void *conn, struct sk_buff **skb_head,
 }
 
 static int
-tfw_h2_on_send_rst_stream(void *conn, struct sk_buff **skb_head,
-			  void *on_send_data)
+tfw_h2_on_send_rst_stream(void *conn, struct sk_buff **skb_head)
 {
-	TfwH2Ctx *ctx;
-	unsigned int stream_id;
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	unsigned int stream_id = TFW_SKB_CB(*skb_head)->stream_id;
 	TfwStream *stream;
 
-	if (unlikely(!conn))
-		return -EPIPE;
-
-	ctx = tfw_h2_context_unsafe((TfwConn *)conn);
-	stream_id = TFW_SKB_CB(*skb_head)->stream_id;
 	stream = tfw_h2_find_not_closed_stream(ctx, stream_id, false);
 
 	/*
@@ -295,15 +284,10 @@ tfw_h2_on_send_rst_stream(void *conn, struct sk_buff **skb_head,
 }
 
 static int
-tfw_h2_on_send_dflt(void *conn, struct sk_buff **skb_head,
-		    void *on_send_data)
+tfw_h2_on_send_dflt(void *conn, struct sk_buff **skb_head)
 {
-	TfwH2Ctx *ctx;
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 
-	if (unlikely(!conn))
-		return -EPIPE;
-
-	ctx = tfw_h2_context_unsafe((TfwConn *)conn);
 	if (ctx->cur_send_headers) {
 		ss_skb_queue_splice(&ctx->cur_send_headers->xmit.postponed,
 				    skb_head);
@@ -312,18 +296,22 @@ tfw_h2_on_send_dflt(void *conn, struct sk_buff **skb_head,
 	return 0;
 }
 
-static int
-tfw_h2_on_send_ack(void *conn, struct sk_buff** skb_head,
-		   void *on_send_data)
-{
-	if (unlikely(!conn))
-		return -EPIPE;
+static TfwSkbHooks tfw_h2_goaway_frame_skb_hooks = {
+	.on_send = tfw_h2_on_send_goaway,
+};
 
-	TFW_SKB_CB(*skb_head)->on_tcp_entail = tfw_h2_on_tcp_entail_ack;
-	tfw_h2_on_send_dflt(conn, skb_head, on_send_data);
+static TfwSkbHooks tfw_h2_rst_frame_skb_hooks = {
+	.on_send = tfw_h2_on_send_rst_stream,
+};
 
-	return 0;
-}
+static TfwSkbHooks tfw_h2_settings_ack_frame_skb_hooks = {
+	.on_send = tfw_h2_on_send_dflt,
+	.on_tcp_entail = tfw_h2_on_tcp_entail_setting_ack,
+};
+
+static TfwSkbHooks tfw_h2_frame_dflt_skb_hooks = {
+	.on_send = tfw_h2_on_send_dflt,
+};
 
 /**
  * Prepare and send HTTP/2 frame to the client; @hdr must contain
@@ -376,14 +364,18 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	}
 
 	if (hdr->type == HTTP2_GOAWAY) {
-		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_goaway;
+		TFW_SKB_CB(msg.skb_head)->skb_hooks =
+			&tfw_h2_goaway_frame_skb_hooks;
 	} else if (hdr->type == HTTP2_RST_STREAM) {
-		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_rst_stream;
+		TFW_SKB_CB(msg.skb_head)->skb_hooks =
+			&tfw_h2_rst_frame_skb_hooks;
 		TFW_SKB_CB(msg.skb_head)->stream_id = hdr->stream_id;
 	} else if (hdr->type == HTTP2_SETTINGS && hdr->flags == HTTP2_F_ACK) {
-		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_ack;
+		TFW_SKB_CB(msg.skb_head)->skb_hooks =
+			&tfw_h2_settings_ack_frame_skb_hooks;
 	} else {
-		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_dflt;
+		TFW_SKB_CB(msg.skb_head)->skb_hooks =
+			&tfw_h2_frame_dflt_skb_hooks;
 	}
 
 	if ((r = tfw_connection_send(conn, &msg)))

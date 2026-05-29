@@ -27,43 +27,46 @@
 
 #include "str.h"
 
-typedef int (*on_send_cb_t)(void *conn, struct sk_buff **skb_head,
-			    void *on_send_data);
-typedef int (*on_tcp_entail_t)(void *conn, struct sk_buff *skb_head);
-typedef void (*on_send_fail_cb_t)(void *conn, struct sk_buff *skb_head);
+typedef int (*on_send_cb_t)(void *conn, struct sk_buff **skb_head);
+typedef void (*on_send_fail_cb_t)(struct sk_buff *skb_head);
+typedef int (*on_tcp_entail_cb_t)(void *conn, struct sk_buff *skb_head);
 typedef struct tfw_client_mem_t TfwClientMem;
+
+/*
+ * Tempesta FW sk_buff callbacks.
+ *
+ * @on_send		- callback to special handling this skb before sending;
+ * @on_send_fail	- callback to special handling this skb if send fails;
+ * @on_tcp_entail	- callback to special handling this skb before pushing
+ *                        to socket write queue;
+ */
+typedef struct {
+	on_send_cb_t 		on_send;
+	on_send_fail_cb_t	on_send_fail;
+	on_tcp_entail_cb_t	on_tcp_entail;
+} TfwSkbHooks;
 
 /*
  * Tempesta FW sk_buff private data.
  * @cli_mem 		- pointer to TfwClientMem structure for memory
  *			  accountion;
  * @destructor		- destructor to adjust memory when skb is freed, should
- *			  be set if `cli_mem` is not NULL;
- * @on_send		- callback to special handling this skb before sending;
- * @on_tcp_entail 	- callback to special handling this skb before pushing
- *                        to socket write queue;
- * @on_send_data	- pointer to some private data for `on_send` callback;
- * @on_tcp_entail_data	- pointer to some private data for `on_tcp_entail` callback;
  * @mem			- memory used for this skb, used to account appropriate
  *			  client memory;
+ * @skb_hooks		- pointer to the callbacks structure;
+ * @data		- pointer to some private data for callbacks;
  * @stream_id		- id of sender stream;
- * @tls_type		- tls type of current skb, if it's data should be
- *			  encrypted;
  * @is_head		- flag indicates that this is a head of skb list;
  */
 struct tfw_skb_cb {
-	TfwClientMem 		*cli_mem;
-	void 			(*destructor)(struct sk_buff *);
-	long int		mem;
+	struct_group (memory,
+		TfwClientMem 		*cli_mem;
+		void 			(*destructor)(struct sk_buff *);
+		long int		mem;
+	);
 	struct_group (copy,
-		union {
-			on_send_cb_t	on_send;
-			on_tcp_entail_t on_tcp_entail;
-		};
-		union {
-			void		*on_send_data;
-			void		*on_tcp_entail_data;
-		};
+		TfwSkbHooks		*skb_hooks;
+		void			*data;
 		unsigned int 		stream_id;
 		bool			is_head;
 	);
@@ -76,7 +79,6 @@ void ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
 void ss_skb_adjust_client_mem(struct sk_buff *skb, int delta);
 void ss_skb_dflt_destructor(struct sk_buff *skb);
 void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
-void ss_skb_copy_cb(struct sk_buff *to, struct sk_buff *from);
 
 static inline void
 __ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
@@ -106,38 +108,37 @@ ss_skb_setup_head_of_list(struct sk_buff *skb_head, unsigned int mark,
 	TFW_SKB_CB(skb_head)->is_head = true;
 }
 
+#define TFW_SKB_HOOK_CALL(skb_hooks, f, ...)	\
+	(skb_hooks && skb_hooks->f) ? skb_hooks->f(__VA_ARGS__) : 0
+
 static inline int
 ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 {
-	on_send_cb_t on_send = TFW_SKB_CB(*skb_head)->on_send;
-	void *on_send_data = TFW_SKB_CB(*skb_head)->on_send_data;
-	int r = 0;
+	int r;
 
-	/*
-	 * `on_send` pointer is located inside the union with `on_tcp_entail`
-	 * callback, so we should zero it. For the same reason, we reset
-	 * `on_send_data` pointer here.
-	 */
-	TFW_SKB_CB(*skb_head)->on_send = NULL;
-	TFW_SKB_CB(*skb_head)->on_send_data = NULL;
-	if (on_send)
-		r = on_send(conn, skb_head, on_send_data);
-
-	if (!r && conn && *skb_head)
+	r = TFW_SKB_HOOK_CALL(TFW_SKB_CB(*skb_head)->skb_hooks,
+			      on_send, conn, skb_head);
+	if (!r && *skb_head)
 		ss_skb_on_send_dflt(conn, skb_head);
 
 	return r;
 }
 
+static inline void
+ss_skb_on_send_fail(struct sk_buff *skb_head)
+{
+	return TFW_SKB_HOOK_CALL(TFW_SKB_CB(skb_head)->skb_hooks,
+				 on_send_fail, skb_head);
+}
+
 static inline int
 ss_skb_on_tcp_entail(void *conn, struct sk_buff *skb_head)
 {
-	on_tcp_entail_t on_tcp_entail = TFW_SKB_CB(skb_head)->on_tcp_entail;
-
-	if (on_tcp_entail)
-		return on_tcp_entail(conn, skb_head);
-	return 0;
+	return TFW_SKB_HOOK_CALL(TFW_SKB_CB(skb_head)->skb_hooks,
+				 on_tcp_entail, conn, skb_head);
 }
+
+#undef TFW_SKB_HOOK_CALL
 
 typedef int ss_skb_actor_t(void *conn, unsigned char *data, unsigned int len,
 			   unsigned int *read);

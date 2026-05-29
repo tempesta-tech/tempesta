@@ -716,6 +716,7 @@ int
 tfw_h2_entail_stream_skb(struct sock *sk, TfwStream *stream,
 			 unsigned int *len, bool should_split)
 {
+	TfwSkbHooks *skb_hooks = TFW_SKB_CB(stream->xmit.skb_head)->skb_hooks;
 	unsigned char tls_type = skb_tfw_tls_type(stream->xmit.skb_head);
 	unsigned int mark = stream->xmit.skb_head->mark;
 	struct sk_buff *skb, *split;
@@ -728,7 +729,7 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwStream *stream,
 	 * we should rework this function.
 	 */
 	if (WARN_ON(!TFW_SKB_CB(stream->xmit.skb_head)->is_head
-		    || TFW_SKB_CB(stream->xmit.skb_head)->on_tcp_entail))
+		    || (skb_hooks && skb_hooks->on_tcp_entail)))
 		return -EINVAL;
 
 	while (*len) {
