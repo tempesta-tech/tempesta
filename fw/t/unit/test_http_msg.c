@@ -120,8 +120,7 @@ __test_resp_data_alloc(TfwStr *head_data, TfwStr *paged_data,
 	if (!skb)
 		return false;
 
-	ss_skb_set_owner(skb, ss_skb_dflt_destructor,
-			 tfw_http_msg_client_mem(hmresp),
+	ss_skb_set_owner(skb, tfw_http_msg_client_mem(hmresp),
 			 skb->truesize);
 	skb->next = skb->prev = skb;
 	it = &resp->iter;
