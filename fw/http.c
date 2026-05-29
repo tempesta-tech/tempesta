@@ -515,6 +515,19 @@ typedef enum {
 	TFW_ERROR_TYPE_BAD,
 } ErrorType;
 
+static int tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head);
+static void tfw_h2_on_send_resp_fail(struct sk_buff *skb_head);
+static int tfw_http_on_tcp_entail_req(void *conn, struct sk_buff *skb);
+
+TfwSkbHooks tfw_h2_resp_skb_hooks = {
+	.on_send 	= tfw_h2_on_send_resp,
+	.on_send_fail	= tfw_h2_on_send_resp_fail,
+};
+
+static TfwSkbHooks tfw_http_req_skb_hooks = {
+	.on_tcp_entail	= tfw_http_on_tcp_entail_req,
+};
+
 /*
  * Prepare current date in the format required for HTTP "Date:"
  * header field. See RFC 2616 section 3.3.
@@ -1162,8 +1175,9 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 
 	/*
 	 * Connection reference counter will be decremented and response will
-	 * be freed in `on_send` callback, if it fails or after encoding headers
-	 * in `tfw_h2_stream_xmit_process`.
+	 * be freed in `on_send_fail` callback, if send fails, because of
+	 * inactive socket or after encoding headers in
+	 * `tfw_h2_stream_xmit_process`.
 	 */
 	tfw_connection_get(conn);
 	do_access_log(resp);
@@ -1426,7 +1440,7 @@ tfw_http_on_tcp_entail_req(void *conn, struct sk_buff *skb)
 	 *   queue was already purged (see tfw_srv_conn_release`), so
 	 *   this function will never called.
 	 */
-	req = (TfwHttpReq *)TFW_SKB_CB(skb)->on_tcp_entail_data;
+	req = (TfwHttpReq *)TFW_SKB_CB(skb)->data;
 
 	if (unlikely(!tfw_http_req_is_valid(req))) {
 		spin_lock_bh(&srv_conn->fwd_qlock);
@@ -1453,32 +1467,6 @@ tfw_http_on_tcp_entail_req(void *conn, struct sk_buff *skb)
 	return 0;
 }
 
-static int
-tfw_http_on_send_req(void *conn, struct sk_buff **skb_head, void *on_send_data)
-{
-	TfwHttpReq *req;
-
-	if (unlikely(!conn))
-		return -EPIPE;
-
-	/*
-	 * We can safely access `req` pointer here.
-	 * - request is never deleted on the client side if it was already
-	 *   sent to backend server.
-	 * - on the server side request can be deleted during rescheduling
-	 *   (after server connection reestablishing) or during server
-	 *   connection released. In both these cases server connection
-	 *   queue was already purged (see tfw_srv_conn_release`), so
-	 *   this function will never called.
-	 */
-	req = (TfwHttpReq *)on_send_data;
-
-	TFW_SKB_CB(*skb_head)->on_tcp_entail = tfw_http_on_tcp_entail_req;
-	TFW_SKB_CB(*skb_head)->on_tcp_entail_data = req;
-
-	return 0;
-}
-
 static inline void
 tfw_http_req_init_for_send(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
@@ -1486,8 +1474,8 @@ tfw_http_req_init_for_send(TfwSrvConn *srv_conn, TfwHttpReq *req)
 	if (unlikely(test_bit(TFW_HTTP_B_HMONITOR, req->flags)))
 		return;
 
-	TFW_SKB_CB(req->msg.skb_head)->on_send = tfw_http_on_send_req;
-	TFW_SKB_CB(req->msg.skb_head)->on_send_data = req;
+	TFW_SKB_CB(req->msg.skb_head)->skb_hooks = &tfw_http_req_skb_hooks;
+	TFW_SKB_CB(req->msg.skb_head)->data = req;
 }
 
 static inline void
@@ -5572,20 +5560,14 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, const TfwStr *body)
 }
 ALLOW_ERROR_INJECTION(tfw_h2_append_predefined_body, ERRNO);
 
-int
-tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head,
-		    void *on_send_data)
+static int
+tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head)
 {
-	TfwHttpResp *resp = (TfwHttpResp *)on_send_data;
-	TfwH2Ctx *ctx;
-	unsigned int stream_id;
+	TfwHttpResp *resp = (TfwHttpResp *)TFW_SKB_CB(*skb_head)->data;
+	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
+	unsigned int stream_id = TFW_SKB_CB(*skb_head)->stream_id;
 	TfwStream *stream;
 
-	if (unlikely(!conn))
-		goto fail;
-
-	ctx = tfw_h2_context_unsafe((TfwConn *)conn);
-	stream_id = TFW_SKB_CB(*skb_head)->stream_id;
 	stream = tfw_h2_find_not_closed_stream(ctx, stream_id, false);
 	/*
 	 * Very unlikely case. We check that stream is active, before
@@ -5594,7 +5576,7 @@ tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head,
 	 * before ss_do_send was called.
 	 */
 	if (unlikely(!stream))
-		goto fail;
+		return -EPIPE;
 
 	/*
 	 * These pointers are zeroed in `tfw_h2_stream_init_for_xmit`.
@@ -5616,10 +5598,12 @@ tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head,
 		tfw_h2_sched_activate_stream(&ctx->sched, stream);
 
 	return 0;
+}
 
-fail:
-	tfw_http_resp_pair_free_and_put_conn(resp);
-	return -EPIPE;
+static void
+tfw_h2_on_send_resp_fail(struct sk_buff *skb_head)
+{
+	tfw_http_resp_pair_free_and_put_conn(TFW_SKB_CB(skb_head)->data);
 }
 
 /**

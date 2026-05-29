@@ -48,6 +48,12 @@ static bool tfw_tls_allow_any_sni;
 /* Temporal value for reconfiguration stage. */
 static bool allow_any_sni_reconfig;
 
+static int tfw_tls_on_send_alert(void *conn, struct sk_buff **skb_head);
+
+static TfwSkbHooks tfw_tls_alert_skb_hooks = {
+	.on_send = tfw_tls_on_send_alert,
+};
+
 static inline void
 tfw_tls_purge_io_ctx(TlsIOCtx *io)
 {
@@ -502,14 +508,10 @@ tfw_tls_close_msg_flags(TlsIOCtx *io)
 	return flags;
 }
 
-static inline int
-tfw_tls_on_send_alert(void *conn, struct sk_buff **skb_head,
-		      void *on_send_data)
+static int
+tfw_tls_on_send_alert(void *conn, struct sk_buff **skb_head)
 {
 	TfwH2Ctx *ctx;
-
-	if (unlikely(!conn))
-		return -EPIPE;
 
 	BUG_ON(TFW_CONN_PROTO((TfwConn *)conn) != TFW_FSM_H2);
 	ctx = tfw_h2_context_safe((TfwConn *)conn);
@@ -613,8 +615,8 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 		TFW_CONN_TYPE(((TfwConn *)conn)) |= Conn_Stop;
 		flags |= tfw_tls_close_msg_flags(io);
 		if (TFW_CONN_PROTO((TfwConn *)conn) == TFW_FSM_H2) {
-			TFW_SKB_CB(io->skb_list)->on_send =
-				tfw_tls_on_send_alert;
+			TFW_SKB_CB(io->skb_list)->skb_hooks =
+				&tfw_tls_alert_skb_hooks;
 		}
 	}
 
