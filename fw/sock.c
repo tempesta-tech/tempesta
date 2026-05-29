@@ -507,14 +507,17 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 		 * belongs.
 		 */
 		if (TFW_SKB_CB(skb)->is_head) {
-			skip_list = false;
 			tls_type = skb_tfw_tls_type(skb);
 			mark = skb->mark;
+			/*
+			 * If `on_tcp_entail` callback is set and fails, we free
+			 * all skbs from the list. This callback can be set only
+			 * for the head of skb list and we don't set it again at
+			 * the end of this function, if we don't send the whole
+			 * skb list.
+			 */
+			skip_list = ss_skb_on_tcp_entail(sk->sk_user_data, skb);
 		}
-
-		if (!skip_list
-		    && ss_skb_on_tcp_entail(sk->sk_user_data, skb))
-			skip_list = true;
 
 		/*
 		 * Zero-sized SKBs may appear when the message headers (or any
@@ -540,8 +543,18 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 		ss_skb_tcp_entail(sk, skb, mark, tls_type);
 	}
 
-	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head)
+	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head) {
+		/*
+		 * If `skip_list` is true we should destroy all skbs
+		 * until we reach the next message (`is_head` should be
+		 * set). We don't add skb to the socket write queue if
+		 * `skip_list` is true, so the loop located above will
+		 * not be breaked until the whole message will be deleted.
+		 */
+		if (WARN_ON(skip_list))
+			return -EINVAL;
 		ss_skb_setup_head_of_list(*skb_head, mark, tls_type);
+	}
 
 	return 0;
 }
@@ -555,7 +568,6 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	void *conn = sk->sk_user_data;
 	unsigned char tls_type = flags & SS_F_ENCRYPT ?
 		SS_SKB_F2TYPE(flags) : 0;
-	bool send_is_allowed = conn && ss_sock_active(sk);
 
 	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
 	       " sk_state=%d\n",
@@ -563,9 +575,13 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
 	       sk->sk_state);
 
+	/* If the socket is inactive, there's no recourse. Drop the data. */
+	if (unlikely(!conn || !ss_sock_active(sk)))
+		goto cleanup;
+
 	ss_skb_setup_head_of_list(*skb_head, (*skb_head)->mark, tls_type);
 
-	if (ss_skb_on_send(likely(send_is_allowed) ? conn : NULL, skb_head))
+	if (ss_skb_on_send(conn, skb_head))
 		goto cleanup;
 
 	/*
@@ -596,6 +612,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	return;
 
 cleanup:
+	ss_skb_on_send_fail(*skb_head);
 	ss_skb_queue_purge(skb_head);
 }
 
@@ -657,7 +674,15 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 				r = -ENOMEM;
 				goto err;
 			}
-			memset(twin_skb->cb, 0, sizeof(twin_skb->cb));
+			/*
+			 * We set owner for the new cloned skb and adjust it's
+			 * memory manually, because only `copied_truesize`
+			 * allocated during skb cloning.
+			 */
+			bzero_fast(&TFW_SKB_CB(twin_skb)->memory,
+				   sizeof(TFW_SKB_CB(twin_skb)->memory));
+			bzero_fast(&TFW_SKB_CB(skb)->copy,
+				   sizeof(TFW_SKB_CB(skb)->copy));
 			head_data = MAX_TCP_HEADER + skb_headlen(twin_skb);
 			copied_truesize  =
 				SKB_DATA_ALIGN(sizeof(struct sk_buff)) +
@@ -666,7 +691,6 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 			ss_skb_set_owner(twin_skb, ss_skb_dflt_destructor,
 					 TFW_SKB_CB(skb)->cli_mem,
 					 copied_truesize);
-			ss_skb_copy_cb(twin_skb, skb);
 			ss_skb_queue_tail(&sw.skb_head, twin_skb);
 			skb = skb->next;
 		} while (skb != *skb_head);
@@ -1762,7 +1786,7 @@ ss_tx_action(void)
 dead_sock:
 		sock_put(sk); /* paired with push() calls */
 		if (sw.skb_head)
-			ss_skb_on_send(NULL, &sw.skb_head);
+			ss_skb_on_send_fail(sw.skb_head);
 		ss_skb_queue_purge(&sw.skb_head);
 	}
 

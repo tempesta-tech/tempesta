@@ -441,7 +441,7 @@ tfw_connection_live(TfwConn *conn)
 static inline void
 tfw_connection_get(TfwConn *conn)
 {
-	atomic_add(1, &conn->refcnt);
+	atomic_inc(&conn->refcnt);
 }
 
 #define TFW_CONNETION_GET_IF(name, cond)				\

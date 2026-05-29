@@ -828,8 +828,8 @@ tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 		return -EPIPE;
 	}
 
-	TFW_SKB_CB(skb_head)->on_send = tfw_h2_on_send_resp;
-	TFW_SKB_CB(skb_head)->on_send_data = resp;
+	TFW_SKB_CB(skb_head)->skb_hooks = &tfw_h2_resp_skb_hooks;
+	TFW_SKB_CB(skb_head)->data = resp;
 	TFW_SKB_CB(skb_head)->stream_id = stream->id;
 
 	stream->xmit.resp = NULL;
