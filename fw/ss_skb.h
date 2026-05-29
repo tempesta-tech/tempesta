@@ -50,7 +50,6 @@ typedef struct {
  * Tempesta FW sk_buff private data.
  * @cli_mem 		- pointer to TfwClientMem structure for memory
  *			  accountion;
- * @destructor		- destructor to adjust memory when skb is freed, should
  * @mem			- memory used for this skb, used to account appropriate
  *			  client memory;
  * @skb_hooks		- pointer to the callbacks structure;
@@ -61,7 +60,6 @@ typedef struct {
 struct tfw_skb_cb {
 	struct_group (memory,
 		TfwClientMem 		*cli_mem;
-		void 			(*destructor)(struct sk_buff *);
 		long int		mem;
 	);
 	struct_group (copy,
@@ -74,19 +72,11 @@ struct tfw_skb_cb {
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
 
-void ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
-		      TfwClientMem *owner, unsigned int delta);
+void ss_skb_set_owner(struct sk_buff *skb, TfwClientMem *owner,
+		      unsigned int delta);
 void ss_skb_adjust_client_mem(struct sk_buff *skb, int delta);
 void ss_skb_dflt_destructor(struct sk_buff *skb);
 void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
-
-static inline void
-__ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
-		   TfwClientMem *owner)
-{
-	TFW_SKB_CB(skb)->destructor = destructor;
-	TFW_SKB_CB(skb)->cli_mem = owner;
-}
 
 static inline bool
 ss_skb_is_within_fragment(char *begin_fragment, char *position,
@@ -208,27 +198,12 @@ ss_skb_queue_splice(struct sk_buff **skb_head, struct sk_buff **skb)
 static inline void
 ss_skb_orphan(struct sk_buff *skb)
 {
-	void (*destructor)(struct sk_buff *);
-
 	if (skb_tfw_is_in_socket_write_queue(skb))
 		return;
 
-	destructor = TFW_SKB_CB(skb)->destructor;
-	if (destructor) {
-		/*
-		 * The same BUG_ON is present in linux kernel in `skb_orphan`.
-		 * `skb->cli_mem` will be used inside destructor, so if it
-		 * is NULL, we still catch BUG later.
-		 */
-		BUG_ON(!TFW_SKB_CB(skb)->cli_mem);
-		destructor(skb);
-		__ss_skb_set_owner(skb, NULL, NULL);
-	} else {
-		/*
-		 * The same BUG_ON is present in linux kernel in
-		 * `skb_orphan`.
-		 */
-		BUG_ON(TFW_SKB_CB(skb)->cli_mem);
+	if (TFW_SKB_CB(skb)->cli_mem) {
+		ss_skb_dflt_destructor(skb);
+		TFW_SKB_CB(skb)->cli_mem = NULL;
 	}
 }
 
