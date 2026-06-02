@@ -2234,6 +2234,8 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			   unsigned long *snd_wnd, bool *stop)
 {
 	int r = 0;
+	unsigned int min_to_send = tfw_h2_calc_min_to_send(sk, ctx, mss_now);
+
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
 
 	T_FSM_START(stream->xmit.state) {
@@ -2288,9 +2290,16 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			T_FSM_EXIT();
 		}
 
-		unsigned int max_len = __tfw_h2_snd_wnd_limit(*snd_wnd);
+		unsigned int snd_wnd_budget = __tfw_h2_snd_wnd_limit(*snd_wnd);
 		unsigned int bytes_to_send =
-			min(max_len, stream->xmit.headers_frame_length);
+			min(snd_wnd_budget, stream->xmit.headers_frame_length);
+		unsigned int is_last_chunk =
+			bytes_to_send == stream->xmit.headers_frame_length;
+
+		if (bytes_to_send < min_to_send && !is_last_chunk) {
+			*stop = true;
+			T_FSM_EXIT();
+		}
 
 		stream->xmit.headers_frame_length -= bytes_to_send;
 		stream->xmit.bytes_to_send += bytes_to_send;
@@ -2359,6 +2368,11 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
+		if (*snd_wnd <= FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD) {
+			*stop = true;
+			T_FSM_EXIT();
+		}
+
 		if (tfw_h2_conn_or_stream_wnd_is_exceeded(ctx, stream)) {
 			/*
 			 * If Tempesta FW stop to make frames, because of exceeded
@@ -2367,12 +2381,7 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			WARN_ON(stream->xmit.is_blocked);
 			stream->xmit.is_blocked = stream->rem_wnd <= 0;
 			ctx->sched.blocked_streams += stream->xmit.is_blocked;
-			*stop = true;
-			T_FSM_EXIT();
-		}
-
-		if (*snd_wnd <= FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD) {
-			*stop = true;
+			*stop = ctx->rem_wnd <= 0;
 			T_FSM_EXIT();
 		}
 
@@ -2380,6 +2389,27 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		unsigned int frame_length =
 			__tfw_h2_calc_data_frame_len(ctx, stream,
 						     snd_wnd_budget);
+		unsigned int is_last_chunk =
+				frame_length == stream->xmit.b_len;
+
+		/*
+		 * Calculate min_to_send only for send window, not HTTP2
+		 * connection window. This allows us to not postpone streams
+		 * that have small window, we want to send such streams and
+		 * move to the next stream in the queue if tcp send window is
+		 * enough.
+		 */
+		if (snd_wnd_budget < min_to_send && !is_last_chunk) {
+			/*
+			 * NOTE: As possible optimization, in this case we
+			 * would not stop sending and try to find the next
+			 * stream with a small data. However this may lead to
+			 * re-scheduling without effect if there is no such
+			 * streams.
+			 */
+			*stop = true;
+			T_FSM_EXIT();
+		}
 
 		r = __tfw_h2_make_data_frame(ctx, stream, frame_length);
 		if (unlikely(r))
