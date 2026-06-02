@@ -2228,12 +2228,22 @@ __tfw_h2_make_data_frame(TfwH2Ctx *ctx, TfwStream *stream,
 					  &stream->xmit.bytes_to_send);
 }
 
+static bool
+__socket_has_unsent_data(struct sock *sk)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	return tp->write_seq - tp->snd_una;
+}
+
 static int
 tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			   bool stream_is_exclusive, unsigned int mss_now,
 			   unsigned long *snd_wnd, bool *stop)
 {
 	int r = 0;
+	unsigned int min_to_send = tfw_h2_calc_min_to_send(sk, ctx, mss_now);
+
 	T_FSM_INIT(stream->xmit.state, "HTTP/2 make frames");
 
 	T_FSM_START(stream->xmit.state) {
@@ -2288,9 +2298,23 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			T_FSM_EXIT();
 		}
 
-		unsigned int max_len = __tfw_h2_snd_wnd_limit(*snd_wnd);
+		unsigned int snd_wnd_budget = __tfw_h2_snd_wnd_limit(*snd_wnd);
 		unsigned int bytes_to_send =
-			min(max_len, stream->xmit.headers_frame_length);
+			min(snd_wnd_budget, stream->xmit.headers_frame_length);
+		unsigned int is_last_chunk =
+			bytes_to_send == stream->xmit.headers_frame_length;
+
+		if (bytes_to_send < min_to_send && !is_last_chunk &&
+		    __socket_has_unsent_data(sk)) {
+			/*
+			 * Stop sending only if socket has unknowledged or
+			 * queued data (see @__socket_has_unsent_data()).
+			 * This prevents stalling when client has small receive
+			 * window.
+			 */
+			*stop = true;
+			T_FSM_EXIT();
+		}
 
 		stream->xmit.headers_frame_length -= bytes_to_send;
 		stream->xmit.bytes_to_send += bytes_to_send;
@@ -2359,24 +2383,65 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	}
 
 	T_FSM_STATE(HTTP2_MAKE_DATA_FRAMES) {
-		if (tfw_h2_conn_or_stream_wnd_is_exceeded(ctx, stream)) {
-			/*
-			 * If Tempesta FW stop to make frames, because of exceeded
-			 * stream->rem_wnd, mark such stream as blocked.
-			 */
-			WARN_ON(stream->xmit.is_blocked);
-			stream->xmit.is_blocked = stream->rem_wnd <= 0;
-			ctx->sched.blocked_streams += stream->xmit.is_blocked;
-			*stop = true;
-			T_FSM_EXIT();
-		}
-
 		if (*snd_wnd <= FRAME_HEADER_SIZE + TLS_MAX_OVERHEAD) {
 			*stop = true;
 			T_FSM_EXIT();
 		}
 
+		if (tfw_h2_conn_or_stream_wnd_is_exceeded(ctx, stream)) {
+			/*
+			 * If Tempesta FW stop to make frames, because of
+			 * exceeded stream->rem_wnd, mark such stream as
+			 * blocked.
+			 */
+			WARN_ON(stream->xmit.is_blocked);
+			stream->xmit.is_blocked = stream->rem_wnd <= 0;
+			ctx->sched.blocked_streams += stream->xmit.is_blocked;
+			*stop = ctx->rem_wnd <= 0;
+			T_FSM_EXIT();
+		}
+
 		unsigned int snd_wnd_budget = __tfw_h2_snd_wnd_limit(*snd_wnd);
+		unsigned int allowed_send_len =
+			min(min_to_send, (unsigned int)stream->xmit.b_len);
+
+		if ((snd_wnd_budget - FRAME_HEADER_SIZE < allowed_send_len &&
+		     __socket_has_unsent_data(sk)) ||
+		    ctx->rem_wnd < allowed_send_len) {
+			/*
+			 * Stop sending only if socket has unknowledged or
+			 * queued data (see @__socket_has_unsent_data()).
+			 * This prevents stalling when client has small receive
+			 * window.
+			 */
+
+			/*
+			 * NOTE: As possible optimization, in the case when
+			 * connection window is exhausted we would not stop
+			 * sending and try to find the next stream whose
+			 * ramaining data lower than @min_to_send or stream
+			 * that has headers. However this may lead to
+			 * re-scheduling without effect if there is no such
+			 * streams. Maybe it would be good to have separate
+			 * queue with streams which has headers to send and
+			 * take the next stream from this queue instead of
+			 * stream scheduler.
+			 */
+			*stop = true;
+			T_FSM_EXIT();
+		}
+
+		if (stream->rem_wnd < allowed_send_len) {
+			/*
+			 * Stream window is not enough. Block the stream until
+			 * the stream window increases to not try to send this
+			 * stream on each data transmission while widnow is low.
+			 */
+			stream->xmit.is_blocked = true;
+			ctx->sched.blocked_streams++;
+			T_FSM_EXIT();
+		}
+
 		unsigned int frame_length =
 			__tfw_h2_calc_data_frame_len(ctx, stream,
 						     snd_wnd_budget);
