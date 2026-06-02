@@ -275,6 +275,7 @@ tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now)
 	 */
 	tcp_slow_start_after_idle_check(sk);
 
+	snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now);
 	/*
 	 * First of all Tempesta FW entails skb from connection write queue
 	 * (all http1 data, control frames, tls alerts and so on for http2),
@@ -301,9 +302,11 @@ tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now)
 		return r;
 	}
 
-	r = tfw_h2_make_frames(sk, h2, mss_now, snd_wnd);
-	if (unlikely(r))
-		return r;
+	if (snd_wnd) {
+		r = tfw_h2_make_frames(sk, h2, mss_now, snd_wnd);
+		if (unlikely(r))
+			return r;
+	}
 
 	if (unlikely(!conn->write_queue)) {
 		/*
