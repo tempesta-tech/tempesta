@@ -494,7 +494,7 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 	bool skip_list = false;
 	int r;
 
-	while ((*snd_wnd = tfw_tcp_calc_snd_wnd(sk, mss_now))) {
+	while (*snd_wnd) {
 		struct sk_buff *skb = ss_skb_dequeue(skb_head);
 
 		if (!skb)
@@ -541,6 +541,7 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 		}
 
 		ss_skb_tcp_entail(sk, skb, mark, tls_type);
+		*snd_wnd = (*snd_wnd > skb->len ? *snd_wnd - skb->len : 0);
 	}
 
 	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head) {
