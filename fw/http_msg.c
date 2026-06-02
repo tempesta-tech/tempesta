@@ -1320,8 +1320,8 @@ __tfw_http_msg_move_frags(struct sk_buff *skb, int frag_idx,
 		(si->nr_frags) * sizeof(skb_frag_t));
 }
 
-static inline void
-__tfw_http_msg_rm_all_frags(struct sk_buff *skb, TfwHttpMsgCleanup *cleanup)
+void
+tfw_http_msg_rm_all_frags(struct sk_buff *skb, TfwHttpMsgCleanup *cleanup)
 {
 	int i, len;
 	struct skb_shared_info *si = skb_shinfo(skb);
@@ -1400,7 +1400,7 @@ tfw_http_msg_cutoff_headers(TfwHttpMsg *hm, TfwHttpMsgCleanup* cleanup)
 			 * fragments from skb where LF is located.
 			 */
 			if (!body) {
-				__tfw_http_msg_rm_all_frags(it->skb, cleanup);
+				tfw_http_msg_rm_all_frags(it->skb, cleanup);
 				goto end;
 			} else if (off != begin) {
 				/*
