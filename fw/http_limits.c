@@ -217,7 +217,7 @@ static int
 frang_conn_limit(struct sock *sk, FrangGlobCfg *conf)
 {
 	FrangAcc *ra = frang_acc_from_sk(sk);
-	unsigned int *training_epoch = &tempesta_sock(sk)->training_epoch;
+	unsigned short *training_epoch = &tempesta_sock(sk)->training_epoch;
 	const unsigned long ts = frang_time_quantum(conf->conn_rate_tf);
 	const int i = ts % FRANG_FREQ;
 
@@ -368,7 +368,7 @@ void
 tfw_classify_conn_close(struct sock *sk)
 {
 	FrangAcc *ra = frang_acc_from_sk(sk);
-	unsigned int *training_epoch = &tempesta_sock(sk)->training_epoch;
+	unsigned short *training_epoch = &tempesta_sock(sk)->training_epoch;
 
 	if (unlikely(!sock_flag(sk, SOCK_TEMPESTA)))
 		return;
@@ -1690,10 +1690,11 @@ int
 frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
 {
 	TfwClient *cli = (TfwClient *)conn->peer;
+	TfwClientMem *cli_mem = &cli->counters->cli_mem;
 	TfwVhost *dflt_vh;
 
 	if (likely(!tfw_cli_hard_mem_limit
-		   || tfw_client_mem(cli->cli_mem) <= tfw_cli_hard_mem_limit))
+		   || tfw_client_mem(cli_mem) <= tfw_cli_hard_mem_limit))
 		return 0;
 
 	if (!block_if_exceeded)

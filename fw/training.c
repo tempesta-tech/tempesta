@@ -302,6 +302,12 @@ tfw_training_mode_adjust_conn_new_client(void)
 	return tfw_training_mode_adjust_new_client(g_conn_num);
 }
 
+void
+tfw_training_mode_adjust_req_new_client(void)
+{
+	return tfw_training_mode_adjust_new_client(g_req_num);
+}
+
 static inline void
 tfw_training_mode_adjust_new_el(struct stats __rcu *g_stats, u64 delta1,
 				u64 delta2)
@@ -323,6 +329,12 @@ void
 tfw_training_mode_adjust_conn_num(u64 delta1, u64 delta2)
 {
 	return tfw_training_mode_adjust_new_el(g_conn_num, delta1, delta2);
+}
+
+void
+tfw_training_mode_adjust_req_num(u64 delta1, u64 delta2)
+{
+	return tfw_training_mode_adjust_new_el(g_req_num, delta1, delta2);
 }
 
 /**
@@ -381,30 +393,11 @@ tfw_training_mode_defence_conn_num(u64 val)
 					 tfw_training_mod_z_score_conn_num);
 }
 
-static inline void
-tfw_training_mode_adjust(atomic64_t *max, u64 curr, bool new_client,
-			 void (*adjust)(u64, u64, bool),
-			 void (*adjust_client)(void))
+bool
+tfw_training_mode_defence_req_num(u64 val)
 {
-	u64 delta1, delta2, old_max;
-
-	old_max = atomic64_read(max);
-
-	/*
-	 * Can be called concurrentrly on other cpu with different
-	 * curr value, so we need syncronization here.
-	 */
-	do {
-		if (curr <= old_max) {
-			if (unlikely(new_client))
-				adjust_client();
-			return;
-		}
-	} while (!atomic64_try_cmpxchg(max, &old_max, curr));
-
-	delta1 = curr - old_max;
-	delta2 = (u64)curr * curr - (u64)old_max * old_max;
-	adjust(delta1, delta2, new_client);
+	return tfw_training_mode_defence(g_req_num, val,
+					 tfw_training_mod_z_score_req_num);
 }
 
 static inline void

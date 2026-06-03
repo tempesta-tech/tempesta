@@ -76,11 +76,13 @@ do {								\
 } while (0)
 
 static DEFINE_PER_CPU(long, mem);
-static TfwClientMem cli_mem = {
-	.mem = &mem,
+static TfwClientCounters counters = {
+	.cli_mem = {
+		.mem = &mem,
+	},
 };
 static TfwClient client = {
-	.cli_mem = &cli_mem,
+	.counters = &counters,
 };
 static TfwH2Conn conn;
 static TfwH2Ctx *ctx;

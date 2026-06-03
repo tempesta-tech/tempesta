@@ -48,11 +48,13 @@
 static DEFINE_PER_CPU(long, mem);
 unsigned int tfw_cli_max_concurrent_streams;
 TfwConn conn_req, conn_resp;
-TfwClientMem cli_mem = {
-	.mem = &mem,
+TfwClientCounters counters = {
+	.cli_mem = {
+		.mem = &mem,
+	}
 };
 TfwClient client = {
-	.cli_mem = &cli_mem,
+	.counters = &counters,
 };
 
 TfwHttpReq *
@@ -66,7 +68,7 @@ test_req_alloc(size_t data_len)
 	 * tfw_http_msg_alloc(). It is removed because we need to test how it
 	 * initializes the message and we would not like to test the copy-paste.
 	 */
-	hmreq = __tfw_http_msg_alloc(&cli_mem, Conn_HttpClnt, true);
+	hmreq = __tfw_http_msg_alloc(&counters.cli_mem, Conn_HttpClnt, true);
 	BUG_ON(!hmreq);
 
 	tfw_connection_init(&conn_req);
@@ -113,7 +115,7 @@ test_resp_alloc_no_data(TfwHttpReq *req)
 {
 	TfwHttpMsg *hmresp;
 
-	hmresp = __tfw_http_msg_alloc(&cli_mem, Conn_HttpSrv, true);
+	hmresp = __tfw_http_msg_alloc(&counters.cli_mem, Conn_HttpSrv, true);
 	BUG_ON(!hmresp);
 
 	tfw_connection_init(&conn_resp);
@@ -524,6 +526,19 @@ u32
 tfh_get_records_rate(HttpTfh fingerprint)
 {
 	return 0;
+}
+
+void
+tfw_client_training_adjust_req_num(TfwClient *cli, int delta,
+				   unsigned short *training_epoch)
+{
+
+}
+
+bool
+tfw_client_training_process_req_num(TfwClient *cli)
+{
+	return true;
 }
 
 TfwCfgSpec tf_hash_specs[0];
