@@ -162,12 +162,35 @@ typedef struct {
 	u16		epoch;
 } TfwAdaptiveLimit;
 
+/*
+ * counter	- percpu array to track current value of the tracked metric;
+ * lock		- spinlock for serialized reset of @max and @counter when a
+ *		  new training epoch starts.
+ * max		- maximum observed value of the tracked metric within the
+ *		  current training epoch;
+ * @epoch	- training epoch identifier. Compared against the global
+ *		  @g_training_epoch to detect epoch change and trigger
+ *		  reinitialization of @max and @counter;
+ */
+typedef struct {
+	s64 __percpu		*counter;
+	spinlock_t		lock;
+	atomic64_t		max;
+	u16			epoch;
+} TfwAdaptiveLimitLock;
+
 int tfw_adaptive_limits_init(void);
 void tfw_adaptive_limits_exit(void);
 
 bool tfw_adaptive_limits_check_conn_num(TfwAdaptiveLimit *limit, int delta,
 					u16 *epoch);
+void tfw_adaptive_limits_acc_req_num(TfwAdaptiveLimitLock *limit,
+				     int delta, u16 *epoch);
+bool tfw_adaptive_limits_check_req_num(TfwAdaptiveLimitLock *limit);
 int tfw_ctlfn_adaptive_limits_mode_change(unsigned int mode);
+
+int tfw_adaptive_limit_lock_init(TfwAdaptiveLimitLock *limit, gfp_t flags);
+void tfw_adaptive_limit_lock_destroy(TfwAdaptiveLimitLock *limit);
 
 static inline void
 tfw_adaptive_limit_init(TfwAdaptiveLimit *limit)
@@ -214,6 +237,7 @@ tfw_percpu_##type##_counter_sum(type __percpu *counter)		\
 PERCPU_COUNTER_SUMM(u128)
 PERCPU_COUNTER_SUMM(u64)
 PERCPU_COUNTER_SUMM(u32)
+PERCPU_COUNTER_SUMM(s64)
 
 #undef PERCPU_COUNTER_SUMM
 

@@ -116,6 +116,7 @@
 #include "websocket.h"
 #include "tf_filter.h"
 #include "tf_conf.h"
+#include "adaptive_limits.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -1357,6 +1358,19 @@ tfw_http_conn_nip_reset(TfwSrvConn *srv_conn)
 		clear_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
 }
 
+static inline void
+tfw_http_adjust_nip_req(TfwHttpReq *req, int delta)
+{
+	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
+	TfwAdaptiveLimitLock *req_lim;
+
+	if (unlikely(!cli))
+		return;
+
+	req_lim = &cli->limits->req_lim;
+	tfw_adaptive_limits_acc_req_num(req_lim, delta, &req->epoch);
+}
+
 /*
  * Put @req on the list of non-idempotent requests in @srv_conn.
  * Raise the flag saying that @srv_conn has non-idempotent requests.
@@ -1364,6 +1378,7 @@ tfw_http_conn_nip_reset(TfwSrvConn *srv_conn)
 static inline void
 tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	tfw_http_adjust_nip_req(req, 1);
 	BUG_ON(!list_empty(&req->nip_list));
 	list_add_tail(&req->nip_list, &srv_conn->nip_queue);
 	set_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
@@ -1382,6 +1397,7 @@ tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 	if (!list_empty(&req->nip_list)) {
 		list_del_init(&req->nip_list);
 		tfw_http_conn_nip_reset(srv_conn);
+		tfw_http_adjust_nip_req(req, -1);
 	}
 }
 
@@ -2902,8 +2918,8 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 
 		/* Can be equal to zero for health monitor requests. */
 		if (likely(hm->req->conn)) {
-			TfwClient *cli = (TfwClient *)hm->req->conn->peer;
-			TfwClientMem *cli_mem = cli->cli_mem;
+			TfwClientMem *cli_mem =
+				CLIENT_MEM_FROM_CONN(hm->req->conn);
 			int delta = PAGE_SIZE << hm->pool->order;
 
 			hm->pool->owner = cli_mem;
@@ -3199,6 +3215,9 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 static int
 tfw_http_conn_recv_finish(TfwConn *conn)
 {
+	TfwClient *cli = (TfwClient *)conn->peer;
+	TfwAdaptiveLimitLock *req_lim = &cli->limits->req_lim;
+
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
 		tfw_h2_conn_recv_finish(conn);
 
@@ -3209,6 +3228,14 @@ tfw_http_conn_recv_finish(TfwConn *conn)
 	 */
 	if (unlikely(frang_client_mem_limit((TfwCliConn *)conn, true)))
 		return T_BLOCK_WITH_RST;
+
+	if (unlikely(!tfw_adaptive_limits_check_req_num(req_lim))) {
+		T_WARN_ADDR("Client connection dropped: non-idempotent"
+			    " request z-score exceeded the configured"
+			    " threshold\n", &cli->addr, TFW_NO_PORT);
+		tfw_client_filter_block_ip(cli);
+		return T_BLOCK_WITH_RST;
+	}
 
 	return 0;
 }

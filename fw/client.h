@@ -27,23 +27,36 @@
 
 /*
  * Client memory accounting structure for Tempesta FW.
- * 
- * @kill_work	- Workqueue item used for asynchronous structure
- *		  cleanup/destruction;
- * @next_free	- Pointer to the next free object in the freelist;
- * @refcnt	- Per-CPU reference counter. Provides scalable and
- *		  thread-safe reference tracking on SMP systems with
- *		  minimal contention;
- * @mem		- Per-CPU memory accounting storage.
+ *
+ * @mem	- Per-CPU memory accounting storage.
  */
 typedef struct tfw_client_mem_t {
+	s64 __percpu		*mem;
+} TfwClientMem;
+
+/*
+ * Structure to track different client statistic.
+ *
+ * @kill_work	- workqueue item used for asynchronous structure
+ *		  cleanup/destruction;
+ * @next_free	- pointer to the next free object in the freelist;
+ * @refcnt	- percpu reference counter. Provides scalable and
+ *		  thread-safe reference tracking on SMP systems with
+ *		  minimal contention;
+ * cli_mem	- client memory accounting structure for Tempesta FW;
+ * req_lim	- structure to track non-idempotent requests count in
+ *		  fly for the current client. Used in adaptive_limits
+ *		  module to collect statistic and z-score calculation;
+ */
+typedef struct tfw_adaptive_limits_t {
 	union {
-		struct work_struct	kill_work;
-		struct tfw_client_mem_t	*next_free;
+		struct work_struct		kill_work;
+		struct tfw_adaptive_limits_t	*next_free;
 	};
 	struct percpu_ref	refcnt;
-   	long __percpu		*mem;
-} TfwClientMem;
+	TfwClientMem		cli_mem;
+	TfwAdaptiveLimitLock	req_lim;
+} TfwClientAdaptiveLimits;
 
 /**
  * Client descriptor.
@@ -52,17 +65,17 @@ typedef struct tfw_client_mem_t {
  *			  Typically it's large and wastes memory in vain if
  *			  no any classification logic is used;
  * @list		- entry in the lru list;
- * @cli_mem		- memory used by current client;
  * @conn_lim		- structure to track active connections count in
  *			  for the current client. Used in adaptive_limits
  *			  module to collect statistic and z-score calculation;
+ * @limits		- structure to track different client statistic;
  */
 typedef struct {
 	TFW_PEER_COMMON;
 	TfwClassifierPrvt	class_prvt;
 	struct list_head	list;
-	TfwClientMem		*cli_mem;
 	TfwAdaptiveLimit	conn_lim;
+	TfwClientAdaptiveLimits	*limits;
 } TfwClient;
 
 int tfw_client_init(void);
@@ -75,11 +88,11 @@ void tfw_cli_conn_release(TfwCliConn *cli_conn);
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg);
 int tfw_cli_conn_abort_all(void *data);
 void tfw_cli_abort_all(void);
-
 void tfw_tls_connection_lost(TfwConn *conn);
+void tfw_client_filter_block_ip(TfwClient *cli);
 
 #define CLIENT_MEM_FROM_CONN(conn)				\
-	((TfwClient *)((TfwConn *)conn)->peer)->cli_mem
+	&((TfwClient *)((TfwConn *)conn)->peer)->limits->cli_mem
 
 static inline void
 tfw_client_adjust_mem(TfwClientMem *cli_mem, int delta)
@@ -90,25 +103,25 @@ tfw_client_adjust_mem(TfwClientMem *cli_mem, int delta)
 static inline bool
 tfw_client_mem_get(TfwClientMem *cli_mem)
 {
-	return percpu_ref_tryget(&cli_mem->refcnt);
+	TfwClientAdaptiveLimits *limits =
+		container_of(cli_mem, TfwClientAdaptiveLimits, cli_mem);
+
+	return percpu_ref_tryget(&limits->refcnt);
 }
 
 static inline void
 tfw_client_mem_put(TfwClientMem *cli_mem)
 {
-	percpu_ref_put(&cli_mem->refcnt);
+	TfwClientAdaptiveLimits *limits =
+		container_of(cli_mem, TfwClientAdaptiveLimits, cli_mem);
+
+	percpu_ref_put(&limits->refcnt);
 }
 
-static inline long
+static inline s64
 tfw_client_mem(TfwClientMem *cli_mem)
 {
-	long mem = 0;
-	int cpu;
-
-	for_each_online_cpu(cpu)
-		mem += *(per_cpu_ptr(cli_mem->mem, cpu));
-
-	return mem;
+	return tfw_percpu_s64_counter_sum(cli_mem->mem);
 }
 
 #endif /* __TFW_CLIENT_H__ */

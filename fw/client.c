@@ -27,6 +27,7 @@
 #include "hash.h"
 #include "client.h"
 #include "connection.h"
+#include "filter.h"
 #include "log.h"
 #include "procfs.h"
 #include "tdb.h"
@@ -72,111 +73,118 @@ static TDB *client_db;
 static atomic_t shutdown_pending = ATOMIC_INIT(0);
 static DECLARE_WAIT_QUEUE_HEAD(shutdown_wq);
 
-static struct kmem_cache *tfw_cli_mem_cache;
+static struct kmem_cache *tfw_cli_adaptive_limits_cache;
 static struct {
-	TfwClientMem		*mem;
-	TfwClientMem		*free_list;
+	TfwClientAdaptiveLimits	*objs;
+	TfwClientAdaptiveLimits	*free_list;
 	unsigned int		size;
 	unsigned int		order;
-} cli_mem_pool;
+} cli_adaptive_limits_pool;
 
 static inline bool
-tfw_cli_mem_belongs_to_pool(TfwClientMem *cli_mem)
+tfw_cli_adaptive_limits_belongs_to_pool(TfwClientAdaptiveLimits *limits)
 {
-	return cli_mem >= cli_mem_pool.mem
-	       && cli_mem < cli_mem_pool.mem + cli_mem_pool.size;
+	return limits >= cli_adaptive_limits_pool.objs
+	       && (limits < cli_adaptive_limits_pool.objs +
+		   cli_adaptive_limits_pool.size);
 }
 
 static void
-__cli_mem_release(TfwClientMem *cli_mem)
+__cli_adaptive_limits_release(TfwClientAdaptiveLimits *limits)
 {
-	percpu_ref_exit(&cli_mem->refcnt);
-	free_percpu(cli_mem->mem);
-	if (!tfw_cli_mem_belongs_to_pool(cli_mem))
-		kmem_cache_free(tfw_cli_mem_cache, cli_mem);
+	percpu_ref_exit(&limits->refcnt);
+	free_percpu(limits->cli_mem.mem);
+	tfw_adaptive_limit_lock_destroy(&limits->req_lim);
+	if (!tfw_cli_adaptive_limits_belongs_to_pool(limits))
+		kmem_cache_free(tfw_cli_adaptive_limits_cache, limits);
 }
 
 /*
- * Reset counters, reinit refcnt and put `cli_mem` back to the pool.
- * Sohuld be called under `ga_lock`, to protect `cli_mem_pool.free_list`
+ * Reset limits, reinit refcnt and put `limits` back to the pool.
+ * Should be called under `ga_lock`, to protect pool `free_list` pointer.
  */
 static inline void
-tfw_cli_mem_pool_free(TfwClientMem *cli_mem)
+tfw_cli_adaptive_limits_pool_free(TfwClientAdaptiveLimits *limits)
 {
 	int cpu;
 
 	assert_spin_locked(&client_db->ga_lock);
 
-	for_each_online_cpu(cpu)
-		*per_cpu_ptr(cli_mem->mem, cpu) = 0;
-	percpu_ref_reinit(&cli_mem->refcnt);
-	cli_mem->next_free = cli_mem_pool.free_list;
-	cli_mem_pool.free_list = cli_mem;
+	for_each_online_cpu(cpu) {
+		*per_cpu_ptr(limits->cli_mem.mem, cpu) = 0;
+		*per_cpu_ptr(limits->req_lim.counter, cpu) = 0;
+	}
+	percpu_ref_reinit(&limits->refcnt);
+	limits->next_free = cli_adaptive_limits_pool.free_list;
+	cli_adaptive_limits_pool.free_list = limits;
 }
 
 /*
- * Workqueue handler for asynchronous cli_mem destruction.
+ * Workqueue handler for asynchronous limits destruction.
  *
- * This function initiates final teardown of a TfwClientMem object:
+ * This function initiates final teardown of a TfwClientAdaptiveLimits
+ * object:
  *  - percpu_ref_kill() marks the refcount as dead, preventing any new
  *    users from acquiring references.
  *  - percpu_ref_put() drops the caller’s reference, which may trigger
- *    final release via cli_mem_release() once all outstanding users
- *    are gone.
+ *    final release via cli_adaptive_limits_release() once all outstanding
+ *    users are gone.
  */
 static void
-tfw_cli_mem_kill_work_fn(struct work_struct *work)
+tfw_cli_adaptive_limits_kill_work_fn(struct work_struct *work)
 {
-	TfwClientMem *cli_mem = container_of(work, TfwClientMem, kill_work);
+	TfwClientAdaptiveLimits *limits =
+		container_of(work, TfwClientAdaptiveLimits, kill_work);
 
-	percpu_ref_kill(&cli_mem->refcnt);
-	percpu_ref_put(&cli_mem->refcnt);
+	percpu_ref_kill(&limits->refcnt);
+	percpu_ref_put(&limits->refcnt);
 }
 
 /*
- * Get `TfwClientMem` object from pool if present.
+ * Get `TfwClientAdaptiveLimits` object from pool if present.
  * Object was already initialized during pool creation or
  * releasing to pool.
  */
-static inline TfwClientMem *
-tfw_cli_mem_pool_alloc(void)
+static inline TfwClientAdaptiveLimits *
+tfw_cli_adaptive_limits_pool_alloc(void)
 {
-	TfwClientMem *cli_mem;
+	TfwClientAdaptiveLimits *limits;
 
 	assert_spin_locked(&client_db->ga_lock);
 
-	if (!cli_mem_pool.free_list)
+	if (!cli_adaptive_limits_pool.free_list)
 		return NULL;
 
-	cli_mem = cli_mem_pool.free_list;
-	cli_mem_pool.free_list = cli_mem->next_free;
+	limits = cli_adaptive_limits_pool.free_list;
+	cli_adaptive_limits_pool.free_list = limits->next_free;
 	/*
 	 * Should be called only after `free_list` initialization
 	 * using `next_free` pointer, because `next_free` and
 	 * `kill_work` members belong to the same union.
 	 */
-	INIT_WORK(&cli_mem->kill_work, tfw_cli_mem_kill_work_fn);
+	INIT_WORK(&limits->kill_work, tfw_cli_adaptive_limits_kill_work_fn);
 
-	return cli_mem;
+	return limits;
 }
 
 /*
- * Final release of cli_mem: verify refcnt/memory are zero and either
+ * Final release of limits: verify refcnt/memory are zero and either
  * return to pool or free it. Signals shutdown completion if needed.
  */
 static void
-cli_mem_release(struct percpu_ref *ref)
+cli_adaptive_limits_release(struct percpu_ref *ref)
 {
-	TfwClientMem *cli_mem = container_of(ref, TfwClientMem, refcnt);
+	TfwClientAdaptiveLimits *limits =
+		container_of(ref, TfwClientAdaptiveLimits, refcnt);
 
 	spin_lock_bh(&client_db->ga_lock);
 
 	WARN_ON_ONCE(!percpu_ref_is_zero(ref));
-	WARN_ON_ONCE(tfw_client_mem(cli_mem));
-	if (tfw_cli_mem_belongs_to_pool(cli_mem))
-		tfw_cli_mem_pool_free(cli_mem);
+	WARN_ON_ONCE(tfw_client_mem(&limits->cli_mem));
+	if (tfw_cli_adaptive_limits_belongs_to_pool(limits))
+		tfw_cli_adaptive_limits_pool_free(limits);
 	else
-		__cli_mem_release(cli_mem);
+		__cli_adaptive_limits_release(limits);
 
 	spin_unlock_bh(&client_db->ga_lock);
 
@@ -185,76 +193,90 @@ cli_mem_release(struct percpu_ref *ref)
 }
 
 static inline int
-tfw_cli_mem_init(TfwClientMem *cli_mem, gfp_t flags)
+tfw_cli_adaptive_limits_init(TfwClientAdaptiveLimits *limits, gfp_t flags)
 {
+	TfwClientMem *cli_mem = &limits->cli_mem;
+	TfwAdaptiveLimitLock *req_lim = &limits->req_lim;
 	int r;
 
-	cli_mem->mem = tfw_alloc_percpu_gfp(long, flags | __GFP_ZERO);
+	cli_mem->mem = tfw_alloc_percpu_gfp(s64, flags | __GFP_ZERO);
 	if (unlikely(!cli_mem->mem))
 		return -ENOMEM;
 
-	r = tfw_percpu_ref_init(&cli_mem->refcnt, cli_mem_release,
+	r = tfw_adaptive_limit_lock_init(req_lim, flags | __GFP_ZERO);
+	if (unlikely(r))
+		goto free_cli_mem;
+
+	r = tfw_percpu_ref_init(&limits->refcnt, cli_adaptive_limits_release,
 				PERCPU_REF_ALLOW_REINIT, flags);
 	if (unlikely(r))
-		goto free_per_cpu_mem;
+		goto destroy_req_lim;
 
 	return 0;
 
-free_per_cpu_mem:
+destroy_req_lim:
+	tfw_adaptive_limit_lock_destroy(req_lim);
+free_cli_mem:
 	free_percpu(cli_mem->mem);
-	cli_mem->mem = NULL;
-
+	
 	return r;
 }
 
 static inline void
-tfw_cli_mem_pool_exit(void)
+tfw_cli_adaptive_limits_pool_exit(void)
 {
-	TfwClientMem *tmp, *curr = cli_mem_pool.free_list;
+	TfwClientAdaptiveLimits *tmp, *curr =
+		cli_adaptive_limits_pool.free_list;
 
 	while (curr) {
 		tmp = curr;
 		curr = tmp->next_free;
-		__cli_mem_release(tmp);
+		__cli_adaptive_limits_release(tmp);
 	}
 
-	free_pages((unsigned long)cli_mem_pool.mem, cli_mem_pool.order);
-	bzero_fast(&cli_mem_pool, sizeof(cli_mem_pool));
+	free_pages((unsigned long)cli_adaptive_limits_pool.objs,
+		   cli_adaptive_limits_pool.order);
+	bzero_fast(&cli_adaptive_limits_pool,
+		   sizeof(cli_adaptive_limits_pool));
 }
 
 /*
- * Initialize cli_mem pool.
+ * Initialize cli_adaptive_limits pool.
  *
- * Allocates a contiguous block of TfwClientMem objects and initializes each
- * element, then builds a free list for fast allocation.
+ * Allocates a contiguous block of TfwClientAdaptiveLimits objects and
+ * initializes each element, then builds a free list for fast allocation.
  *
  * Steps:
  *  - Validate pool size from configuration.
  *  - Compute allocation order and clamp it to MAX_PAGE_ORDER.
  *  - Allocate zeroed pages for the entire pool.
- *  - Initialize each TfwClientMem (per-cpu counters + refcnt + work).
+ *  - Initialize each TfwClientAdaptiveLimits (per-cpu counters +
+ *    refcnt + work).
  *  - Link all objects into a singly-linked free list.
  *
- * Provide fast allocations of `TfwClientMem` later.
+ * Provide fast allocations of `TfwClientAdaptiveLimits` later.
  */
 static inline int
-tfw_cli_mem_pool_init(void)
+tfw_cli_adaptive_limits_pool_init(void)
 {
-	TfwClientMem *block, *tail = NULL;
+	TfwClientAdaptiveLimits *block, *tail = NULL;
+	unsigned long size;
 	unsigned int i, order;
 	int r;
 
 	if (WARN_ON_ONCE(!client_cfg.lru_size))
 		return -EINVAL;
 
-	order = get_order(sizeof(TfwClientMem) * client_cfg.lru_size);
+	size = sizeof(TfwClientAdaptiveLimits) * client_cfg.lru_size; 
+	order = get_order(size);
 	if (order > MAX_PAGE_ORDER)
 		order = MAX_PAGE_ORDER;
 
-	cli_mem_pool.order = order;
-	cli_mem_pool.mem = (TfwClientMem *)tfw__get_free_pages(GFP_KERNEL,
+	cli_adaptive_limits_pool.order = order;
+	cli_adaptive_limits_pool.objs =
+		(TfwClientAdaptiveLimits *)tfw__get_free_pages(GFP_KERNEL,
 							       order);
-	if (unlikely(!cli_mem_pool.mem))
+	if (unlikely(!cli_adaptive_limits_pool.objs))
 		return -ENOMEM;
 
 	/*
@@ -262,27 +284,27 @@ tfw_cli_mem_pool_init(void)
 	 * 0 -> 1 -> ... -> N-1.
 	 *
 	 * This preserves the natural memory layout of the preallocated array,
-	 * which is important because tfw_cli_mem_belongs_to_pool() relies on
-	 * the pool being a contiguous range [mem, mem + size).
+	 * which is important because tfw_cli_counters_belongs_to_pool() relies
+	 * on the pool being a contiguous range [objs, objs + size).
 	 *
 	 * Using tail insertion avoids reversing the order (which would happen
 	 * with head insertion) and keeps allocation predictable and
 	 * cache-friendly.
 	 */
-	block = cli_mem_pool.mem;
+	block = cli_adaptive_limits_pool.objs;
 	for (i = 0; i < client_cfg.lru_size; i++) {
-		r = tfw_cli_mem_init(&block[i], GFP_KERNEL);
+		r = tfw_cli_adaptive_limits_init(&block[i], GFP_KERNEL);
 		if (unlikely(r))
 			return r;
 
-		if (!cli_mem_pool.free_list)
-			cli_mem_pool.free_list = &block[i];
+		if (!cli_adaptive_limits_pool.free_list)
+			cli_adaptive_limits_pool.free_list = &block[i];
 		else
 			tail->next_free = &block[i];
 
 		block[i].next_free = NULL;
 		tail = &block[i];
-		cli_mem_pool.size++;
+		cli_adaptive_limits_pool.size++;
 	}
 
 	return 0;
@@ -327,9 +349,9 @@ tfw_client_free(TdbRec *rec)
 	 * Tempesta FW shut down from `tfw_client_free_lru`
 	 */
 	WARN_ON(!list_empty(&cli->list));
-	if (likely(cli->cli_mem)) {
+	if (likely(cli->limits)) {
 		atomic_inc(&shutdown_pending);
-		if (!schedule_work(&cli->cli_mem->kill_work))
+		if (!schedule_work(&cli->limits->kill_work))
 			atomic_dec(&shutdown_pending);
 	}
 }
@@ -408,49 +430,51 @@ tfw_client_addr_eq(TdbRec *rec, void *data)
 }
 
 /*
- * Allocate cli_mem from slab cache and fully initialize it.
+ * Allocate client adaptive limits structure from slab cache and
+ * fully initialize it.
  * Used as a fallback when pool allocation is exhausted.
  */
-static inline TfwClientMem *
-tfw_cli_mem_alloc_from_cache(void)
+static inline TfwClientAdaptiveLimits *
+tfw_cli_adaptive_limits_alloc_from_cache(void)
 {
-	TfwClientMem *cli_mem;
+	TfwClientAdaptiveLimits *limits;
 
-	cli_mem = kmem_cache_alloc(tfw_cli_mem_cache, GFP_ATOMIC);
-	if (unlikely(!cli_mem))
+	limits = kmem_cache_alloc(tfw_cli_adaptive_limits_cache, GFP_ATOMIC);
+	if (unlikely(!limits))
 		return NULL;
 
-	if (unlikely(tfw_cli_mem_init(cli_mem, GFP_ATOMIC)))
-		goto free_cli_mem;
+	if (unlikely(tfw_cli_adaptive_limits_init(limits, GFP_ATOMIC)))
+		goto free_cli_adaptive_limits;
 
-	INIT_WORK(&cli_mem->kill_work, tfw_cli_mem_kill_work_fn);
-	return cli_mem;
+	INIT_WORK(&limits->kill_work, tfw_cli_adaptive_limits_kill_work_fn);
 
-free_cli_mem:
-	kmem_cache_free(tfw_cli_mem_cache, cli_mem);
+	return limits;
+
+free_cli_adaptive_limits:
+	kmem_cache_free(tfw_cli_adaptive_limits_cache, limits);
 
 	return NULL;
 }
 
 /*
- * Allocate cli_mem:
+ * Allocate client adaptive limits structure:
  *  - Try fast pool first, then fallback to slab cache.
  *  - On success, take an extra refcnt reference before returning.
  */
-static inline TfwClientMem *
-tfw_cli_mem_alloc(void)
+static inline TfwClientAdaptiveLimits *
+tfw_cli_adaptive_limits_alloc(void)
 {
-	TfwClientMem *cli_mem;
+	TfwClientAdaptiveLimits *limits;
 
-	cli_mem = tfw_cli_mem_pool_alloc();
-	if (!cli_mem)
-		cli_mem = tfw_cli_mem_alloc_from_cache();
-	if (unlikely(!cli_mem))
+	limits = tfw_cli_adaptive_limits_pool_alloc();
+	if (!limits)
+		limits = tfw_cli_adaptive_limits_alloc_from_cache();
+	if (unlikely(!limits))
 		return NULL;
 
-	percpu_ref_get(&cli_mem->refcnt);
+	percpu_ref_get(&limits->refcnt);
 
-	return cli_mem;
+	return limits;
 }
 
 static int
@@ -462,8 +486,8 @@ tfw_client_ent_init(TdbRec *rec, void *data)
 
 	INIT_LIST_HEAD(&cli->list);
 
-	cli->cli_mem = tfw_cli_mem_alloc();
-	if (unlikely(!cli->cli_mem))
+	cli->limits = tfw_cli_adaptive_limits_alloc();
+	if (unlikely(!cli->limits))
 		return -ENOMEM;
 
 	assert_spin_locked(&client_db->ga_lock);
@@ -554,6 +578,21 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 EXPORT_SYMBOL(tfw_client_obtain);
 ALLOW_ERROR_INJECTION(tfw_client_obtain, NULL);
 
+void
+tfw_client_filter_block_ip(TfwClient *cli)
+{
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return;
+
+	if (dflt_vh->frang_gconf->ip_block)
+		tfw_filter_block_ip(cli,
+				    dflt_vh->frang_gconf->ip_block_duration);
+
+	tfw_vhost_put(dflt_vh);
+}
+
 /**
  * Beware: @fn is called under client hash bucket spin lock.
  *
@@ -591,7 +630,7 @@ tfw_client_start(void)
 	if (!client_db)
 		return -EINVAL;
 
-	r = tfw_cli_mem_pool_init();
+	r = tfw_cli_adaptive_limits_pool_init();
 	if (unlikely(r))
 		return r;
 
@@ -609,7 +648,7 @@ tfw_client_stop(void)
 	if (client_db) {
 		tfw_client_free_lru();
 		wait_event(shutdown_wq, !atomic_read(&shutdown_pending));
-		tfw_cli_mem_pool_exit();
+		tfw_cli_adaptive_limits_pool_exit();
 		tdb_close(client_db);
 		client_db = NULL;
 	}
@@ -657,11 +696,13 @@ TfwMod tfw_client_mod = {
 int __init
 tfw_client_init(void)
 {
-	tfw_cli_mem_cache = kmem_cache_create("tfw_cli_mem_cache",
-					      sizeof(TfwClientMem),
-					      0, 0, NULL);
-	if (!tfw_cli_mem_cache)
+	tfw_cli_adaptive_limits_cache =
+		kmem_cache_create("tfw_cli_adaptive_limits_cache",
+				  sizeof(TfwClientAdaptiveLimits),
+				  0, 0, NULL);
+	if (!tfw_cli_adaptive_limits_cache)
 		return -ENOMEM;
+
 	tfw_mod_register(&tfw_client_mod);
 
 	return 0;
@@ -670,6 +711,6 @@ tfw_client_init(void)
 void
 tfw_client_exit(void)
 {
-	kmem_cache_destroy(tfw_cli_mem_cache);
+	kmem_cache_destroy(tfw_cli_adaptive_limits_cache);
 	tfw_mod_unregister(&tfw_client_mod);
 }

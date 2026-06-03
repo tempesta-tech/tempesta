@@ -94,7 +94,7 @@ extern void tfw_pool_exit(void);
 static inline TfwClientMem *
 __tfw_client_mem_from_conn(TfwConn *conn)
 {
-	return ((TfwClient *)conn_req.peer)->cli_mem;
+	return &((TfwClient *)conn_req.peer)->limits->cli_mem;
 }
 
 int

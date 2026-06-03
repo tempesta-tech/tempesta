@@ -1692,25 +1692,16 @@ int
 frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
 {
 	TfwClient *cli = (TfwClient *)conn->peer;
-	TfwVhost *dflt_vh;
+	TfwClientMem *cli_mem = &cli->limits->cli_mem;
 
 	if (likely(!tfw_cli_hard_mem_limit
-		   || tfw_client_mem(cli->cli_mem) <= tfw_cli_hard_mem_limit))
+		   || tfw_client_mem(cli_mem) <= tfw_cli_hard_mem_limit))
 		return 0;
 
 	if (!block_if_exceeded)
 		return T_BLOCK;
 
-	dflt_vh = tfw_vhost_lookup_default();
-	if (WARN_ON_ONCE(!dflt_vh))
-		return T_BLOCK;
-
-	if (dflt_vh->frang_gconf->ip_block) {
-		unsigned int duration = dflt_vh->frang_gconf->ip_block_duration;
-
-		tfw_filter_block_ip(cli, duration);
-	}
-	tfw_vhost_put(dflt_vh);
+	tfw_client_filter_block_ip(cli);
 
 	return T_BLOCK;
 }

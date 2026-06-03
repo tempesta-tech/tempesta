@@ -241,6 +241,9 @@ __init_z_score(void)
 {
 	int r;
 
+	if (unlikely(g_training_epoch >= U16_MAX))
+		return -EINVAL;
+
 	r = __alloc_upgrade_stats();
 	if (unlikely(r))
 		return r;
@@ -329,6 +332,12 @@ tfw_adaptive_limits_adjust_conn_new_client(void)
 	return tfw_adaptive_limits_adjust_new_client(g_conn_num);
 }
 
+static void
+tfw_adaptive_limits_adjust_req_new_client(void)
+{
+	return tfw_adaptive_limits_adjust_new_client(g_req_num);
+}
+
 static inline void
 tfw_adaptive_limits_adjust_new_el(struct stats __rcu *g_stats, u64 delta1,
 				  u128 delta2)
@@ -350,6 +359,12 @@ static void
 tfw_adaptive_limits_adjust_conn_num(u64 delta1, u128 delta2)
 {
 	return tfw_adaptive_limits_adjust_new_el(g_conn_num, delta1, delta2);
+}
+
+static void
+tfw_adaptive_limits_adjust_req_num(u64 delta1, u128 delta2)
+{
+	return tfw_adaptive_limits_adjust_new_el(g_req_num, delta1, delta2);
 }
 
 /**
@@ -399,6 +414,29 @@ tfw_adaptive_limits_defence_conn_num(u64 val)
 	return tfw_adaptive_limits_defence(g_conn_num, val, threshold);
 }
 
+static inline bool
+tfw_adaptive_limits_defence_req_num(u64 val)
+{
+	int threshold = tfw_adaptive_limits_z_score_req_num;
+
+	return tfw_adaptive_limits_defence(g_req_num, val, threshold);
+}
+
+static inline bool
+tfw_adaptive_limits_check_and_set_epoch(u16 *epoch, bool new_event)
+{
+	/*
+	 * Ignore events from the previous training epochs. Set epoch for
+	 * the new events.
+	 */
+	if (!new_event && *epoch < g_training_epoch)
+		return false;
+	else if (new_event)
+		*epoch = g_training_epoch;
+
+	return true;
+}
+
 bool
 tfw_adaptive_limits_check_conn_num(TfwAdaptiveLimit *limit, int delta,
 				   u16 *epoch)
@@ -406,7 +444,7 @@ tfw_adaptive_limits_check_conn_num(TfwAdaptiveLimit *limit, int delta,
 	u128 delta2;
 	u64 delta1;
 	unsigned int old_max;
-	bool new_client = false;
+	bool new_event, new_client = false;
 	bool rc = true;
 
 	/*
@@ -430,14 +468,9 @@ tfw_adaptive_limits_check_conn_num(TfwAdaptiveLimit *limit, int delta,
 	if (tfw_adaptive_limits_mode_is_disabled())
 		goto out;
 
-	/*
-	 * Ignore connection close events from previous training epochs.
-	 * For new connections, assign current training epoch.
-	 */
-	if (delta < 0 && *epoch < g_training_epoch)
+	new_event = delta > 0 && !(*epoch);
+	if (!tfw_adaptive_limits_check_and_set_epoch(epoch, new_event))
 		goto out;
-	else if (delta > 0)
-		*epoch = g_training_epoch;
 
 	if (tfw_adaptive_limits_mode_is_defence()) {
 		limit->counter += delta;
@@ -481,6 +514,143 @@ out:
 	rcu_read_unlock();
 
 	return rc;
+}
+
+static inline bool
+tfw_adaptive_limits_change_epoch(TfwAdaptiveLimitLock *limit)
+{
+	bool new_client = false;
+
+	/*
+	 * We increment `g_training_epoch` each time when we start new
+	 * training, when we are sure that all threads don't use `max`
+	 * and `counter`. During training all threads call this function
+	 * before use `counter` and `max`, so we are sure that `counter`
+	 * and `max` will be zeroed on the start of the new training.
+	 * We make first check to prevent unnecessary lock on the hot
+	 * path on each call.
+	 */
+	if (limit->epoch < g_training_epoch) {
+		spin_lock_bh(&limit->lock);
+		if (likely(limit->epoch < g_training_epoch)) {
+			int cpu;
+
+			for_each_online_cpu(cpu)
+				*(per_cpu_ptr(limit->counter, cpu)) = 0;
+			atomic64_set(&limit->max, 0);
+			limit->epoch = g_training_epoch;
+			new_client = true;
+		}
+		spin_unlock_bh(&limit->lock);
+	}
+
+	return new_client;
+}
+
+static void
+tfw_adaptive_limits_acc(TfwAdaptiveLimitLock *limit, int delta,
+			void (*adjust_new_client)(void),
+			u16 *epoch)
+{
+	bool new_event;
+
+	/*
+	 * Prevent training epoch changes while processing the event.
+	 * (see `tfw_adaptive_limits_check_conn_num` for detail comment).
+	 */
+	rcu_read_lock();
+
+	if (tfw_adaptive_limits_mode_is_disabled())
+		goto out;
+
+	new_event = delta > 0 && !(*epoch);
+	if (!tfw_adaptive_limits_check_and_set_epoch(epoch, new_event))
+		goto out;
+
+	if (tfw_adaptive_limits_mode_is_training()
+	    && tfw_adaptive_limits_change_epoch(limit))
+		adjust_new_client();
+
+	this_cpu_add(*limit->counter, delta);
+
+out:
+	rcu_read_unlock();
+}
+
+void
+tfw_adaptive_limits_acc_req_num(TfwAdaptiveLimitLock *limit, int delta,
+				u16 *epoch)
+{
+	void (*adjust_new_client)(void) =
+		tfw_adaptive_limits_adjust_req_new_client;
+
+	tfw_adaptive_limits_acc(limit, delta, adjust_new_client, epoch);
+}
+
+static inline bool
+tfw_adaptive_limits_change_max(TfwAdaptiveLimitLock *limit, s64 curr,
+			       u64 *delta1, u128 *delta2)
+{
+	s64 old_max = atomic64_read(&limit->max);
+
+	/*
+	 * Can be called concurrentrly on other cpu with different
+	 * curr value, so we need syncronization here.
+	 */
+	do {
+		if (curr <= old_max)
+			return false;
+	} while (!atomic64_try_cmpxchg(&limit->max, &old_max, curr));
+
+	*delta1 = ((u64)curr - (u64)old_max);
+	*delta2 = (u128)curr * (u128) curr - (u128)old_max * (u128)old_max;
+
+	return true;
+}
+
+static bool
+tfw_adaptive_limits_check(TfwAdaptiveLimitLock *limit,
+			  void (*adjust_num)(u64, u128),
+			  bool(*defence)(u64))
+{
+	u128 delta2;
+	u64 delta1;
+	s64 curr;
+	bool rc = true;
+
+	/*
+	 * Prevent training epoch changes while processing the event.
+	 * (see `tfw_adaptive_limits_check_conn_num`).
+	 */
+	rcu_read_lock();
+
+	if (tfw_adaptive_limits_mode_is_disabled())
+		goto out;
+
+	curr = tfw_percpu_s64_counter_sum(limit->counter);
+	WARN_ON(curr < 0);
+	if (tfw_adaptive_limits_mode_is_defence()) {
+		rc = defence(curr);
+		goto out;
+	}
+
+	if (tfw_adaptive_limits_change_max(limit, curr, &delta1, &delta2))
+		adjust_num(delta1, delta2);
+
+out:
+	rcu_read_unlock();
+
+	return rc;
+}
+
+bool
+tfw_adaptive_limits_check_req_num(TfwAdaptiveLimitLock *limit)
+{
+	void (*adjust_num)(u64, u128) =
+		tfw_adaptive_limits_adjust_req_num;
+	bool (*defence)(u64) = tfw_adaptive_limits_defence_req_num;
+
+	return tfw_adaptive_limits_check(limit, adjust_num, defence);
 }
 
 static inline void
@@ -560,6 +730,27 @@ tfw_ctlfn_adaptive_limits_mode_change(unsigned int mode)
 
 	tfw_training_stop();
 	return 0;
+}
+
+int
+tfw_adaptive_limit_lock_init(TfwAdaptiveLimitLock *limit, gfp_t flags)
+{
+	limit->counter = tfw_alloc_percpu_gfp(s64, flags | __GFP_ZERO);
+	if (unlikely(!limit->counter))
+		return -ENOMEM;
+
+	spin_lock_init(&limit->lock);
+	atomic64_set(&limit->max, 0);
+	limit->epoch = 0;
+
+	return 0;
+}
+
+void
+tfw_adaptive_limit_lock_destroy(TfwAdaptiveLimitLock *limit)
+{
+	free_percpu(limit->counter);
+	limit->counter = NULL;
 }
 
 static int
