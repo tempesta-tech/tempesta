@@ -90,6 +90,7 @@ typedef struct {
  *
  * @window	- maximum pseudo-length of the dynamic table (in bytes); this
  *		  value used as threshold to flushing old entries;
+ * @min_window  - minimum applied @window before sending dynamic table update;
  * @wnd_changed - flag indicates, that window was changed by settings update;
  * @rbuf	- pointer to the ring buffer;
  * @root	- pointer to the root node of binary tree;
@@ -100,6 +101,7 @@ typedef struct {
 typedef struct {
 	TFW_HPACK_ETBL_COMMON;
 	unsigned short		window;
+	unsigned short		min_window;
 	bool			wnd_changed;
 	char			*rbuf;
 	TfwHPackNode		*root;
