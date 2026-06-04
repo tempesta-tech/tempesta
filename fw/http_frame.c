@@ -239,15 +239,6 @@ ctx_new_settings_flags[] = {
 	[HTTP2_SETTINGS_MAX_HDR_LIST_SIZE]	= 0x20
 };
 
-static void
-tfw_h2_on_tcp_entail_ack(void *conn, struct sk_buff *skb_head)
-{
-	TfwH2Ctx *ctx = tfw_h2_context_unsafe((TfwConn *)conn);
-
-	if (test_bit(HTTP2_SETTINGS_NEED_TO_APPLY, ctx->settings_to_apply))
-		tfw_h2_apply_new_settings(ctx);
-}
-
 static int
 tfw_h2_on_send_goaway(void *conn, struct sk_buff **skb_head)
 {
@@ -304,6 +295,82 @@ tfw_h2_on_send_dflt(void *conn, struct sk_buff **skb_head)
 	}
 
 	return 0;
+}
+
+/**
+ * Similar to __tfw_h2_send_frame(), but used to send frames directly,
+ * bypassing the work queue while the socket is held under the lock. Fits to
+ * WINDOW_UPDATE, PING and SETTINGS/ack frames, because:
+ * 1. The frame may be generated on local cpu.
+ * 2. Response to one of the listed frames may be sent on the same cpu where
+ *    the frame has been received.
+ */
+static int
+__tfw_h2_send_frame_local(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
+{
+	int r;
+	TfwMsgIter it;
+	TfwMsg msg = {};
+	unsigned char buf[FRAME_HEADER_SIZE];
+	TfwStr *hdr_str = TFW_STR_CHUNK(data, 0);
+	TfwConn *conn = (TfwConn *)ctx->conn;
+	unsigned char tls_type = TTLS_MSG_APPLICATION_DATA;
+
+	if (hdr_str->data) {
+		WARN_ONCE(1, "Frame already has data.\n");
+		return -EINVAL;
+	}
+	hdr_str->data = buf;
+	hdr_str->len = FRAME_HEADER_SIZE;
+
+	if (data != hdr_str)
+		data->len += FRAME_HEADER_SIZE;
+
+	tfw_h2_pack_frame_header(buf, hdr);
+
+	T_DBG2("Preparing local HTTP/2 message with %lu bytes data\n",
+	       data->len);
+
+	/**
+	 * TODO: 2136.
+	 *
+	 * This is subject for optimization, we can append the frame to the
+	 * write_queue or postponed queue in case if they are not empty. Avoid
+	 * allocation of the new skb. Also we can use, for instance pool or
+	 * pg_skb_alloc() to allocate fragment and expand this fragment if we
+	 * have a lot of frames to receive and to response. This is good
+	 * strategy for PING frames.
+	 */
+	msg.len = data->len;
+	r = tfw_msg_iter_setup(&it, CLIENT_MEM_FROM_CONN(conn), &msg.skb_head,
+			       msg.len);
+	if (unlikely(r))
+		goto err;
+
+	r = tfw_msg_iter_write(&it, data);
+	if (unlikely(r))
+		goto err;
+
+	ss_skb_setup_head_of_list(msg.skb_head, msg.skb_head->mark, tls_type);
+
+	if (ctx->cur_send_headers) {
+		ss_skb_queue_splice(&ctx->cur_send_headers->xmit.postponed,
+				    &msg.skb_head);
+	} else {
+		struct sock *sk = conn->sk;
+
+		ss_skb_queue_splice(&conn->write_queue, &msg.skb_head);
+		sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+		SS_IN_USE_PROTECT({
+			tcp_push_pending_frames(sk);
+		});
+	}
+
+	return 0;
+
+err:
+	ss_skb_queue_purge(&msg.skb_head);
+	return r;
 }
 
 /**
@@ -365,11 +432,6 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 		TFW_SKB_CB(msg.skb_head)->on_send = tfw_h2_on_send_dflt;
 	}
 
-	if (hdr->type == HTTP2_SETTINGS && hdr->flags == HTTP2_F_ACK) {
-		TFW_SKB_CB(msg.skb_head)->on_tcp_entail =
-			tfw_h2_on_tcp_entail_ack;
-	}
-
 	if ((r = tfw_connection_send(conn, &msg)))
 		goto err;
 	/*
@@ -426,7 +488,7 @@ tfw_h2_send_ping(TfwH2Ctx *ctx)
 
 	WARN_ON_ONCE(ctx->rlen != FRAME_PING_SIZE);
 
-	return tfw_h2_send_frame(ctx, &hdr, &data);
+	return __tfw_h2_send_frame_local(ctx, &hdr, &data);
 
 }
 
@@ -453,7 +515,7 @@ tfw_h2_send_wnd_update(TfwH2Ctx *ctx, unsigned int id, unsigned int wnd_incr)
 
 	*(unsigned int *)incr_buf = htonl(wnd_incr);
 
-	return tfw_h2_send_frame(ctx, &hdr, &data);
+	return __tfw_h2_send_frame_local(ctx, &hdr, &data);
 }
 
 static inline int
@@ -514,7 +576,7 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 		hdr.length += sizeof(field[0]);
 	}
 
-	return tfw_h2_send_frame(ctx, &hdr, &data);
+	return __tfw_h2_send_frame_local(ctx, &hdr, &data);
 }
 
 static inline int
@@ -528,7 +590,7 @@ tfw_h2_send_settings_ack(TfwH2Ctx *ctx)
 		.flags = HTTP2_F_ACK
 	};
 
-	return tfw_h2_send_frame(ctx, &hdr, &data);
+	return __tfw_h2_send_frame_local(ctx, &hdr, &data);
 }
 
 int
@@ -1653,6 +1715,10 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_RECV_FRAME_SETTINGS);
+
+		if (test_bit(HTTP2_SETTINGS_NEED_TO_APPLY,
+			     ctx->settings_to_apply))
+			tfw_h2_apply_new_settings(ctx);
 
 		if ((ret = tfw_h2_send_settings_ack(ctx)))
 			FRAME_FSM_EXIT(ret);
