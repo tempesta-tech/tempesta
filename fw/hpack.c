@@ -804,7 +804,7 @@ tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
 	}
 
 	T_DBG3("%s: entry created, d_hdr->nchunks=%u, d_hdr->len=%lu,"
-	       " d_hdr->flags=%hu, it->nm_len=%lu, it->nm_num=%u, it->tag=%u\n",
+	       " d_hdr->flags=%hu, it->nm_len=%u, it->nm_num=%u, it->tag=%u\n",
 	       __func__, d_hdr->nchunks, d_hdr->len, d_hdr->flags, it->nm_len,
 	       it->nm_num, it->tag);
 
@@ -1176,6 +1176,7 @@ tfw_hpack_init(TfwHPack *__restrict hp, TfwClientMem *owner,
 		goto err_dt;
 
 	et->window = htbl_sz;
+	et->min_window = HPACK_ENC_TABLE_MAX_SIZE;
 	et->rb_size = HPACK_ENC_TABLE_MAX_SIZE;
 	if (!(et->pool = __tfw_pool_new(HPACK_ENC_TABLE_MAX_SIZE, owner)))
 		goto err_et;
@@ -3732,57 +3733,74 @@ tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
 	       " requested_size=%u\n", __func__, tbl->rb_len, tbl->size,
 	       tbl->window, requested_size);
 
-	/*
+	if (requested_size == tbl->window)
+		return;
+
+	unsigned short new_size = min_t(unsigned int, requested_size,
+					HPACK_ENC_TABLE_MAX_SIZE);
+	BUILD_BUG_ON(HPACK_ENC_TABLE_MAX_SIZE > USHRT_MAX ||
+		     sizeof(new_size) != sizeof(tbl->window));
+
+	/**
 	 * RFC7541#section-4.2:
-	 * Multiple updates to the maximum table size can occur between the
-	 * transmission of two header blocks. In the case that this size is
-	 * changed more than once in this interval, the smallest maximum table
-	 * size that occurs in that interval MUST be signaled in a dynamic
-	 * table size update.
+	 *
+	 * The smallest maximum table size that occurs in that interval MUST be
+	 * signaled in a dynamic table size update.  The final maximum size is
+	 * always signaled, resulting in at most two dynamic table size updates.
+	 * This ensures that the decoder is able to perform eviction based on
+	 * reductions in dynamic table size.
 	 */
-	if (tbl->window != requested_size && (likely(!tbl->wnd_changed)
-	    || unlikely(!tbl->window) || requested_size < tbl->window))
-	{
-		unsigned short new_size = min_t(unsigned int, requested_size,
-						HPACK_ENC_TABLE_MAX_SIZE);
-		BUILD_BUG_ON(HPACK_ENC_TABLE_MAX_SIZE > USHRT_MAX ||
-			     sizeof(new_size) != sizeof(tbl->window));
-		if (tbl->size > new_size)
-			tfw_hpack_rbuf_calc(tbl, new_size, NULL,
-					    (TfwHPackETblIter *)tbl);
-		WARN_ON_ONCE(tbl->rb_len > tbl->size);
+	if (new_size < tbl->min_window)
+		tbl->min_window = new_size;
 
-		tbl->window = new_size;
-		tbl->wnd_changed = true;
+	if (tbl->size > new_size)
+		tfw_hpack_rbuf_calc(tbl, new_size, NULL,
+				    (TfwHPackETblIter *)tbl);
 
-		T_DBG3("%s: New hpack encoder table size has been set to %u\n",
-		       __func__, tbl->window);
-	}
+	tbl->window = new_size;
+	tbl->wnd_changed = true;
+	WARN_ON_ONCE(tbl->rb_len > tbl->size);
+
+	T_DBG3("%s: New hpack encoder table size has been changed min=%u "
+	       "new=%u\n", __func__, tbl->min_window, tbl->window);
 }
 
 int
 tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *tbl, struct sk_buff *skb_head,
 			   unsigned int offset, unsigned int *acc_len)
 {
-	TfwHPackInt tmp = {};
+	TfwHPackInt min_val = {}, max_val = {};
 	TfwStr dst = {};
 	char *data;
 	unsigned int _;
 	int r = 0;
+	unsigned int size;
 
 	WARN_ON_ONCE(!tbl->wnd_changed);
-	write_int(tbl->window, 0x1F, 0x20, &tmp);
+	if (tbl->window > tbl->min_window)
+		write_int(tbl->min_window, 0x1F, 0x20, &min_val);
+	write_int(tbl->window, 0x1F, 0x20, &max_val);
 
 	data = ss_skb_data_ptr_by_offset(skb_head,
 					 offset + FRAME_HEADER_SIZE);
-	BUG_ON(!data);
+	if (!data) {
+		WARN_ONCE(1, "Can't find offset in skb.");
+		return -EPIPE;
+	}
 
-	r = ss_skb_get_room_w_frag(skb_head, skb_head, data, tmp.sz, &dst, &_);
+	size = min_val.sz + max_val.sz;
+	r = ss_skb_get_room_w_frag(skb_head, skb_head, data, size, &dst, &_);
 	if (unlikely(r))
 		return r;
 
-	memcpy_fast(dst.data, tmp.buf, tmp.sz);
-	*acc_len += tmp.sz;
+	if (tbl->window > tbl->min_window) {
+		memcpy(dst.data, min_val.buf, min_val.sz);
+		dst.data += min_val.sz;
+	}
+
+	memcpy(dst.data, max_val.buf, max_val.sz);
+	*acc_len += size;
+	tbl->min_window = HPACK_ENC_TABLE_MAX_SIZE;
 	tbl->wnd_changed = false;
 
 	return 0;
