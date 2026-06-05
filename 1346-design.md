@@ -26,11 +26,11 @@ accuracy (exact, welford): ( 8.33333e+06, 8.33334e+06 )
 client maximum randomly increases in a range (1 - 10) on each iteration (possible for non idempodent request tracking, since we use algorithm at the end of the `ss_tcp_process_data`, when we can already process several requests). 
 accuracy (exact, sum_sumsq): ( 2.55257e+08, 2.55257e+08 )
 accuracy (exact, welford): ( 2.55257e+08, 2.55257e+08 )
-client maximum randomly increases in a range (1 - 10) on each iteration
+client maximum randomly increases in a range (1 - 100) on each iteration
 accuracy (exact, sum_sumsq): ( 2.11362e+10, 2.11362e+10 )
 accuracy (exact, welford): ( 2.11362e+10, 2.11362e+10 )
 
-As a result, the implementation uses the sum of values / sum of squares method (sum/sumsq method). This approach maintains:
+As we can see both these algorithms demonstrate good accuracy, but sum of squares method is faster. As a result, the implementation uses the sum of values / sum of squares method (sum/sumsq method). This approach maintains:
 
 - the sum of all values,
 - the sum of squared values,
@@ -48,7 +48,7 @@ For the considered workload, where client metrics are bounded and remain relativ
 (It should also be noted that accurate and stable calculation of memory and CPU consumption in streaming or long-running workloads may require the use of Welford’s algorithm).
 
 **Defence Mode**
-Each new observation is evaluated using z = ((x−mean) << SCALE_SHIFT) / std (Where SCALE_SHIFT = 10 - fixed-point scaling factor used for integer arithmetic. Kernel code avoids floating point operations, so all fractional calculations (e.g. mean, variance, z-score) are performed using scaled integers). If z > configured_threshold he event is considered anomalous. Reject request / connection, drop connection with TCP RST and optionally block client by IP.
+Each new observation is evaluated using z = ((x−mean) << SCALE_SHIFT) / std (Where SCALE_SHIFT = 10 - fixed-point scaling factor used for integer arithmetic. Kernel code avoids floating point operations, so all fractional calculations (e.g. mean, variance, z-score) are performed using scaled integers). If z > configured_threshold the event is considered anomalous. Reject request / connection, drop connection with TCP RST and optionally block client by IP.
 
 **Disabled Mode**
 Internal state used during transitions. Ensures safe updates of shared data (via RCU synchronization). Also I think it's better to implement this state also, not only as internal state, to prevent any additional calculations, when it is not necessary (for example administrator don't need this security feature at all).
@@ -87,8 +87,8 @@ However, the algorithm may become numerically unstable when:
 - or values are extremely close relative to the magnitude of the mean.
 
 For example, the following dataset (1000000000, 1000000001, 999999999, 1000000000) may become problematic. In this case - mean ≈ 1,000,000,000, standard deviation ≈ 1.
-The variance computation subtracts two extremely large nearly identical numbers, which can cause catastrophic cancellation and precision loss. In contrast, a connection telemetry workload such as (100,
-105, 103, 98, 110) is generally safe because:
+The variance computation subtracts two extremely large nearly identical numbers, which can cause catastrophic cancellation and precision loss. In contrast, a connection telemetry workload such as (1000,
+1005, 1003, 998, 1010) is generally safe because:
 
 - values are integer-based,
 - the variance is reasonably large relative to the mean,
@@ -104,40 +104,117 @@ Each connection tagged with training_epoch (we add new field to `tempesta_sock` 
 `if (cli->conn_training_epoch < g_training_epoch)` to zero all client training data (`conn_curr` and `conn_max`).
 
 **Request Count Tracking (Non-idempotent)**
-We implement `TfwTrainingStat` structure to track all trainging events except connections.
+We implement `TfwClientReqCounter` structure to track non idempodent requests count.
 ```C
 /*
- * max		- maximum observed value of the tracked metric within the
- *		  current training epoch (e.g. peak number of in-flight
- *		  non-idempotent requests);
- * curr		- current value of the tracked metric;
- * lock		- spinlock for serialized reset of @max and @curr when a
- *		  new training epoch starts.
- * @epoch	- training epoch identifier. Compared against the global
- *		  @g_training_epoch to detect epoch change and trigger
- *		  reinitialization of @max and @curr.
+ * next_free		- internal field for more effective allocation from preallocated
+ * 					  pool;
+ * counter			- percpu array to track current value of the tracked metric;
+ * lock				- spinlock for serialized reset of @max and @counter when a
+ *					  new training epoch starts.
+ * max				- maximum observed value of the tracked metric within the
+ *					  current training epoch (e.g. peak number of in-flight
+ *					  non-idempotent requests);
+ * @epoch			- training epoch identifier. Compared against the global
+ *					  @g_training_epoch to detect epoch change and trigger
+ *					  reinitialization of @max and @counter.
  */
-typedef struct {
-	atomic64_t	max;
-	atomic64_t	curr;
-	spinlock_t	lock;
-	unsigned int	epoch;
-} TfwTrainingStat;
+typedef struct tfw_client_req_counter_t {
+	struct tfw_client_req_counter_t	*next_free;
+	unsigned int __percpu			*counter;
+	spinlock_t						lock;
+	atomic_t						max;
+	unsigned int					epoch;
+} TfwClientReqCounter;
 ```
-We use new implemented function `tfw_client_training_adjust_req_num` both for training and  defence mode.
 
-**Training mode**
-Track `curr` - current in-flight non-idempotent requests. Increment `curr` in `tfw_http_req_enlist`, decrement in  `tfw_http_req_nip_delist`. Also track `max` maximum count  in-flight non-idempotent requests per client. When max increases update global trainging stats, same as we do it for connections (`delta1 = new_max - old_max` and `delta2 = new_max² - old_max²`).
+We add new field to request structure `training_epoch` to track is requst belongs to current trainging epoch or no.
+When we add (in `tfw_http_req_enlist`)/remove (in `tfw_http_req_nip_delist`) non-idempodent request from the server connection queue, we call new implemented function `void tfw_client_training_adjust_req_num(TfwClient *cli, int delta, unsigned int *training_epoch)`. In this function (same as we do for connections) first of all we check if event (request) belongs to the current training epoch and skip it it doesn't belong.
+```
+/*
+ * Ignore request removing events from previous training epochs. If we add new request (`delta > 0`) it always belongs
+ * to the new epoch. `training_epoch` - is a new field in the request structure.
+ */
+if (delta < 0 && *training_epoch < g_training_epoch)
+		return true;
+	else if (delta > 0)
+		*training_epoch = g_training_epoch;
+```
+We also check epoch for the whole `TfwClientReqCounter` structure and zero statistic for the new training epoch.
+```
+/*
+	 * We increment `g_training_epoch` each time when we start new
+	 * training, when we are sure that all threads don't use `max`
+	 * and `counter`. During training all threads call this function
+	 * before use `counter` and `max`, so we are sure that `counter` and
+	 * `max` will be zeroed on the start of the new training.
+	 * We make first check to prevent unnecessary lock on the hot
+	 * path on each call.
+	 */
+	if (cli_req_counter->epoch < g_training_epoch) {
+		spin_lock_bh(&cli_req_counter->lock);
+		if (likely(cli_req_counter->epoch < g_training_epoch)) {
+			int cpu;
 
-**Defence mode**
-Change signature for `tfw_http_req_enlist` from `void` to `bool`.  Call `tfw_client_training_adjust_req_num` on each new non-idempotent request, calculate z-score, return false if `z > threshold`. `tfw_http_req_enlist` is called from `tfw_http_req_fwd` and `tfw_http_req_fwd_resched`, this functions now return T_BLOCK if `tfw_http_req_enlist` fails.
-Callers of `tfw_http_req_fwd` and `tfw_http_req_fwd_resched` send 403 error response, drop client connection with TCP RST and block client by IP if these functions return T_BLOCK.
+			for_each_online_cpu(cpu) {
+				*(per_cpu_ptr(cli_req_counter->counter,
+					      cpu)) = 0;
+			}
+			atomic_set(&cli_req_counter->max, 0);
+			cli_req_counter->epoch = g_training_epoch;
+			new_client = true;
+		}
+		spin_unlock_bh(&cli_req_counter->lock);
+	}
+```
+Finally we increment count of client (if necessary) and appropritate percpu `counter`. This function works same both for the `trainging` and `defence` mode.
+The real non-idempodent request adujusting is implemented int the `tfw_http_conn_recv_finish` callback which is called at the end of the `ss_tcp_process_data` (to prevent performance degradation). In `trainging` mode we track maximum count of non idempodent requests for the client. When max increases - compute `delta1 = new_max - old_max` and `delta2 = new_max² - old_max²` and use this values to update `sum` and `sumsq` (same as for connections, count of non idempodent requests is small, so we don't need Welford algorithm for accuracy, and use more simple and fast `sum/sumsq` algorithm.
+```
+	curr = tfw_client_req_count(cli);
+	old_max = atomic_read(&cli_req_counter->max);
 
-**Epoch handling**
-Each request tagged with `training_epoch` to prevent mixing old and new training data (we add new field to `request` structure and save epoch in this field). When request removed from server connection queue we don't update `curr` field in case when request belongs to previous epoch. (When request added to server connection queue it always belongs to new epoch if trainging enabled!).
+	/*
+	 * Can be called concurrentrly on other cpu with different
+	 * curr value, so we need syncronization here.
+	 */
+	do {
+		if (curr <= old_max)
+			return true;
+	} while (!atomic_try_cmpxchg(&cli_req_counter->max, &old_max, curr));
 
-**Current method and alternatives**
-The same problems and altgernatives as for connections.
+	delta1 = curr - old_max;
+	delta2 = (u64)curr * curr - (u64)old_max * old_max;
+	tfw_training_mode_adjust_req_num(delta1, delta2);
+```
+Since we use percpu aggregation in `tfw_client_req_count` and `atomic` only once at the end of the `ss_tcp_process_data` it doesn't affect performance.
+Performance statistic:
+```
+GET not cached:
+master:
+finished in 50.03s, 277268.34 req/s, 169.57MB/s
+finished in 50.04s, 228033.70 req/s, 139.37MB/s
+finished in 50.03s, 286405.80 req/s, 175.26MB/s
+finished in 50.03s, 218233.90 req/s, 133.37MB/s
+training:
+finished in 50.03s, 295427.04 req/s, 180.75MB/s
+finished in 50.03s, 248309.20 req/s, 131.78MB/s
+finished in 50.03s, 284691.54 req/s, 174.18MB/s
+finished in 50.03s, 210385.12 req/s, 128.53MB/s
+GET nonidempodent:
+master:
+finished in 50.08s, 292313.58 req/s, 178.97MB/s
+finished in 50.08s, 198466.62 req/s, 121.51MB/s
+finished in 50.08s, 279269.66 req/s, 170.99MB/s
+training:
+finished in 50.08s, 283923.64 req/s, 173.82MB/s
+finished in 50.08s, 217244.30 req/s, 132.98MB/s
+finished in 50.08s, 301014.66 req/s, 184.30MB/s
+```
+We also have a some failed requests `requests: 14238991 total, 14248991 started, 14238991 done, 14238907 succeeded, 84 failed, 0 errored, 0 timeout` for nonidempodent requests, so not all requests were successful both on master in current implementation. (Different performance results depends on the count of failed requests).
+In `defence` mode we use `curr = tfw_client_req_count(cli);` to calculate `z-score`, compare it with configured threshold and drop client connection (and block client by ip, if necessary).
+
+
+
 
 **CPU Tracking**
 In addition to `TfwTrainingStat` implement structure and per-cpu array of this structures.
