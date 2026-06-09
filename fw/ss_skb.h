@@ -54,6 +54,7 @@ struct tfw_skb_cb {
 	on_tcp_entail_t on_tcp_entail;
 	long int	mem;
 	unsigned int 	stream_id;
+	u16		training_epoch;
 	bool		is_head;
 };
 

@@ -71,7 +71,8 @@ static unsigned long __percpu (*pg_cache)[TFW_POOL_PGCACHE_SZ];
  * through buddies coalescing). So we never cache multi-pages.
  */
 static unsigned long
-tfw_pool_alloc_pages(TfwClientMem *cli_mem, unsigned int order)
+tfw_pool_alloc_pages(TfwClientMem *cli_mem, unsigned int order,
+		     u16 *epoch)
 {
 	unsigned long pg_res = 0;
 	unsigned int *pgn;
@@ -92,7 +93,7 @@ tfw_pool_alloc_pages(TfwClientMem *cli_mem, unsigned int order)
 		pg_res = tfw__get_free_pages(flags, order);
 	}
 	if (likely(pg_res) && cli_mem)
-		tfw_client_adjust_mem(cli_mem, PAGE_SIZE << order);
+		tfw_client_adjust_mem(cli_mem, PAGE_SIZE << order, epoch);
 
 	return pg_res;
 
@@ -101,7 +102,7 @@ ALLOW_ERROR_INJECTION(tfw_pool_alloc_pages, NULL);
 
 static void
 tfw_pool_free_pages(TfwClientMem *cli_mem, unsigned long addr,
-		    unsigned int order)
+		    unsigned int order, u16 *epoch)
 {
 	unsigned int *pgn;
 	int refcnt;
@@ -112,7 +113,7 @@ tfw_pool_free_pages(TfwClientMem *cli_mem, unsigned long addr,
 	refcnt = page_count(virt_to_page(addr));
 
 	if (cli_mem)
-		tfw_client_adjust_mem(cli_mem, -(PAGE_SIZE << order));
+		tfw_client_adjust_mem(cli_mem, -(PAGE_SIZE << order), epoch);
 
 	if (likely(*pgn < TFW_POOL_PGCACHE_SZ && !order && refcnt == 1)) {
 		((unsigned long *)this_cpu_ptr(pg_cache))[*pgn] = addr;
@@ -137,7 +138,8 @@ __tfw_pool_alloc_page(TfwPool *p, size_t n, bool align)
 	unsigned int off = desc_size + n;
 	unsigned int order = get_order(off);
 
-	c = (TfwPoolChunk *)tfw_pool_alloc_pages(p->owner, order);
+	c = (TfwPoolChunk *)tfw_pool_alloc_pages(p->owner, order,
+						 &p->training_epoch);
 	if (!c)
 		return NULL;
 	c->next = curr;
@@ -196,7 +198,7 @@ tfw_pool_free(TfwPool *p, void *ptr, size_t n)
 		TfwPoolChunk *next = p->curr->next;
 
 		tfw_pool_free_pages(p->owner, TFW_POOL_CHUNK_BASE(p->curr),
-				    p->order);
+				    p->order, &p->training_epoch);
 		p->curr = next;
 		p->order = next->order;
 		p->off = next->off;
@@ -222,7 +224,7 @@ tfw_pool_clean_single(TfwPool *pool, void *ptr)
 		    && (char *)ptr < (char *)TFW_POOL_CHUNK_BASE(c) + c->off)
 		{
 			tfw_pool_free_pages(pool->owner, TFW_POOL_CHUNK_BASE(c),
-					    c->order);
+					    c->order, &pool->training_epoch);
 			prev->next = next;
 			return;
 		}
@@ -248,7 +250,7 @@ tfw_pool_clean(TfwPool *pool)
 			break;
 
 		tfw_pool_free_pages(pool->owner, TFW_POOL_CHUNK_BASE(c),
-				    c->order);
+				    c->order, &pool->training_epoch);
 		pool->curr->next = next;
 	}
 }
@@ -263,10 +265,11 @@ __tfw_pool_new(size_t n, TfwClientMem *owner)
 	TfwPool *p;
 	TfwPoolChunk *c;
 	unsigned int order;
+	u16 epoch = 0;
 
 	order = get_order(TFW_POOL_ALIGN_SZ(n) + TFW_POOL_HEAD_OFF);
 
-	c = (TfwPoolChunk *)tfw_pool_alloc_pages(cli_mem, order);
+	c = (TfwPoolChunk *)tfw_pool_alloc_pages(cli_mem, order, &epoch);
 	if (unlikely(!c))
 		return NULL;
 
@@ -290,6 +293,7 @@ __tfw_pool_new(size_t n, TfwClientMem *owner)
 	p->owner = cli_mem;
 	p->off = c->off = TFW_POOL_HEAD_OFF;
 	p->curr = c;
+	p->training_epoch = epoch;
 
 	return p;
 }
@@ -307,7 +311,7 @@ tfw_pool_destroy(TfwPool *p)
 	for (c = p->curr; c; c = next) {
 		next = c->next;
 		tfw_pool_free_pages(p->owner, TFW_POOL_CHUNK_BASE(c),
-				    c->order);
+				    c->order, &p->training_epoch);
 	}
 	if (cli_mem)
 		tfw_client_mem_put(cli_mem);

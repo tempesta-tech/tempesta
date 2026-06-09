@@ -1809,6 +1809,7 @@ ss_skb_adjust_client_mem(struct sk_buff *skb, int delta)
 	if (cli_mem) {
 		TFW_SKB_CB(skb)->mem += delta;
 		WARN_ON(TFW_SKB_CB(skb)->mem < 0);
-		tfw_client_adjust_mem(cli_mem, delta);
+		tfw_client_adjust_mem(cli_mem, delta,
+				      &TFW_SKB_CB(skb)->training_epoch);
 	}
 }

@@ -26,13 +26,13 @@
 /* Training period in seconds. Zero means disabled. */
 static unsigned int tfw_training_mod_period = 0;
 unsigned int tfw_training_mod_state = TFW_MODE_DISABLED;
-unsigned int g_training_epoch = 0;
+u16 g_training_epoch = 0;
 
 /* Z-score thresholds for different metrics. */
 static int tfw_training_mod_z_score_conn_num = 0;
 static int tfw_training_mod_z_score_req_num = 0;
-static int tfw_training_mod_z_score_mem_num = 0;
-static int tfw_training_mod_z_score_cpu_num = 0;
+static int tfw_training_mod_z_score_mem = 0;
+static int tfw_training_mod_z_score_cpu = 0;
 
 /* Timer and worker used to switch training -> defence asynchronously. */
 static struct timer_list training_timer;
@@ -231,6 +231,9 @@ __init_z_score(void)
 {
 	int r;
 
+	if (unlikely(g_training_epoch >= U16_MAX))
+		return -EINVAL;
+
 	r = __alloc_upgrade_stats();
 	if (unlikely(r))
 		return r;
@@ -308,6 +311,12 @@ tfw_training_mode_adjust_req_new_client(void)
 	return tfw_training_mode_adjust_new_client(g_req_num);
 }
 
+void
+tfw_training_mode_adjust_mem_new_client(void)
+{
+	return tfw_training_mode_adjust_new_client(g_mem_num);
+}
+
 static inline void
 tfw_training_mode_adjust_new_el(struct stats __rcu *g_stats, u64 delta1,
 				u64 delta2)
@@ -335,6 +344,13 @@ void
 tfw_training_mode_adjust_req_num(u64 delta1, u64 delta2)
 {
 	return tfw_training_mode_adjust_new_el(g_req_num, delta1, delta2);
+}
+
+void
+tfw_training_mode_adjust_mem(u64 delta1, u64 delta2)
+{
+	return tfw_training_mode_adjust_new_el(g_mem_num, delta1 >> PAGE_SHIFT,
+					       delta2 >> (2 * PAGE_SHIFT));
 }
 
 /**
@@ -398,6 +414,13 @@ tfw_training_mode_defence_req_num(u64 val)
 {
 	return tfw_training_mode_defence(g_req_num, val,
 					 tfw_training_mod_z_score_req_num);
+}
+
+bool
+tfw_training_mode_defence_mem(u64 val)
+{
+	return tfw_training_mode_defence(g_mem_num, val >> PAGE_SHIFT,
+					 tfw_training_mod_z_score_mem);
 }
 
 static inline void
@@ -532,7 +555,7 @@ static TfwCfgSpec tfw_training_mode_specs[] = {
 		.deflt = "0",
 		.handler = tfw_cfg_set_int,
 		.allow_reconfig = true,
-		.dest = &tfw_training_mod_z_score_mem_num,
+		.dest = &tfw_training_mod_z_score_mem,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, UINT_MAX },
 		}
@@ -542,7 +565,7 @@ static TfwCfgSpec tfw_training_mode_specs[] = {
 		.deflt = "0",
 		.handler = tfw_cfg_set_int,
 		.allow_reconfig = true,
-		.dest = &tfw_training_mod_z_score_cpu_num,
+		.dest = &tfw_training_mod_z_score_cpu,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, UINT_MAX },
 		}

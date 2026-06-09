@@ -217,7 +217,7 @@ static int
 frang_conn_limit(struct sock *sk, FrangGlobCfg *conf)
 {
 	FrangAcc *ra = frang_acc_from_sk(sk);
-	unsigned short *training_epoch = &tempesta_sock(sk)->training_epoch;
+	u16 *training_epoch = &tempesta_sock(sk)->training_epoch;
 	const unsigned long ts = frang_time_quantum(conf->conn_rate_tf);
 	const int i = ts % FRANG_FREQ;
 
@@ -368,7 +368,7 @@ void
 tfw_classify_conn_close(struct sock *sk)
 {
 	FrangAcc *ra = frang_acc_from_sk(sk);
-	unsigned short *training_epoch = &tempesta_sock(sk)->training_epoch;
+	u16 *training_epoch = &tempesta_sock(sk)->training_epoch;
 
 	if (unlikely(!sock_flag(sk, SOCK_TEMPESTA)))
 		return;
@@ -1691,7 +1691,6 @@ frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
 {
 	TfwClient *cli = (TfwClient *)conn->peer;
 	TfwClientMem *cli_mem = &cli->counters->cli_mem;
-	TfwVhost *dflt_vh;
 
 	if (likely(!tfw_cli_hard_mem_limit
 		   || tfw_client_mem(cli_mem) <= tfw_cli_hard_mem_limit))
@@ -1700,16 +1699,7 @@ frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
 	if (!block_if_exceeded)
 		return T_BLOCK;
 
-	dflt_vh = tfw_vhost_lookup_default();
-	if (WARN_ON_ONCE(!dflt_vh))
-		return T_BLOCK;
-
-	if (dflt_vh->frang_gconf->ip_block) {
-		unsigned int duration = dflt_vh->frang_gconf->ip_block_duration;
-
-		tfw_filter_block_ip(cli, duration);
-	}
-	tfw_vhost_put(dflt_vh);
+	tfw_client_filter_block_ip(cli);
 
 	return T_BLOCK;
 }

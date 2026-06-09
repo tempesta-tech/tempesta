@@ -26,39 +26,35 @@
 #include "training.h"
 
 /*
- * Client memory accounting structure for Tempesta FW.
- * 
- * @kill_work	- Workqueue item used for asynchronous structure
- *		  cleanup/destruction;
- * @next_free	- Pointer to the next free object in the freelist;
- * @refcnt	- Per-CPU reference counter. Provides scalable and
- *		  thread-safe reference tracking on SMP systems with
- *		  minimal contention;
- * @mem		- Per-CPU memory accounting storage.
- */
-typedef struct tfw_client_mem_t {
-   	long __percpu		*mem;
-} TfwClientMem;
-
-/*
- * Client non-idempotent requests accounting structure for Tempesta FW.
- *
- * counter	- percpu array to track current value of the tracked metric;
+ * counter	- percpu array to track current value of the tracked metric.
  * lock		- spinlock for serialized reset of @max and @counter when a
  *		  new training epoch starts.
  * max		- maximum observed value of the tracked metric within the
  *		  current training epoch (e.g. peak number of in-flight
- *		  non-idempotent requests or peak of client memory usage);
+ *		  non-idempotent requests or peak of client memory usage);Collapse commentComment on line R33const-t commented on Jun 15, 2026 const-ton Jun 15, 2026ContributorMore actionsFrom my point of view we should move this to training.h. All other related structs as wellReactWrite a replyResolve comment
  * @epoch	- training epoch identifier. Compared against the global
  *		  @g_training_epoch to detect epoch change and trigger
  *		  reinitialization of @max and @counter.
  */
-typedef struct {
-	unsigned int __percpu		*counter;
-	spinlock_t			lock;
-	atomic_t			max;
-	unsigned short			epoch;
-} TfwClientReqCounter;
+typedef struct tfw_client_counter_t {
+	s64 	__percpu	*counter;
+	spinlock_t		lock;
+	atomic_long_t		max;
+	u16			epoch;
+} TfwClientCounter;
+
+/*
+ * Client memory accounting structure for Tempesta FW.
+ * 
+ * @counter	- memory accounting storage for training;
+ * @mem		- percpu memory accounting storage. Used for
+ *		  soft/hard memory limits. Not zeroed on the new
+ *		  training epoch;
+ */
+typedef struct tfw_client_mem_t {
+	TfwClientCounter	counter;
+   	s64 __percpu		*mem;
+} TfwClientMem;
 
 /*
  * Structure to track different client statistic.
@@ -80,7 +76,7 @@ typedef struct tfw_client_counters_t {
 	};
 	struct percpu_ref	refcnt;
 	TfwClientMem		cli_mem;
-	TfwClientReqCounter	req_counter;
+	TfwClientCounter	req_counter;
 } TfwClientCounters;
 
 /**
@@ -107,7 +103,7 @@ typedef struct {
 	TfwClientCounters	*counters;
 	unsigned int		conn_max;
 	int			conn_curr;
-	unsigned short		conn_training_epoch;
+	u16			conn_training_epoch;
 } TfwClient;
 
 int tfw_client_init(void);
@@ -122,19 +118,49 @@ int tfw_cli_conn_abort_all(void *data);
 void tfw_cli_abort_all(void);
 void tfw_tls_connection_lost(TfwConn *conn);
 bool tfw_client_training_adjust_conn_num(TfwClient *cli, int delta,
-					 unsigned short *training_epoch);
-void tfw_client_training_adjust_req_num(TfwClient *cli, int delta,
-					unsigned short *training_epoch);
-bool tfw_client_training_process_req_num(TfwClient *cli);
+					 u16 *training_epoch);
+void tfw_client_counter_training_adjust_req(TfwClientCounter *counter,
+					    int delta, u16 *training_epoch);
+void tfw_client_counter_training_adjust_mem(TfwClientCounter *counter,
+					    int delta, u16 *training_epoch);
+bool tfw_client_counter_training_check_req(TfwClientCounter *counter);
+bool tfw_client_counter_training_check_mem(TfwClientCounter *counter);
 void tfw_client_filter_block_ip(TfwClient *cli);
 
 #define CLIENT_MEM_FROM_CONN(conn)				\
 	&((TfwClient *)((TfwConn *)conn)->peer)->counters->cli_mem
 
+static inline s64
+__percpu_summ_s64(s64	__percpu *val)
+{
+	s64 count = 0;
+	int cpu;
+
+	for_each_online_cpu(cpu)
+		count += *(per_cpu_ptr(val, cpu));
+
+	return count;
+}
+
 static inline void
-tfw_client_adjust_mem(TfwClientMem *cli_mem, int delta)
+tfw_client_counter_add(TfwClientCounter *counter, int delta)
+{
+	this_cpu_add(*counter->counter, delta);
+}
+
+static inline s64
+tfw_client_counter_get(TfwClientCounter *counter)
+{
+	return __percpu_summ_s64(counter->counter);
+}
+
+static inline void
+tfw_client_adjust_mem(TfwClientMem *cli_mem, int delta,
+		      u16 *training_epoch)
 {
 	this_cpu_add(*cli_mem->mem, delta);
+	tfw_client_counter_training_adjust_mem(&cli_mem->counter,
+					       delta, training_epoch);
 }
 
 static inline bool
@@ -155,16 +181,10 @@ tfw_client_mem_put(TfwClientMem *cli_mem)
 	percpu_ref_put(&counters->refcnt);
 }
 
-static inline long
+static inline s64
 tfw_client_mem(TfwClientMem *cli_mem)
 {
-	long mem = 0;
-	int cpu;
-
-	for_each_online_cpu(cpu)
-		mem += *(per_cpu_ptr(cli_mem->mem, cpu));
-
-	return mem;
+	return __percpu_summ_s64(cli_mem->mem);
 }
 
 #endif /* __TFW_CLIENT_H__ */

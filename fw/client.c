@@ -81,6 +81,27 @@ static struct {
 	unsigned int		order;
 } cli_counters_pool;
 
+static int
+tfw_client_counter_init(TfwClientCounter *counter, gfp_t flags)
+{
+	counter->counter = tfw_alloc_percpu_gfp(s64, flags | __GFP_ZERO);
+	if (unlikely(!counter->counter))
+		return -ENOMEM;
+
+	spin_lock_init(&counter->lock);
+	atomic64_set(&counter->max, 0);
+	counter->epoch = 0;
+
+	return 0;
+}
+
+static void
+tfw_client_counter_destroy(TfwClientCounter *counter)
+{
+	free_percpu(counter->counter);
+	counter->counter = NULL;
+}
+
 static inline bool
 tfw_cli_counters_belongs_to_pool(TfwClientCounters *counters)
 {
@@ -88,12 +109,19 @@ tfw_cli_counters_belongs_to_pool(TfwClientCounters *counters)
 	       && counters < cli_counters_pool.objs + cli_counters_pool.size;
 }
 
+static inline void
+tfw_cli_mem_destroy(TfwClientMem *cli_mem)
+{
+	free_percpu(cli_mem->mem);
+	tfw_client_counter_destroy(&cli_mem->counter);
+}
+
 static void
 __cli_counters_release(TfwClientCounters *counters)
 {
 	percpu_ref_exit(&counters->refcnt);
-	free_percpu(counters->cli_mem.mem);
-	free_percpu(counters->req_counter.counter);
+	tfw_cli_mem_destroy(&counters->cli_mem);
+	tfw_client_counter_destroy(&counters->req_counter);
 	if (!tfw_cli_counters_belongs_to_pool(counters))
 		kmem_cache_free(tfw_cli_counters_cache, counters);
 }
@@ -109,10 +137,11 @@ tfw_cli_counters_pool_free(TfwClientCounters *counters)
 
 	assert_spin_locked(&client_db->ga_lock);
 
-	for_each_online_cpu(cpu)
+	for_each_online_cpu(cpu) {
 		*per_cpu_ptr(counters->cli_mem.mem, cpu) = 0;
-	for_each_online_cpu(cpu)
+		*per_cpu_ptr(counters->cli_mem.counter.counter, cpu) = 0;
 		*per_cpu_ptr(counters->req_counter.counter, cpu) = 0;
+	}
 	percpu_ref_reinit(&counters->refcnt);
 	counters->next_free = cli_counters_pool.free_list;
 	cli_counters_pool.free_list = counters;
@@ -191,34 +220,54 @@ cli_counters_release(struct percpu_ref *ref)
 }
 
 static inline int
+tfw_cli_mem_init(TfwClientMem *cli_mem, gfp_t flags)
+{
+	int r;
+
+	r = tfw_client_counter_init(&cli_mem->counter, flags);
+	if (unlikely(r))
+		return r;
+
+	cli_mem->mem = tfw_alloc_percpu_gfp(s64, flags | __GFP_ZERO);
+	if (unlikely(!cli_mem->mem)) {
+		r = -ENOMEM;
+		goto counter_destroy;
+	}
+
+	return 0;
+
+counter_destroy:
+	tfw_client_counter_destroy(&cli_mem->counter);
+
+	return r;
+}
+
+static inline int
 tfw_cli_counters_init(TfwClientCounters *counters, gfp_t flags)
 {
 	TfwClientMem *cli_mem = &counters->cli_mem;
-	TfwClientReqCounter *req_counter = &counters->req_counter;
+	TfwClientCounter *req_counter = &counters->req_counter;
 	int r;
 
-	cli_mem->mem = tfw_alloc_percpu_gfp(long, flags | __GFP_ZERO);
-	if (unlikely(!cli_mem->mem))
-		return -ENOMEM;
+	r = tfw_cli_mem_init(cli_mem, flags);
+	if (unlikely(r))
+		return r;
 
-	req_counter->counter =
-		tfw_alloc_percpu_gfp(unsigned int, flags | __GFP_ZERO);
-	if (unlikely(!req_counter)) {
-		r = -ENOMEM;
-		goto free_mem;
-	}
+	r = tfw_client_counter_init(req_counter, flags);
+	if (unlikely(r))
+		goto cli_mem_destroy;
 
 	r = tfw_percpu_ref_init(&counters->refcnt, cli_counters_release,
 				PERCPU_REF_ALLOW_REINIT, flags);
 	if (unlikely(r))
-		goto free_req;
+		goto req_counter_destroy;
 
 	return 0;
 
-free_req:
-	free_percpu(req_counter->counter);
-free_mem:
-	free_percpu(cli_mem->mem);
+req_counter_destroy:
+	tfw_client_counter_destroy(req_counter);
+cli_mem_destroy:
+	tfw_cli_mem_destroy(cli_mem);
 	
 	return r;
 }
@@ -625,7 +674,7 @@ tfw_client_filter_block_ip(TfwClient *cli)
  */
 bool
 tfw_client_training_adjust_conn_num(TfwClient *cli, int delta,
-				    unsigned short *training_epoch)
+				    u16 *training_epoch)
 {
 	u64 delta1, delta2;
 	unsigned int old_max;
@@ -640,7 +689,7 @@ tfw_client_training_adjust_conn_num(TfwClient *cli, int delta,
 	 */
 	if (delta < 0 && *training_epoch < g_training_epoch)
 		return true;
-	else if (delta > 0)
+	else if (!(*training_epoch) && delta > 0)
 		*training_epoch = g_training_epoch;
 
 	if (tfw_mode_is_defence()) {
@@ -683,41 +732,10 @@ tfw_client_training_adjust_conn_num(TfwClient *cli, int delta,
 	return true;
 }
 
-static inline unsigned int
-tfw_client_req_count(TfwClient *cli)
+static inline bool
+tfw_client_counter_change_epoch(TfwClientCounter *counter)
 {
-	unsigned int count = 0;
-	int cpu;
-
-	for_each_online_cpu(cpu)
-		count += *(per_cpu_ptr(cli->counters->req_counter.counter, cpu));
-
-	return count;
-}
-
-void
-tfw_client_training_adjust_req_num(TfwClient *cli, int delta,
-				   unsigned short *training_epoch)
-{
-	TfwClientReqCounter *req_counter = &cli->counters->req_counter;
 	bool new_client = false;
-
-	if (tfw_mode_is_disabled())
-		return;
-
-	/*
-	 * Ignore request removing events from previous training epochs.
-	 * For new requests, assign current training epoch.
-	 */
-	if (delta < 0 && *training_epoch < g_training_epoch)
-		return;
-	else if (delta > 0)
-		*training_epoch = g_training_epoch;
-
-	if (tfw_mode_is_defence()) {
-		this_cpu_add(*req_counter->counter, delta);
-		return;
-	}
 
 	/*
 	 * We increment `g_training_epoch` each time when we start new
@@ -728,42 +746,79 @@ tfw_client_training_adjust_req_num(TfwClient *cli, int delta,
 	 * We make first check to prevent unnecessary lock on the hot
 	 * path on each call.
 	 */
-	if (req_counter->epoch < g_training_epoch) {
-		spin_lock_bh(&req_counter->lock);
-		if (likely(req_counter->epoch < g_training_epoch)) {
+	if (counter->epoch < g_training_epoch) {
+		spin_lock_bh(&counter->lock);
+		if (likely(counter->epoch < g_training_epoch)) {
 			int cpu;
 
-			for_each_online_cpu(cpu) {
-				*(per_cpu_ptr(req_counter->counter,
-					      cpu)) = 0;
-			}
-			atomic_set(&req_counter->max, 0);
-			req_counter->epoch = g_training_epoch;
+			for_each_online_cpu(cpu)
+				*(per_cpu_ptr(counter->counter, cpu)) = 0;
+			atomic64_set(&counter->max, 0);
+			counter->epoch = g_training_epoch;
 			new_client = true;
 		}
-		spin_unlock_bh(&req_counter->lock);
+		spin_unlock_bh(&counter->lock);
 	}
 
-	if (new_client)
-		tfw_training_mode_adjust_req_new_client();
-	this_cpu_add(*req_counter->counter, delta);
+	return new_client;
 }
 
-bool
-tfw_client_training_process_req_num(TfwClient *cli)
+static void
+tfw_client_counter_training_adjust(TfwClientCounter *counter, int delta,
+				   void (*adjust_new_client)(void),
+				   u16 *training_epoch)
 {
-	TfwClientReqCounter *req_counter = &cli->counters->req_counter;
-	u64 delta1, delta2;
-	unsigned int old_max, curr;
-
 	if (tfw_mode_is_disabled())
-		return true;
+		return;
 
-	curr = tfw_client_req_count(cli);
-	if (tfw_mode_is_defence())
-		return tfw_training_mode_defence_req_num(curr);
+	/*
+	 * Ignore removing events from the previous training epochs.
+	 */
+	if ((*training_epoch || delta < 0)
+	    && *training_epoch < g_training_epoch)
+		return;
+	else if (!(*training_epoch) && delta > 0)
+		*training_epoch = g_training_epoch;
 
-	old_max = atomic_read(&req_counter->max);
+	if (tfw_mode_is_defence()) {
+		tfw_client_counter_add(counter, delta);
+		return;
+	}
+
+	if (tfw_client_counter_change_epoch(counter))
+		adjust_new_client();
+	tfw_client_counter_add(counter, delta);
+}
+
+void
+tfw_client_counter_training_adjust_req(TfwClientCounter *counter, int delta,
+				       u16 *training_epoch)
+{
+	void (*adjust_new_client)(void) =
+		tfw_training_mode_adjust_req_new_client;
+
+	return tfw_client_counter_training_adjust(counter, delta,
+						  adjust_new_client,
+						  training_epoch);
+}
+
+void
+tfw_client_counter_training_adjust_mem(TfwClientCounter *counter, int delta,
+				       u16 *training_epoch)
+{
+	void (*adjust_new_client)(void) =
+		tfw_training_mode_adjust_mem_new_client;
+
+	return tfw_client_counter_training_adjust(counter, delta,
+						  adjust_new_client,
+						  training_epoch);
+}
+
+static inline bool
+tfw_client_counter_change_max(TfwClientCounter *counter, long curr,
+			      u64 *delta1, u64 *delta2)
+{
+	s64 old_max = atomic64_read(&counter->max);
 
 	/*
 	 * Can be called concurrentrly on other cpu with different
@@ -771,15 +826,57 @@ tfw_client_training_process_req_num(TfwClient *cli)
 	 */
 	do {
 		if (curr <= old_max)
-			return true;
-	} while (!atomic_try_cmpxchg(&req_counter->max, &old_max, curr));
+			return false;
+	} while (!atomic64_try_cmpxchg(&counter->max, &old_max, curr));
 
-	delta1 = curr - old_max;
-	delta2 = (u64)curr * curr - (u64)old_max * old_max;
-	tfw_training_mode_adjust_req_num(delta1, delta2);
+	*delta1 = curr - old_max;
+	*delta2 = (u64)curr * curr - (u64)old_max * old_max;
 
 	return true;
 }
+
+static bool
+tfw_client_counter_training_check(TfwClientCounter *counter,
+				  void (*adjust_num)(u64, u64),
+				  bool(*defence)(u64))
+{
+	u64 delta1, delta2;
+	long curr;
+
+	if (tfw_mode_is_disabled())
+		return true;
+
+	curr = tfw_client_counter_get(counter);
+	if (tfw_mode_is_defence())
+		return defence(curr);
+
+	if (tfw_client_counter_change_max(counter, curr, &delta1, &delta2))
+		adjust_num(delta1, delta2);
+
+	return true;
+}
+
+bool
+tfw_client_counter_training_check_req(TfwClientCounter *counter)
+{
+	void (*adjust_num)(u64, u64) =
+		tfw_training_mode_adjust_req_num;
+	bool (*defence)(u64) = tfw_training_mode_defence_req_num;
+
+	return tfw_client_counter_training_check(counter, adjust_num,
+						 defence);
+}
+
+bool
+tfw_client_counter_training_check_mem(TfwClientCounter *counter)
+{
+	void (*adjust_num)(u64, u64) =
+		tfw_training_mode_adjust_mem;
+	bool (*defence)(u64) = tfw_training_mode_defence_mem;
+
+	return tfw_client_counter_training_check(counter, adjust_num,
+						 defence);
+}	
 
 /**
  * Beware: @fn is called under client hash bucket spin lock.

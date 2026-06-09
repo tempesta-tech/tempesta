@@ -910,6 +910,7 @@ __tfw_http_msg_alloc(TfwClientMem *owner, int type, bool full)
 		INIT_LIST_HEAD(&((TfwHttpReq *)hm)->fwd_list);
 		INIT_LIST_HEAD(&((TfwHttpReq *)hm)->nip_list);
 		hm->destructor = tfw_http_req_destruct;
+		((TfwHttpReq *)hm)->training_epoch = 0;
 	}
 
 	return hm;

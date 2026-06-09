@@ -1364,7 +1364,8 @@ tfw_http_adjust_nip_req(TfwHttpReq *req, int delta)
 
 	if (unlikely(!cli))
 		return;
-	tfw_client_training_adjust_req_num(cli, delta,  &req->training_epoch);
+	tfw_client_counter_training_adjust_req(&cli->counters->req_counter,
+					       delta,  &req->training_epoch);
 }
 
 /*
@@ -2929,7 +2930,8 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 			 * already released client.
 			 */
 			BUG_ON(!tfw_client_mem_get(cli_mem));
-			tfw_client_adjust_mem(cli_mem, delta);
+			tfw_client_adjust_mem(cli_mem, delta,
+					      &hm->pool->training_epoch);
 		}
 
 		if (TFW_MSG_H2(hm->req)) {
@@ -3212,6 +3214,8 @@ static int
 tfw_http_conn_recv_finish(TfwConn *conn)
 {
 	TfwClient *cli = (TfwClient *)conn->peer;
+	TfwClientCounter *req_counter = &cli->counters->req_counter;
+	TfwClientCounter *mem_counter = &cli->counters->cli_mem.counter;
 
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
 		tfw_h2_conn_recv_finish(conn);
@@ -3224,8 +3228,15 @@ tfw_http_conn_recv_finish(TfwConn *conn)
 	if (unlikely(frang_client_mem_limit((TfwCliConn *)conn, true)))
 		return T_BLOCK_WITH_RST;
 
-	if (unlikely(!tfw_client_training_process_req_num(cli)))
+	if (unlikely(!tfw_client_counter_training_check_req(req_counter))) {
+		tfw_client_filter_block_ip(cli);
 		return T_BLOCK_WITH_RST;
+	}
+
+	if (unlikely(!tfw_client_counter_training_check_mem(mem_counter))) {
+		tfw_client_filter_block_ip(cli);
+		return T_BLOCK_WITH_RST;
+	}
 
 	return 0;
 }

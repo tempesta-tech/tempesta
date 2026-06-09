@@ -433,7 +433,7 @@ struct tfw_http_req_t {
 	unsigned char		method_override;
 	unsigned int		header_list_sz;
 	unsigned int		headers_cnt;
-	unsigned short		training_epoch;
+	u16			training_epoch;
 };
 
 #define TFW_IDX_BITS		24

@@ -75,7 +75,7 @@ do {								\
 	HDR_COMPOUND_STR(hdr_res, name, value);			\
 } while (0)
 
-static DEFINE_PER_CPU(long, mem);
+static DEFINE_PER_CPU(s64, mem);
 static TfwClientCounters counters = {
 	.cli_mem = {
 		.mem = &mem,

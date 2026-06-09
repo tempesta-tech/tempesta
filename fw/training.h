@@ -92,17 +92,20 @@ extern unsigned int tfw_training_mod_state;
  * Incremented each time a new training cycle starts. Used by per-object
  * state to detect epoch changes and reset local statistics.
  */
-extern unsigned int g_training_epoch;
+extern u16 g_training_epoch;
 
 int tfw_training_mode_init(void);
 void tfw_training_mode_exit(void);
 
 void tfw_training_mode_adjust_conn_new_client(void);
 void tfw_training_mode_adjust_req_new_client(void);
+void tfw_training_mode_adjust_mem_new_client(void);
 void tfw_training_mode_adjust_conn_num(u64 delta1, u64 delta2);
 void tfw_training_mode_adjust_req_num(u64 delta1, u64 delta2);
+void tfw_training_mode_adjust_mem(u64 delta1, u64 delta2);
 bool tfw_training_mode_defence_conn_num(u64 val);
 bool tfw_training_mode_defence_req_num(u64 val);
+bool tfw_training_mode_defence_mem(u64 val);
 int tfw_ctlfn_training_mode_state_change(unsigned int training_mode);
 
 static inline bool

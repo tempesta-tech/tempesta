@@ -45,7 +45,7 @@
 #include "tf_filter.h"
 #include "regex/kmod/rex.h"
 
-static DEFINE_PER_CPU(long, mem);
+static DEFINE_PER_CPU(s64, mem);
 unsigned int tfw_cli_max_concurrent_streams;
 TfwConn conn_req, conn_resp;
 TfwClientCounters counters = {
@@ -529,17 +529,37 @@ tfh_get_records_rate(HttpTfh fingerprint)
 }
 
 void
-tfw_client_training_adjust_req_num(TfwClient *cli, int delta,
-				   unsigned short *training_epoch)
+tfw_client_counter_training_adjust_req(TfwClientCounter *counter, int delta,
+				       u16 *training_epoch)
+{
+
+}
+
+void
+tfw_client_counter_training_adjust_mem(TfwClientCounter *counter, int delta,
+				       u16 *training_epoch)
 {
 
 }
 
 bool
-tfw_client_training_process_req_num(TfwClient *cli)
+tfw_client_counter_training_check_req(TfwClientCounter *counter)
 {
 	return true;
 }
+
+bool
+tfw_client_counter_training_check_mem(TfwClientCounter *counter)
+{
+	return true;
+}
+
+void tfw_client_filter_block_ip(TfwClient *cli)
+{
+	
+}
+
+u16 g_training_epoch;
 
 TfwCfgSpec tf_hash_specs[0];
 
