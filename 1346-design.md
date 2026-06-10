@@ -1,17 +1,30 @@
 **Training Mode:**
-During the training phase the system collects per-client metrics for each new event and aggregates global statistics required for subsequent z-score calculation in defence mode. For each client only the current maximum number of connections/requests is stored. Global statistics include:
+During the training phase the system collects per-client metrics for each new event and aggregates global statistics required for subsequent z-score calculation in defence mode. For each client only the current maximum number of connections/requests/memory usage is stored. Global statistics include:
 
 - number of samples ("n", i.e. number of active clients),
 - sum of values ("sum"),
 - sum of squared values ("sumsq").
 
 At the end of the training phase the mean and standard deviation are computed and later used for z-score calculation during anomaly detection.
+    sum
+μ = ─── -> mean
+     n
+
+     sumsq
+σ² = ───── - μ² -> variance
+       n
+
+σ = √σ² -> standard deviation
+
+    x - μ
+z = ───── -> z-score, calculated for each new value (x)
+      σ
 
 Several approaches for online variance calculation were evaluated, including Welford’s algorithm and the sum/sumsq method.
 
-The classical Welford algorithm was found to be unsuitable for this workload. In its original form Welford assumes an append-only stream of samples, where each new observation increases the total sample count. In our case, however, "n" represents the number of clients rather than the number of events. For each client we continuously update the current maximum number of connections or requests. Therefore, when a client metric changes, the previous value must first be removed from the statistics and only then the new value can be added (we need replace operation). This requires a modified reversible version of Welford’s algorithm, which significantly complicates the implementation.
+The classical Welford algorithm was found to be unsuitable for this workload. In its original form Welford assumes an append-only stream of samples, where each new observation increases the total sample count. In our case, however, "n" represents the number of clients rather than the number of events. For each client we continuously update the current maximum number of connections/requests/memory usage. Therefore, when a client metric changes, the previous value must first be removed from the statistics and only then the new value can be added (we need replace operation). This requires a modified reversible version of Welford’s algorithm, which significantly complicates the implementation.
 
-In addition, kernel-space constraints prohibit floating-point arithmetic, requiring the use of fixed-point integer arithmetic instead. While Welford’s algorithm is known for its excellent numerical stability with floating-point arithmetic, its fixed-point implementation introduces truncation errors during repeated division operations. In workloads where metric values remain relatively small and close to each other (e.g. connection/request maxima), these rounding errors accumulate over time and may lead to noticeable precision degradation.
+In addition, kernel-space constraints prohibit floating-point arithmetic, requiring the use of fixed-point integer arithmetic instead. While Welford’s algorithm is known for its excellent numerical stability with floating-point arithmetic, its fixed-point implementation introduces truncation errors during repeated division operations. In workloads where metric values remain relatively small and close to each other (e.g. connection/request maxima), these rounding errors accumulate over time and may lead to noticeable precision degradation. Since we track client memory usage in pages, we have also quite limited range for it's maxima.
 
 Benchmarking (see `benchmark_training` folder) also demonstrated that the modified fixed-point Welford implementation is slower than the alternative approach due to additional arithmetic operations, divisions, and the need to perform sofisticated replace operation for each update.
 
@@ -19,7 +32,7 @@ Benchmark                       Time             CPU   Iterations
 BM_welford_fixed_point       6.75 ns         6.75 ns    102297118
 BM_sum_sumsq                 4.55 ns         4.55 ns    151356982
 
-Accuracy was also calculated for three different cases.
+Accuracy was also calculated for four different cases.
 client maximum increases +1 on each iteration (same as for connection tracking).
 accuracy (exact, sum_sumsq): ( 8.33333e+06, 8.33333e+06 )
 accuracy (exact, welford): ( 8.33333e+06, 8.33334e+06 )
@@ -29,8 +42,11 @@ accuracy (exact, welford): ( 2.55257e+08, 2.55257e+08 )
 client maximum randomly increases in a range (1 - 100) on each iteration
 accuracy (exact, sum_sumsq): ( 2.11362e+10, 2.11362e+10 )
 accuracy (exact, welford): ( 2.11362e+10, 2.11362e+10 )
+clien maximum randomly increases in a range (1 - 1000) on each iteration (possible for memory usage tracking, since we use algorithm at the end of the `ss_tcp_process_data`, and track memory usage in pages). 
+accuracy (exact, sum_sumsq): ( 2.15425e+10, 2.15425e+10 )
+accuracy (exact, welford): ( 2.15425e+10, 2.15426e+10 )
 
-As we can see both these algorithms demonstrate good accuracy, but sum of squares method is faster. As a result, the implementation uses the sum of values / sum of squares method (sum/sumsq method). This approach maintains:
+As we can see both these algorithms demonstrate good accuracy (sum/sumsq method little bit better!), but sum of squares method is faster. As a result, the implementation uses the sum of values / sum of squares method (sum/sumsq method). This approach maintains:
 
 - the sum of all values,
 - the sum of squared values,
@@ -45,17 +61,18 @@ Var(X) = E[X^2] - E[X]^2
 This method is generally considered less numerically stable than Welford’s algorithm because subtracting two large close values may lead to catastrophic cancellation and precision loss. However, this issue primarily affects workloads with very large numbers and extremely small variance.
 
 For the considered workload, where client metrics are bounded and remain relatively small, the sum/sumsq approach provides sufficient numerical accuracy while being substantially simpler and faster. It also maps naturally to the mutable per-client update model used by the system and avoids the complexity of reversible online variance algorithms.
-(It should also be noted that accurate and stable calculation of memory and CPU consumption in streaming or long-running workloads may require the use of Welford’s algorithm).
+(It should also be noted that accurate and stable calculation of CPU consumption in streaming or long-running workloads may require the use of Welford’s algorithm).
+
+We calculate mean and standard deviation using SCALE_SHIFT = 10 - fixed-point scaling factor used for integer arithmetic. We also save both these values in scaled format for accuracy, because linux kernel code avoids floating point operations.
 
 **Defence Mode**
-Each new observation is evaluated using z = ((x−mean) << SCALE_SHIFT) / std (Where SCALE_SHIFT = 10 - fixed-point scaling factor used for integer arithmetic. Kernel code avoids floating point operations, so all fractional calculations (e.g. mean, variance, z-score) are performed using scaled integers). If z > configured_threshold the event is considered anomalous. Reject request / connection, drop connection with TCP RST and optionally block client by IP.
+Each new observation is evaluated using z = ((x << SCALE_SHIFT) − mean) / std (Where SCALE_SHIFT = 10 - the same scaling factor, which is used during mean and standart deviation calculation), so all fractional calculations (e.g. mean, variance, z-score) are performed using scaled integers). If z > configured_threshold the event is considered anomalous. Reject request / connection, drop connection with TCP RST and optionally block client by IP.
 
 **Disabled Mode**
 Internal state used during transitions. Ensures safe updates of shared data (via RCU synchronization). Also I think it's better to implement this state also, not only as internal state, to prevent any additional calculations, when it is not necessary (for example administrator don't need this security feature at all).
 
 **Connection Count Tracking**
-In`TfwClient` structure we additionally store `unsigned int conn_max`, `int conn_curr` and `unsigned int conn_training_epoch`. We don't need any lock here, because all this fields updated under private `ra->lock` in frang.
-We use new implemented function `tfw_client_training_adjust_conn_num` both for training and  defence mode.
+In`TfwClient` structure we additionally store `unsigned int conn_max`, `int conn_curr` and `u16 conn_training_epoch`. We don't need any lock here, because all this fields are updated under private `ra->lock` in frang. We use new implemented function `tfw_client_training_adjust_conn_num` both for training and defence mode.
 
 **Training mode**
 `conn_curr` is incremented/decremented.
@@ -94,84 +111,127 @@ The variance computation subtracts two extremely large nearly identical numbers,
 - the variance is reasonably large relative to the mean,
 - the dynamic range is moderate,
 
-According to our investigation (described at the beginning of the document for connections and requests this simplest algorithm is better both in terms of performance and accuracy).
+According to our investigation (described at the beginning of the document for connections, requests and memory usage this simplest algorithm is better both in terms of performance and accuracy).
 
 **Defence mode**
-Track `conn_curr` on each new opened connection. Calculate `z = ((conn_curr - mean) << SCALE_SHIFT) / std` if `z > threshold` reject connection and block client by IP if necessary.
+Track `conn_curr` on each new opened connection. Calculate `z = ((conn_curr << SCALE_SHIFT) - mean) / std` if `z > threshold` reject connection and block client by IP if necessary.
 
 **Epoch handling**
 Each connection tagged with training_epoch (we add new field to `tempesta_sock` and save epoch in this field) and also we add `conn_training_epoch` to the `TfwClient` structure. We need epoch handling  to zero history from previous trainging and prevent mixing old and new training data. When we call `tfw_client_training_adjust_conn_num` (function for both trainging and defence mode) first of all we check `if (delta < 0 && *training_epoch < g_training_epoch)` and immediately return if condition is true (`delta < 0` means that connection is dropped and belongs to previous epoch). If `delta > 0` we set `*training_epoch = g_training_epoch` to the new established connection (when connection is opening it always belongs to the new epoch if trainging enabled!). In trainging mode we also check
 `if (cli->conn_training_epoch < g_training_epoch)` to zero all client training data (`conn_curr` and `conn_max`).
 
-**Request Count Tracking (Non-idempotent)**
-We implement `TfwClientReqCounter` structure to track non idempodent requests count.
+**Request Count Tracking (Non-idempotent) / Client Memory Usage Tracking**
+We track non-idempotent requests and client memory usage in the same way. First of all we implement `TfwClientCounter` structure to track non idempotent requests count and client memory usage. 
 ```C
 /*
- * next_free		- internal field for more effective allocation from preallocated
- * 					  pool;
- * counter			- percpu array to track current value of the tracked metric;
  * lock				- spinlock for serialized reset of @max and @counter when a
  *					  new training epoch starts.
  * max				- maximum observed value of the tracked metric within the
  *					  current training epoch (e.g. peak number of in-flight
  *					  non-idempotent requests);
+ * counter			- percpu array to track current value of the tracked metric;
  * @epoch			- training epoch identifier. Compared against the global
  *					  @g_training_epoch to detect epoch change and trigger
  *					  reinitialization of @max and @counter.
  */
+typedef struct tfw_client_counter_t {
+	spinlock_t			lock;
+	atomic_long_t		max;
+	long 	__percpu	*counter;
+	u16					epoch;
+} TfwClientCounter;
+```
+
+We also implement parent structure to track non idempotent requests count with `kill_work` to be able to delete this structure safely asynchroniously. 
+```C
+/*
+ * Non idempotent request accounting structure for Tempesta FW.
+ *
+ * @counter	- 	  non idempotent requests accounting storage;
+ * @kill_work	- Workqueue item used for asynchronous structure
+ *				  cleanup/destruction;
+ */
 typedef struct tfw_client_req_counter_t {
-	struct tfw_client_req_counter_t	*next_free;
-	unsigned int __percpu			*counter;
-	spinlock_t						lock;
-	atomic_t						max;
-	unsigned int					epoch;
+	TfwClientCounter	counter;
+	struct work_struct	kill_work;
 } TfwClientReqCounter;
 ```
 
-We add new field to request structure `training_epoch` to track is requst belongs to current trainging epoch or no.
-When we add (in `tfw_http_req_enlist`)/remove (in `tfw_http_req_nip_delist`) non-idempodent request from the server connection queue, we call new implemented function `void tfw_client_training_adjust_req_num(TfwClient *cli, int delta, unsigned int *training_epoch)`. In this function (same as we do for connections) first of all we check if event (request) belongs to the current training epoch and skip it it doesn't belong.
-```
+We also implement parent structure to track client memory usage.
+```C
 /*
- * Ignore request removing events from previous training epochs. If we add new request (`delta > 0`) it always belongs
- * to the new epoch. `training_epoch` - is a new field in the request structure.
+ * Client memory accounting structure for Tempesta FW.
+ *
+ * @counter	- memory accounting storage;
+ * @mem		- Per-CPU memory accounting storage. Used for
+ *			  soft/hard memory limits. Not zeroed on the new
+ *			  training epoch;
+ * @refcnt	- Per-CPU reference counter. Provides scalable and
+ *			  thread-safe reference tracking on SMP systems with
+ *			  minimal contention;
+ * @kill_work	- Workqueue item used for asynchronous structure
+ *				  cleanup/destruction;
  */
-if (delta < 0 && *training_epoch < g_training_epoch)
-		return true;
-	else if (delta > 0)
-		*training_epoch = g_training_epoch;
+typedef struct tfw_client_mem_t {
+	TfwClientCounter	counter;
+	long	__percpu	*mem;	
+	struct percpu_ref	refcnt;
+	struct work_struct	kill_work;
+} TfwClientMem;
 ```
-We also check epoch for the whole `TfwClientReqCounter` structure and zero statistic for the new training epoch.
-```
-/*
-	 * We increment `g_training_epoch` each time when we start new
-	 * training, when we are sure that all threads don't use `max`
-	 * and `counter`. During training all threads call this function
-	 * before use `counter` and `max`, so we are sure that `counter` and
-	 * `max` will be zeroed on the start of the new training.
-	 * We make first check to prevent unnecessary lock on the hot
-	 * path on each call.
-	 */
-	if (cli_req_counter->epoch < g_training_epoch) {
-		spin_lock_bh(&cli_req_counter->lock);
-		if (likely(cli_req_counter->epoch < g_training_epoch)) {
-			int cpu;
 
-			for_each_online_cpu(cpu) {
-				*(per_cpu_ptr(cli_req_counter->counter,
-					      cpu)) = 0;
-			}
-			atomic_set(&cli_req_counter->max, 0);
-			cli_req_counter->epoch = g_training_epoch;
-			new_client = true;
-		}
-		spin_unlock_bh(&cli_req_counter->lock);
+We add new field `training_epoch` to several structures (`request` structure, `pool` structure and `skb->cb`) to track is event belongs to current trainging epoch or no.
+When we add (in `tfw_http_req_enlist`)/remove (in `tfw_http_req_nip_delist`) non-idempotent request from the server connection queue, we call new implemented function `void tfw_client_counter_training_adjust_req(TfwClient *cli, int delta, unsigned int *training_epoch)`. We also call `tfw_client_counter_training_adjust_mem` when we allocate some memory for current client. Both these functions call `void tfw_client_counter_training_adjust(TfwClientCounter *counter, int delta, void (*adjust_new_client)(void), u16 *training_epoch)` for real event tracking. In this function (same as we do for connections) first of all we check if event belongs to the current training epoch and skip it if doesn't belong.
+```C
+/*
+ * Ignore event removing events from previous training epochs. If we
+ * add new request (`delta > 0`) it always belongs to the new epoch.
+ * For memory tracking there is a case when we make allocation in the
+ * new epoch for the pool or skb which was allocated in the previous
+ * epoch, we should also ignore such cases (there is only one epoch
+ * identifier for structure, which we set on it's first tracking.
+ * `training_epoch` - is a new field in the appropriate structure.
+ */
+if ((*training_epoch || delta < 0)
+    && *training_epoch < g_training_epoch)
+	return
+else if (!(*training_epoch) && delta > 0)
+	*training_epoch = g_training_epoch;
+```
+
+We also check epoch for the whole `TfwClientCounter` structure and zero statistic for the new training epoch.
+```C
+/*
+ * We increment `g_training_epoch` each time when we start new
+ * training, when we are sure that all threads don't use `max`
+ * and `counter`. During training all threads call this function
+ * before use `counter` and `max`, so we are sure that `counter`
+ * and `max` will be zeroed on the start of the new training.
+ * We make first check to prevent unnecessary lock on the hot
+ * path on each call.
+ */
+if (counter->epoch < g_training_epoch) {
+	spin_lock_bh(&counter->lock);
+	if (likely(counter->epoch < g_training_epoch)) {
+		int cpu;
+
+		for_each_online_cpu(cpu)
+			*(per_cpu_ptr(counter->counter, cpu)) = 0;
+		atomic_long_set(&counter->max, 0);
+		counter->epoch = g_training_epoch;
+		new_client = true;
 	}
+	spin_unlock_bh(&counter->lock);
+}
 ```
-Finally we increment count of client (if necessary) and appropritate percpu `counter`. This function works same both for the `trainging` and `defence` mode.
-The real non-idempodent request adujusting is implemented int the `tfw_http_conn_recv_finish` callback which is called at the end of the `ss_tcp_process_data` (to prevent performance degradation). In `trainging` mode we track maximum count of non idempodent requests for the client. When max increases - compute `delta1 = new_max - old_max` and `delta2 = new_max² - old_max²` and use this values to update `sum` and `sumsq` (same as for connections, count of non idempodent requests is small, so we don't need Welford algorithm for accuracy, and use more simple and fast `sum/sumsq` algorithm.
-```
-	curr = tfw_client_req_count(cli);
-	old_max = atomic_read(&cli_req_counter->max);
+Finally we increment count of clients (`new_client` == true) and appropritate percpu `counter`. This function works same both for the `trainging` and `defence` mode.
+The real event adujusting is implemented int the `tfw_http_conn_recv_finish` callback which is called at the end of the `ss_tcp_process_data` (to prevent performance degradation). In `trainging` mode we track maximum count of non idempodent requests for the client / maximum memory usage for the client. When max increases - compute `delta1 = new_max - old_max` and `delta2 = new_max² - old_max²` and use this values to update `sum` and `sumsq` (same as for connections we use more simple and fast `sum/sumsq` algorithm).
+```C
+static inline bool
+tfw_client_counter_change_max(TfwClientCounter *counter, long curr,
+			      u64 *delta1, u64 *delta2)
+{
+	long old_max = atomic_long_read(&counter->max);
 
 	/*
 	 * Can be called concurrentrly on other cpu with different
@@ -179,39 +239,81 @@ The real non-idempodent request adujusting is implemented int the `tfw_http_conn
 	 */
 	do {
 		if (curr <= old_max)
-			return true;
-	} while (!atomic_try_cmpxchg(&cli_req_counter->max, &old_max, curr));
+			return false;
+	} while (!atomic_long_try_cmpxchg(&counter->max, &old_max, curr));
 
-	delta1 = curr - old_max;
-	delta2 = (u64)curr * curr - (u64)old_max * old_max;
-	tfw_training_mode_adjust_req_num(delta1, delta2);
+	*delta1 = curr - old_max;
+	*delta2 = (u64)curr * curr - (u64)old_max * old_max;
+
+	return true;
+}
+
+static bool
+tfw_client_counter_training_check(TfwClientCounter *counter,
+				  void (*adjust_num)(u64, u64),
+				  bool(*defence)(u64))
+{
+	u64 delta1, delta2;
+	long curr;
+
+	if (tfw_mode_is_disabled())
+		return true;
+
+	curr = tfw_client_counter_get(counter);
+	if (tfw_mode_is_defence())
+		return defence(curr);
+
+	if (tfw_client_counter_change_max(counter, curr, &delta1, &delta2))
+		adjust_num(delta1, delta2);
+
+	return true;
+}
 ```
+`adjust_num` - function to track `sum/sumsq` values for non-idempotent requests/memory usage.
+`defence` - function to calculate `z-score` according current event count and return true/false depends on if calculated `z-score` less or greater then configured threshold.    
+
 Since we use percpu aggregation in `tfw_client_req_count` and `atomic` only once at the end of the `ss_tcp_process_data` it doesn't affect performance.
 Performance statistic:
 ```
-GET not cached:
+trainging:
+finished in 50.03s, 1102774.42 req/s, 855.02MB/s
+finished in 50.03s, 1094190.10 req/s, 848.37MB/s
+finished in 50.06s, 1119276.64 req/s, 867.82MB/s
+finished in 50.06s, 1111121.46 req/s, 861.49MB/s
+defence:
+finished in 50.08s, 1085963.46 req/s, 841.99MB/s
+finished in 50.08s, 1102987.66 req/s, 855.19MB/s
+finished in 50.08s, 1099386.24 req/s, 852.40MB/s
 master:
-finished in 50.03s, 277268.34 req/s, 169.57MB/s
-finished in 50.04s, 228033.70 req/s, 139.37MB/s
-finished in 50.03s, 286405.80 req/s, 175.26MB/s
-finished in 50.03s, 218233.90 req/s, 133.37MB/s
-training:
-finished in 50.03s, 295427.04 req/s, 180.75MB/s
-finished in 50.03s, 248309.20 req/s, 131.78MB/s
-finished in 50.03s, 284691.54 req/s, 174.18MB/s
-finished in 50.03s, 210385.12 req/s, 128.53MB/s
-GET nonidempodent:
-master:
-finished in 50.08s, 292313.58 req/s, 178.97MB/s
-finished in 50.08s, 198466.62 req/s, 121.51MB/s
-finished in 50.08s, 279269.66 req/s, 170.99MB/s
-training:
-finished in 50.08s, 283923.64 req/s, 173.82MB/s
-finished in 50.08s, 217244.30 req/s, 132.98MB/s
-finished in 50.08s, 301014.66 req/s, 184.30MB/s
+finished in 50.03s, 1083363.94 req/s, 838.78MB/s
+finished in 50.03s, 1083501.30 req/s, 839.42MB/s
+finished in 50.03s, 1081202.90 req/s, 838.30MB/s
 ```
-We also have a some failed requests `requests: 14238991 total, 14248991 started, 14238991 done, 14238907 succeeded, 84 failed, 0 errored, 0 timeout` for nonidempodent requests, so not all requests were successful both on master in current implementation. (Different performance results depends on the count of failed requests).
-In `defence` mode we use `curr = tfw_client_req_count(cli);` to calculate `z-score`, compare it with configured threshold and drop client connection (and block client by ip, if necessary).
+We check performance statistics for GET requests with cache, so we don't check how non idempotent requests tracking influence on perfomance. But we track memory usage much more often, so it seems that if doesn't affect perfomance, non idempotent requests counting also doesn't affect it. In `defence` mode we use `curr = tfw_client_counter_get(cli);` to calculate `z-score` amd compare it with configured threshold (in `defence` function) and drop client connection (and block client by ip, if necessary).
+
+We also implement some structures for fast memory allocation, during client creation. First of all we implement new data structure
+```C
+typedef struct tfw_client_pool_obj_t {
+	union {
+		TfwClientCounter 		counter;
+		struct tfw_client_pool_obj_t	*next_free;
+	};
+	DECLARE_FLEX_ARRAY(char, data);
+} TfwClientPoolObj;
+```
+and special pool
+```C
+typedef struct {
+	TfwClientPoolObj 			*obj;
+	TfwClientPoolObj			*free_list;
+	tfw_client_pool_release_t		release;
+	size_t					obj_size;
+	unsigned int				size;
+	unsigned int				order;
+} TfwClientPool;
+```
+Then we create two pools one for `TfwClientReqCounter` and one for `TfwClientMem`. (Previously we have one pool of `TfwClientMem` structures). We initialize these pools when Tempesta FW start work and destroy when Tempesta FW unload. We use these pools for fast memory allocations. (In fact we just rework current `TfwClientMem` allocation mechanizm to have ability to allocate `TfwClientReqCounter` in the same way using common data structures and functions).
+
 
 
 

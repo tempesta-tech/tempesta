@@ -69,11 +69,18 @@ valgen_rnd_1_100(void)
 	return valgen_rnd(1, 100);
 }
 
+static unsigned int
+valgen_rnd_1_1000(void)
+{
+	return valgen_rnd(1, 1000);
+}
+
 int main()
 {
 	__check_accuracy(valgen_1, "+1");
 	__check_accuracy(valgen_rnd_1_10, "random 1 - 10");
 	__check_accuracy(valgen_rnd_1_100, "random 1 - 100");
+	__check_accuracy(valgen_rnd_1_100, "random 1 - 1000");
 
 	return 0;
 }
