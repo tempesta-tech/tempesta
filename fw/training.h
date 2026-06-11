@@ -33,6 +33,46 @@
  *   - Mean and standard deviation are computed at the end of the training
  *     phase and then used in defence mode without further modification.
  *
+ * Several approaches for online variance calculation were evaluated, including
+ * Welford’s algorithm and the “sum/squared-sum” method. It was found that the
+ * “sum/squared-sum” method is better for our purposes:
+ *   - Original form Welford assumes an append-only stream of samples, where
+ *     each new observation increases the total sample count. In our case,
+ *     however, "n" represents the number of clients rather than the number
+ *     of events, so we need a modified reversible version of Welford’s
+ *     algorithm, which significantly complicates the implementation and
+ *     slower then it's classic version.
+ *
+ *   - Kernel-space constraints prohibit floating-point arithmetic, requiring
+ *     the use of fixed-point integer arithmetic instead. While Welford’s
+ *     algorithm is known for its excellent numerical stability with
+ *     floating-point arithmetic, its fixed-point implementation introduces
+ *     truncation errors during repeated division operations.
+ *   - “Sum/squared-sum” method is generally considered less numerically
+ *      stable than Welford’s algorithm because subtracting two large close
+ *      values may lead to catastrophic cancellation and precision loss.
+ *      However, this issue primarily affects workloads with very large
+ *      numbers and extremely small variance. For the considered workload,
+ *      where client metrics are bounded and remain relatively small, the
+ *      “Sum/squared-sum” approach provides sufficient numerical accuracy
+ *      while being substantially simpler and faster.
+ *
+ * According to the selected algorithm at the end of the training phase
+ * the following statistics are derived from the accumulated "sum" and
+ * "sumsq":
+ *       sum
+ *   μ = ───
+ *        n
+ *
+ *        sumsq
+ *   σ² = ───── - μ²
+ *          n
+ *
+ *   σ = √σ²
+ *
+ *  The resulting mean (μ) and standard deviation (σ) are then used in the
+ *  defence mode to compute z-scores.
+ *
  * Copyright (C) 2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -62,6 +102,15 @@
  * Kernel code avoids floating point operations, so all fractional
  * calculations (e.g. mean, variance, z-score) are performed using
  * scaled integers. SCALE_SHIFT defines the number of fractional bits.
+ *
+ * A value X is represented internally as:
+ *
+ *     X_scaled = X << SCALE_SHIFT
+ *
+ * For example, with SCALE_SHIFT = 10:
+ *
+ *     1.0 -> 1024
+ *     2.5 -> 2560
  */
 #define SCALE_SHIFT 10
 

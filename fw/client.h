@@ -85,7 +85,7 @@ typedef struct tfw_client_counters_t {
  * @class_prvt		- private client accounting data for classifier module.
  *			  Typically it's large and wastes memory in vain if
  *			  no any classification logic is used;
- * @list_head		- entry in the lru list;
+ * @list		- entry in the lru list;
  * @counters		- structure to track different client statistic;
  * @conn_max		- maximum count of simultaneously opened connections
  *			  during training period. Not atomic, because it is
@@ -94,7 +94,6 @@ typedef struct tfw_client_counters_t {
  *			  during training period;
  * @conn_training_epoch	- training epoch identifier, used to zero @conn_max
  *			  and @conn_curr when the new training start;
- * @req_stat		- training statistic for non idempodent requests;
  */
 typedef struct {
 	TFW_PEER_COMMON;
@@ -119,10 +118,21 @@ void tfw_cli_abort_all(void);
 void tfw_tls_connection_lost(TfwConn *conn);
 bool tfw_client_training_adjust_conn_num(TfwClient *cli, int delta,
 					 u16 *training_epoch);
+/*
+ * Client non idempotent request/memory usage tracking splitted into
+ * two parts. The next two functions are used only for statistic
+ * accomulation in per-CPU counter without passing it to the training
+ * module. They are invoked on every event, but very lightweight.
+ */
 void tfw_client_counter_training_adjust_req(TfwClientCounter *counter,
 					    int delta, u16 *training_epoch);
 void tfw_client_counter_training_adjust_mem(TfwClientCounter *counter,
 					    int delta, u16 *training_epoch);
+/*
+ * The next two functions are used for appropriate statistic agregation
+ * and passing it to the training module. They are invoked at the end of
+ * `ss_tcp_process_data`, quite rare, so they don't affect performance.
+ */
 bool tfw_client_counter_training_check_req(TfwClientCounter *counter);
 bool tfw_client_counter_training_check_mem(TfwClientCounter *counter);
 void tfw_client_filter_block_ip(TfwClient *cli);

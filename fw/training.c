@@ -124,7 +124,8 @@ tfw_disable_training_or_defence(void)
 {
 	/*
 	 * Set TFW_MODE_DISABLED, now we stop calling all new defence
-	 * and training functions.
+	 * and training functions. We don't try to make rcu pointer
+	 * dereference after it.
 	 */
 	WRITE_ONCE(tfw_training_mod_state, TFW_MODE_DISABLED);
 	/*
@@ -153,8 +154,12 @@ __upgrade_all_stats(struct stats *new_conn_num,
 	old_mem_num = rcu_replace_pointer(g_mem_num, new_mem_num, true);
 	old_cpu_num = rcu_replace_pointer(g_cpu_num, new_cpu_num, true);
 	/*
-	 * We don't need second `synchronize_rcu`, because all readers
-	 * check `tfw_training_mod_state` before `rcu_read_lock`
+	 * We don't need second `synchronize_rcu` here (first `synchronize_rcu`
+	 * is called inside `tfw_disable_training_or_defence`), because we check
+	 * that training mode is not disabled in all places where we access `stats`.
+	 * So after calling `tfw_disable_training_or_defence` we are sure that all
+	 * concurrent calls (where we can access `old_* stats) are finished or don't
+	 * try to dereference appropriate pointer, because of already disabled mode.
 	 */
 	__free_stats(old_conn_num);
 	__free_stats(old_req_num);
@@ -279,6 +284,10 @@ __calculate_z_score(u64 val, struct stats *s, s64 *z_score)
 	if (unlikely(!s->std))
 		return false;
 
+	/*
+	 * We store `mean` and `std` values in scaled format, so
+	 * we should convert `val` to scaled format also.
+	 */
 	*z_score = ((s64)(val << SCALE_SHIFT) - s->mean) / s->std;
 	return true;
 
@@ -291,6 +300,17 @@ tfw_training_mode_adjust_new_client(struct stats __rcu *g_stats)
 
 	rcu_read_lock();
 
+	/*
+	 * We check mode every where before call this function (see appropriate
+	 * functions in client module). But there is a race after check in
+	 * client module and this function call. Here we can safely access `s`
+	 * pointer - we access this pointer under `rcu`. During switching modes
+	 * we first of all disable trainging and then call `synchronize_rcu`,
+	 * so if `tfw_disable_training_or_defence` is called on other cpu, it
+	 * will wait until we finish to collect statistic. If it was called (and
+	 * finished before this function call), `tfw_mode_is_disabled` returns
+	 * true here.
+	 */
 	if (likely(!tfw_mode_is_disabled())) {
 		s = rcu_dereference(g_stats);
 		percpu_counter_add(&s->num, 1);
@@ -325,6 +345,17 @@ tfw_training_mode_adjust_new_el(struct stats __rcu *g_stats, u64 delta1,
 
 	rcu_read_lock();
 
+	/*
+	 * We check mode every where before call this function (see appropriate
+	 * functions in client module). But there is a race after check in
+	 * client module and this function call. Here we can safely access `s`
+	 * pointer - we access this pointer under `rcu`. During switching modes
+	 * we first of all disable trainging and then call `synchronize_rcu`,
+	 * so if `tfw_disable_training_or_defence` is called on other cpu, it
+	 * will wait until we finish to collect statistic. If it was called (and
+	 * finished before this function call), `tfw_mode_is_disabled` returns
+	 * true here.
+	 */
 	if (likely(!tfw_mode_is_disabled())) {
 		s = rcu_dereference(g_stats);
 		percpu_counter_add(&s->sum, delta1);

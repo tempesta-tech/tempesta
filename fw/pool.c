@@ -293,6 +293,13 @@ __tfw_pool_new(size_t n, TfwClientMem *owner)
 	p->owner = cli_mem;
 	p->off = c->off = TFW_POOL_HEAD_OFF;
 	p->curr = c;
+	/*
+	 * We set pool `training_epoch` during pool creation. Then we
+	 * allocate memory from the current pool, we check if the pool
+	 * belongs to the current trainging epoch or not. If allocation
+	 * is made from the pool, which was created in the previous
+	 * trainging epoch, we don't adjust it in the new training.
+	 */
 	p->training_epoch = epoch;
 
 	return p;

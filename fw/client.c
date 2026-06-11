@@ -740,9 +740,9 @@ tfw_client_counter_change_epoch(TfwClientCounter *counter)
 	/*
 	 * We increment `g_training_epoch` each time when we start new
 	 * training, when we are sure that all threads don't use `max`
-	 * and `curr`. During training all threads call this function
-	 * before use `curr` and `max`, so we are sure that `curr` and
-	 * `max` will be zeroed on the start of the new training.
+	 * and `counter`. During training all threads call this function
+	 * before use `counter` and `max`, so we are sure that `counter`
+	 * and `max` will be zeroed on the start of the new training.
 	 * We make first check to prevent unnecessary lock on the hot
 	 * path on each call.
 	 */
@@ -772,7 +772,13 @@ tfw_client_counter_training_adjust(TfwClientCounter *counter, int delta,
 		return;
 
 	/*
-	 * Ignore removing events from the previous training epochs.
+	 * Ignore event removing events from previous training epochs. If we
+	 * add new request (`delta > 0`) it always belongs to the new epoch.
+	 * For memory tracking there is a case when we make allocation in the
+	 * new epoch for the pool or skb which was allocated in the previous
+	 * epoch, we should also ignore such cases (there is only one epoch
+	 * identifier for structure, which we set on it's first tracking.
+	 * `training_epoch` - is a new field in the appropriate structure.
 	 */
 	if ((*training_epoch || delta < 0)
 	    && *training_epoch < g_training_epoch)
@@ -822,7 +828,7 @@ tfw_client_counter_change_max(TfwClientCounter *counter, long curr,
 
 	/*
 	 * Can be called concurrentrly on other cpu with different
-	 * curr value, so we need syncronization here.
+	 * curr value, so we need `atomic` syncronization here.
 	 */
 	do {
 		if (curr <= old_max)
