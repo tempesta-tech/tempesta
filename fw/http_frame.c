@@ -2167,6 +2167,47 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 	return r;
 }
 
+static inline int
+tfw_h2_insert_enc_tbl_sz(TfwHPackETbl *tbl, struct sk_buff *skb_head,
+			 unsigned int offset, unsigned int *acc_len)
+{
+	TfwHPackInt min_val = {}, max_val = {};
+	TfwStr dst = {};
+	char *data;
+	unsigned int _;
+	int r = 0;
+	unsigned int size;
+
+	WARN_ON_ONCE(!tbl->wnd_changed);
+	if (tbl->window > tbl->min_window)
+		write_int(tbl->min_window, 0x1F, 0x20, &min_val);
+	write_int(tbl->window, 0x1F, 0x20, &max_val);
+
+	data = ss_skb_data_ptr_by_offset(skb_head,
+					 offset + FRAME_HEADER_SIZE);
+	if (unlikely(!data)) {
+		WARN_ONCE(1, "Can't find offset in skb.");
+		return -EPIPE;
+	}
+
+	size = min_val.sz + max_val.sz;
+	r = ss_skb_get_room_w_frag(skb_head, skb_head, data, size, &dst, &_);
+	if (unlikely(r))
+		return r;
+
+	if (tbl->window > tbl->min_window) {
+		memcpy(dst.data, min_val.buf, min_val.sz);
+		dst.data += min_val.sz;
+	}
+
+	memcpy(dst.data, max_val.buf, max_val.sz);
+	*acc_len += size;
+	tbl->min_window = HPACK_ENC_TABLE_MAX_SIZE;
+	tbl->wnd_changed = false;
+
+	return 0;
+}
+
 static int
 tfw_h2_stream_send_postponed(struct sock *sk, struct sk_buff **skb_head,
 			     unsigned int mss_now, unsigned long *snd_wnd)
@@ -2215,10 +2256,10 @@ __tfw_h2_make_headers_frame(TfwH2Ctx *ctx, TfwStream *stream)
 	unsigned char flags = 0;
 
 	if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
-		r = tfw_hpack_enc_tbl_write_sz(&ctx->hpack.enc_tbl,
-					       stream->xmit.skb_head,
-					       stream->xmit.bytes_to_send,
-					       &stream->xmit.h_len);
+		r = tfw_h2_insert_enc_tbl_sz(&ctx->hpack.enc_tbl,
+					     stream->xmit.skb_head,
+					     stream->xmit.bytes_to_send,
+					     &stream->xmit.h_len);
 		if (unlikely(r < 0)) {
 			T_WARN("Failed to encode hpack dynamic table size %d\n",
 			       r);
