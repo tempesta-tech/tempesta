@@ -338,6 +338,12 @@ tfw_adaptive_limits_adjust_req_new_client(void)
 	return tfw_adaptive_limits_adjust_new_client(g_req_num);
 }
 
+static void
+tfw_adaptive_limits_adjust_cpu_new_client(void)
+{
+	return tfw_adaptive_limits_adjust_new_client(g_cpu_num);
+}
+
 static inline void
 tfw_adaptive_limits_adjust_new_el(struct stats __rcu *g_stats, u64 delta1,
 				  u128 delta2)
@@ -365,6 +371,12 @@ static void
 tfw_adaptive_limits_adjust_req_num(u64 delta1, u128 delta2)
 {
 	return tfw_adaptive_limits_adjust_new_el(g_req_num, delta1, delta2);
+}
+
+static void
+tfw_adaptive_limits_adjust_cpu(u64 delta1, u128_acc delta2)
+{
+	return tfw_adaptive_limits_adjust_new_el(g_cpu_num, delta1, delta2);
 }
 
 /**
@@ -435,6 +447,14 @@ tfw_adaptive_limits_check_and_set_epoch(u16 *epoch, bool new_event)
 		*epoch = g_training_epoch;
 
 	return true;
+}
+
+static inline bool
+tfw_adaptive_limits_defence_cpu(u64 val)
+{
+	int threshold = tfw_adaptive_limits_z_score_cpu;
+
+	return tfw_adaptive_limits_defence(g_cpu_num, val, threshold);
 }
 
 bool
@@ -548,8 +568,20 @@ tfw_adaptive_limits_change_epoch(TfwAdaptiveLimitLock *limit)
 }
 
 static void
+__tfw_adaptive_limits_acc(TfwAdaptiveLimitLock *limit, int delta,
+			 void (*adjust_new_client)(void),
+			 void (*add)(TfwAdaptiveLimitLock *limit, int delta))
+{
+	if (tfw_adaptive_limits_mode_is_training()
+	    && tfw_adaptive_limits_change_epoch(limit))
+		adjust_new_client();
+	add(limit, delta);
+}
+
+static void
 tfw_adaptive_limits_acc(TfwAdaptiveLimitLock *limit, int delta,
 			void (*adjust_new_client)(void),
+			void (*add)(TfwAdaptiveLimitLock *limit, int delta),
 			u16 *epoch)
 {
 	bool new_event;
@@ -567,14 +599,25 @@ tfw_adaptive_limits_acc(TfwAdaptiveLimitLock *limit, int delta,
 	if (!tfw_adaptive_limits_check_and_set_epoch(epoch, new_event))
 		goto out;
 
-	if (tfw_adaptive_limits_mode_is_training()
-	    && tfw_adaptive_limits_change_epoch(limit))
-		adjust_new_client();
-
-	this_cpu_add(*limit->counter, delta);
+	__tfw_adaptive_limits_acc(limit, delta, adjust_new_client, add);
 
 out:
 	rcu_read_unlock();
+}
+
+static inline void
+tfw_adaptive_limits_counter_add(TfwAdaptiveLimitLock *limit, int delta)
+{
+	this_cpu_add(*limit->counter, delta);
+}
+
+static inline void
+tfw_adaptive_limits_counter_add_ema(TfwAdaptiveLimitLock *limit, int delta)
+{
+	s64 *ema = this_cpu_ptr(limit->counter);
+	static const unsigned int ema_alpha_shift = 4;
+
+	*ema += ((s64)delta - *ema) >> ema_alpha_shift;
 }
 
 void
@@ -583,8 +626,26 @@ tfw_adaptive_limits_acc_req_num(TfwAdaptiveLimitLock *limit, int delta,
 {
 	void (*adjust_new_client)(void) =
 		tfw_adaptive_limits_adjust_req_new_client;
+	void (*add)(TfwAdaptiveLimitLock *limit, int delta) =
+		tfw_adaptive_limits_counter_add;
 
-	tfw_adaptive_limits_acc(limit, delta, adjust_new_client, epoch);
+	tfw_adaptive_limits_acc(limit, delta, adjust_new_client, add, epoch);
+}
+
+void
+tfw_adaptive_limits_acc_cpu(TfwAdaptiveLimitLock *limit, u64 time_begin)
+{
+	void (*adjust_new_client)(void) =
+		tfw_adaptive_limits_adjust_cpu_new_client;
+	void (*add)(TfwAdaptiveLimitLock *limit, int delta) =
+		tfw_adaptive_limits_counter_add_ema;
+	u64 delta;
+
+	if (tfw_adaptive_limits_mode_is_disabled())
+		return;
+
+	delta = get_cycles() - time_begin;
+	__tfw_adaptive_limits_acc(limit, delta, adjust_new_client, add);
 }
 
 static inline bool
@@ -628,7 +689,14 @@ tfw_adaptive_limits_check(TfwAdaptiveLimitLock *limit,
 		goto out;
 
 	curr = tfw_percpu_s64_counter_sum(limit->counter);
-	WARN_ON(curr < 0);
+	/*
+	 * We don't track epochs for CPU usage because there is no
+	 * suitable structure to associate an epoch with CPU samples.
+	 *
+	 * Moreover, CPU usage is tracked using an EMA, which may
+	 * become negative.
+	 */
+	WARN_ON(curr < 0 && adjust_num != tfw_adaptive_limits_adjust_cpu);
 	if (tfw_adaptive_limits_mode_is_defence()) {
 		rc = defence(curr);
 		goto out;
@@ -649,6 +717,26 @@ tfw_adaptive_limits_check_req_num(TfwAdaptiveLimitLock *limit)
 	void (*adjust_num)(u64, u128) =
 		tfw_adaptive_limits_adjust_req_num;
 	bool (*defence)(u64) = tfw_adaptive_limits_defence_req_num;
+
+	return tfw_adaptive_limits_check(limit, adjust_num, defence);
+}
+
+bool
+tfw_adaptive_limits_check_cpu(TfwAdaptiveLimitLock *limit, u64 time_begin)
+{
+	u64 delta =  get_cycles() - time_begin;
+	void (*adjust_new_client)(void) =
+		tfw_adaptive_limits_adjust_cpu_new_client;
+	void (*add)(TfwAdaptiveLimitLock *limit, int delta) =
+		tfw_adaptive_limits_counter_add_ema;
+	void (*adjust_num)(u64, u128_acc) =
+		tfw_adaptive_limits_adjust_cpu;
+	bool (*defence)(u64) = tfw_adaptive_limits_defence_cpu;
+
+	if (tfw_adaptive_limits_mode_is_disabled())
+		return true;
+
+	__tfw_adaptive_limits_acc(limit, delta, adjust_new_client, add);
 
 	return tfw_adaptive_limits_check(limit, adjust_num, defence);
 }

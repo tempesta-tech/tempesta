@@ -186,7 +186,9 @@ bool tfw_adaptive_limits_check_conn_num(TfwAdaptiveLimit *limit, int delta,
 					u16 *epoch);
 void tfw_adaptive_limits_acc_req_num(TfwAdaptiveLimitLock *limit,
 				     int delta, u16 *epoch);
+void tfw_adaptive_limits_acc_cpu(TfwAdaptiveLimitLock *limit, u64 time_begin);
 bool tfw_adaptive_limits_check_req_num(TfwAdaptiveLimitLock *limit);
+bool tfw_adaptive_limits_check_cpu(TfwAdaptiveLimitLock *limit, u64 time_begin);
 int tfw_ctlfn_adaptive_limits_mode_change(unsigned int mode);
 
 int tfw_adaptive_limit_lock_init(TfwAdaptiveLimitLock *limit, gfp_t flags);

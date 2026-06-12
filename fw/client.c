@@ -95,6 +95,7 @@ __cli_adaptive_limits_release(TfwClientAdaptiveLimits *limits)
 	percpu_ref_exit(&limits->refcnt);
 	free_percpu(limits->cli_mem.mem);
 	tfw_adaptive_limit_lock_destroy(&limits->req_lim);
+	tfw_adaptive_limit_lock_destroy(&limits->cpu_lim);
 	if (!tfw_cli_adaptive_limits_belongs_to_pool(limits))
 		kmem_cache_free(tfw_cli_adaptive_limits_cache, limits);
 }
@@ -113,6 +114,7 @@ tfw_cli_adaptive_limits_pool_free(TfwClientAdaptiveLimits *limits)
 	for_each_online_cpu(cpu) {
 		*per_cpu_ptr(limits->cli_mem.mem, cpu) = 0;
 		*per_cpu_ptr(limits->req_lim.counter, cpu) = 0;
+		*per_cpu_ptr(limits->cpu_lim.counter, cpu) = 0;
 	}
 	percpu_ref_reinit(&limits->refcnt);
 	limits->next_free = cli_adaptive_limits_pool.free_list;
@@ -197,6 +199,7 @@ tfw_cli_adaptive_limits_init(TfwClientAdaptiveLimits *limits, gfp_t flags)
 {
 	TfwClientMem *cli_mem = &limits->cli_mem;
 	TfwAdaptiveLimitLock *req_lim = &limits->req_lim;
+	TfwAdaptiveLimitLock *cpu_lim = &limits->cpu_lim;
 	int r;
 
 	cli_mem->mem = tfw_alloc_percpu_gfp(s64, flags | __GFP_ZERO);
@@ -207,13 +210,19 @@ tfw_cli_adaptive_limits_init(TfwClientAdaptiveLimits *limits, gfp_t flags)
 	if (unlikely(r))
 		goto free_cli_mem;
 
-	r = tfw_percpu_ref_init(&limits->refcnt, cli_adaptive_limits_release,
-				PERCPU_REF_ALLOW_REINIT, flags);
+	r = tfw_adaptive_limit_lock_init(cpu_lim, flags | __GFP_ZERO);
 	if (unlikely(r))
 		goto destroy_req_lim;
 
+	r = tfw_percpu_ref_init(&limits->refcnt, cli_adaptive_limits_release,
+				PERCPU_REF_ALLOW_REINIT, flags);
+	if (unlikely(r))
+		goto destroy_cpu_lim;
+
 	return 0;
 
+destroy_cpu_lim:
+	tfw_adaptive_limit_lock_destroy(cpu_lim);
 destroy_req_lim:
 	tfw_adaptive_limit_lock_destroy(req_lim);
 free_cli_mem:

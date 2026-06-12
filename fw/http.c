@@ -3213,10 +3213,11 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 }
 
 static int
-tfw_http_conn_recv_finish(TfwConn *conn)
+tfw_http_conn_recv_finish(TfwConn *conn, u64 time_begin)
 {
 	TfwClient *cli = (TfwClient *)conn->peer;
 	TfwAdaptiveLimitLock *req_lim = &cli->limits->req_lim;
+	TfwAdaptiveLimitLock *cpu_lim = &cli->limits->cpu_lim;
 
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
 		tfw_h2_conn_recv_finish(conn);
@@ -3232,6 +3233,14 @@ tfw_http_conn_recv_finish(TfwConn *conn)
 	if (unlikely(!tfw_adaptive_limits_check_req_num(req_lim))) {
 		T_WARN_ADDR("Client connection dropped: non-idempotent"
 			    " request z-score exceeded the configured"
+			    " threshold\n", &cli->addr, TFW_NO_PORT);
+		tfw_client_filter_block_ip(cli);
+		return T_BLOCK_WITH_RST;
+	}
+
+	if (unlikely(!tfw_adaptive_limits_check_cpu(cpu_lim, time_begin))) {
+		T_WARN_ADDR("Client connection dropped: client cpu"
+			    " usage z-score exceeded the configured"
 			    " threshold\n", &cli->addr, TFW_NO_PORT);
 		tfw_client_filter_block_ip(cli);
 		return T_BLOCK_WITH_RST;
@@ -7827,7 +7836,9 @@ int
 tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 			     struct sk_buff *skb, struct sk_buff **next)
 {
+	u64 time_begin = get_cycles();
 	int r = T_BAD;
+	TfwClientAdaptiveLimits *limits;
 	TfwHttpMsg *req;
 	bool websocket;
 
@@ -7857,6 +7868,20 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	 * so we cannot move it iside `if` clause. */
 	req = ((TfwHttpMsg *)stream->msg)->pair;
 	websocket = test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags);
+	limits = req->conn ? CLIENT_LIMITS_FROM_CONN(req->conn) : NULL;
+	if (likely(limits)) {
+		/*
+		 * `tfw_client_limits_get` returns false, if we already
+		 * call `percpu_ref_kill` for `limits` after client
+		 * was freed. We hold the client reference counter
+		 * here due to active connections, so this situation
+		 * is impossible, moreover, false result here means
+		 * memory corruption, since we access `limits` for
+		 * already released client.
+		 */
+		BUG_ON(!tfw_client_limits_get(limits));
+	}
+
 	if ((r = tfw_http_resp_process(conn, stream, skb, next))) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		/*
@@ -7866,6 +7891,11 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 		 */
 		if (websocket)
 			clear_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
+	}
+
+	if (likely(limits)) {
+		tfw_adaptive_limits_acc_cpu(&limits->cpu_lim, time_begin);
+		tfw_client_limits_put(limits);
 	}
 
 	return r;

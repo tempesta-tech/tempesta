@@ -56,6 +56,7 @@ typedef struct tfw_adaptive_limits_t {
 	struct percpu_ref	refcnt;
 	TfwClientMem		cli_mem;
 	TfwAdaptiveLimitLock	req_lim;
+	TfwAdaptiveLimitLock	cpu_lim;
 } TfwClientAdaptiveLimits;
 
 /**
@@ -91,8 +92,10 @@ void tfw_cli_abort_all(void);
 void tfw_tls_connection_lost(TfwConn *conn);
 void tfw_client_filter_block_ip(TfwClient *cli);
 
+#define CLIENT_LIMITS_FROM_CONN(conn)				\
+	((TfwClient *)((TfwConn *)conn)->peer)->limits
 #define CLIENT_MEM_FROM_CONN(conn)				\
-	&((TfwClient *)((TfwConn *)conn)->peer)->limits->cli_mem
+	&CLIENT_LIMITS_FROM_CONN(conn)->cli_mem
 
 static inline void
 tfw_client_adjust_mem(TfwClientMem *cli_mem, int delta)
@@ -101,12 +104,24 @@ tfw_client_adjust_mem(TfwClientMem *cli_mem, int delta)
 }
 
 static inline bool
+tfw_client_limits_get(TfwClientAdaptiveLimits *limits)
+{
+	return percpu_ref_tryget(&limits->refcnt);
+}
+
+static inline void
+tfw_client_limits_put(TfwClientAdaptiveLimits *limits)
+{
+	percpu_ref_put(&limits->refcnt);
+}
+
+static inline bool
 tfw_client_mem_get(TfwClientMem *cli_mem)
 {
 	TfwClientAdaptiveLimits *limits =
 		container_of(cli_mem, TfwClientAdaptiveLimits, cli_mem);
 
-	return percpu_ref_tryget(&limits->refcnt);
+	return tfw_client_limits_get(limits);
 }
 
 static inline void
@@ -115,7 +130,7 @@ tfw_client_mem_put(TfwClientMem *cli_mem)
 	TfwClientAdaptiveLimits *limits =
 		container_of(cli_mem, TfwClientAdaptiveLimits, cli_mem);
 
-	percpu_ref_put(&limits->refcnt);
+	tfw_client_limits_put(limits);
 }
 
 static inline s64

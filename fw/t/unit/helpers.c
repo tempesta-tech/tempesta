@@ -534,8 +534,19 @@ void tfw_adaptive_limits_acc_req_num(TfwAdaptiveLimitLock *limit,
 	
 }
 
+void tfw_adaptive_limits_acc_cpu(TfwAdaptiveLimitLock *limit, u64 time_begin)
+{
+	
+}
+
 bool
 tfw_adaptive_limits_check_req_num(TfwAdaptiveLimitLock *limit)
+{
+	return true;
+}
+
+bool
+tfw_adaptive_limits_check_cpu(TfwAdaptiveLimitLock *limit, u64 time_begin)
 {
 	return true;
 }
