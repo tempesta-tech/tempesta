@@ -3211,11 +3211,12 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 }
 
 static int
-tfw_http_conn_recv_finish(TfwConn *conn)
+tfw_http_conn_recv_finish(TfwConn *conn, u64 time_begin)
 {
 	TfwClient *cli = (TfwClient *)conn->peer;
 	TfwClientCounter *req_counter = &cli->counters->req_counter;
 	TfwClientCounter *mem_counter = &cli->counters->cli_mem.counter;
+	TfwClientCounter *cpu_counter = &cli->counters->cpu_ema_counter;
 
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
 		tfw_h2_conn_recv_finish(conn);
@@ -3229,11 +3230,27 @@ tfw_http_conn_recv_finish(TfwConn *conn)
 		return T_BLOCK_WITH_RST;
 
 	if (unlikely(!tfw_client_counter_training_check_req(req_counter))) {
+		T_WARN_ADDR("Client connection dropped: non-idempotent"
+			    " request z-score exceeded the configured"
+			    " threshold\n", &cli->addr, TFW_NO_PORT);
 		tfw_client_filter_block_ip(cli);
 		return T_BLOCK_WITH_RST;
 	}
 
 	if (unlikely(!tfw_client_counter_training_check_mem(mem_counter))) {
+		T_WARN_ADDR("Client connection dropped: client memory"
+			    " usage z-score exceeded the configured"
+			    " threshold\n", &cli->addr, TFW_NO_PORT);
+		tfw_client_filter_block_ip(cli);
+		return T_BLOCK_WITH_RST;
+	}
+
+	if (unlikely(!tfw_client_counter_training_check_cpu(cpu_counter,
+							    time_begin)))
+	{
+		T_WARN_ADDR("Client connection dropped: client cpu"
+			    " usage z-score exceeded the configured"
+			    " threshold\n", &cli->addr, TFW_NO_PORT);
 		tfw_client_filter_block_ip(cli);
 		return T_BLOCK_WITH_RST;
 	}

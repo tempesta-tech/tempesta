@@ -804,9 +804,10 @@ out:
 }
 
 static int
-tfw_tls_conn_recv_finish(TfwConn *c)
+tfw_tls_conn_recv_finish(TfwConn *c, u64 time_begin)
 {
-	return tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_recv_finish);
+	return tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_recv_finish,
+				  time_begin);
 }
 
 static TfwConnHooks tls_conn_hooks = {

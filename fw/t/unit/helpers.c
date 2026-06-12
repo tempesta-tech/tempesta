@@ -554,6 +554,13 @@ tfw_client_counter_training_check_mem(TfwClientCounter *counter)
 	return true;
 }
 
+bool
+tfw_client_counter_training_check_cpu(TfwClientCounter *counter,
+				      u64 time_begin)
+{
+	return true;
+}
+
 void tfw_client_filter_block_ip(TfwClient *cli)
 {
 	

@@ -290,7 +290,6 @@ __calculate_z_score(u64 val, struct stats *s, s64 *z_score)
 	 */
 	*z_score = ((s64)(val << SCALE_SHIFT) - s->mean) / s->std;
 	return true;
-
 }
 
 static inline void
@@ -335,6 +334,12 @@ void
 tfw_training_mode_adjust_mem_new_client(void)
 {
 	return tfw_training_mode_adjust_new_client(g_mem_num);
+}
+
+void
+tfw_training_mode_adjust_cpu_new_client(void)
+{
+	return tfw_training_mode_adjust_new_client(g_cpu_num);
 }
 
 static inline void
@@ -382,6 +387,12 @@ tfw_training_mode_adjust_mem(u64 delta1, u64 delta2)
 {
 	return tfw_training_mode_adjust_new_el(g_mem_num, delta1 >> PAGE_SHIFT,
 					       delta2 >> (2 * PAGE_SHIFT));
+}
+
+void
+tfw_training_mode_adjust_cpu(u64 delta1, u64 delta2)
+{
+	return tfw_training_mode_adjust_new_el(g_cpu_num, delta1, delta2);
 }
 
 /**
@@ -452,6 +463,13 @@ tfw_training_mode_defence_mem(u64 val)
 {
 	return tfw_training_mode_defence(g_mem_num, val >> PAGE_SHIFT,
 					 tfw_training_mod_z_score_mem);
+}
+
+bool
+tfw_training_mode_defence_cpu(u64 val)
+{
+	return tfw_training_mode_defence(g_cpu_num, val,
+					 tfw_training_mod_z_score_cpu);
 }
 
 static inline void

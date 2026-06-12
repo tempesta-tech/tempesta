@@ -141,6 +141,7 @@ tfw_cli_counters_pool_free(TfwClientCounters *counters)
 		*per_cpu_ptr(counters->cli_mem.mem, cpu) = 0;
 		*per_cpu_ptr(counters->cli_mem.counter.counter, cpu) = 0;
 		*per_cpu_ptr(counters->req_counter.counter, cpu) = 0;
+		*per_cpu_ptr(counters->cpu_ema_counter.counter, cpu) = 0;
 	}
 	percpu_ref_reinit(&counters->refcnt);
 	counters->next_free = cli_counters_pool.free_list;
@@ -247,6 +248,7 @@ tfw_cli_counters_init(TfwClientCounters *counters, gfp_t flags)
 {
 	TfwClientMem *cli_mem = &counters->cli_mem;
 	TfwClientCounter *req_counter = &counters->req_counter;
+	TfwClientCounter *cpu_ema_counter = &counters->cpu_ema_counter;
 	int r;
 
 	r = tfw_cli_mem_init(cli_mem, flags);
@@ -257,13 +259,19 @@ tfw_cli_counters_init(TfwClientCounters *counters, gfp_t flags)
 	if (unlikely(r))
 		goto cli_mem_destroy;
 
-	r = tfw_percpu_ref_init(&counters->refcnt, cli_counters_release,
-				PERCPU_REF_ALLOW_REINIT, flags);
+	r = tfw_client_counter_init(cpu_ema_counter, flags);
 	if (unlikely(r))
 		goto req_counter_destroy;
 
+	r = tfw_percpu_ref_init(&counters->refcnt, cli_counters_release,
+				PERCPU_REF_ALLOW_REINIT, flags);
+	if (unlikely(r))
+		goto cpu_ema_counter_destroy;
+
 	return 0;
 
+cpu_ema_counter_destroy:
+	tfw_client_counter_destroy(cpu_ema_counter);
 req_counter_destroy:
 	tfw_client_counter_destroy(req_counter);
 cli_mem_destroy:
@@ -764,9 +772,24 @@ tfw_client_counter_change_epoch(TfwClientCounter *counter)
 }
 
 static void
-tfw_client_counter_training_adjust(TfwClientCounter *counter, int delta,
+__tfw_client_counter_training_adjust(TfwClientCounter *counter,
+				     void (*adjust_new_client)(void),
+				     void (*add)(TfwClientCounter *counter,
+				     		 int delta),
+				     int delta)
+{
+	if (tfw_mode_is_training()
+	    && tfw_client_counter_change_epoch(counter))
+		adjust_new_client();
+	add(counter, delta);
+}
+
+static void
+tfw_client_counter_training_adjust(TfwClientCounter *counter,
 				   void (*adjust_new_client)(void),
-				   u16 *training_epoch)
+				   void (*add)(TfwClientCounter *counter,
+				   	       int delta),
+				   u16 *training_epoch, int delta)
 {
 	if (tfw_mode_is_disabled())
 		return;
@@ -786,14 +809,8 @@ tfw_client_counter_training_adjust(TfwClientCounter *counter, int delta,
 	else if (!(*training_epoch) && delta > 0)
 		*training_epoch = g_training_epoch;
 
-	if (tfw_mode_is_defence()) {
-		tfw_client_counter_add(counter, delta);
-		return;
-	}
-
-	if (tfw_client_counter_change_epoch(counter))
-		adjust_new_client();
-	tfw_client_counter_add(counter, delta);
+	__tfw_client_counter_training_adjust(counter, adjust_new_client,
+					     add, delta);
 }
 
 void
@@ -802,10 +819,11 @@ tfw_client_counter_training_adjust_req(TfwClientCounter *counter, int delta,
 {
 	void (*adjust_new_client)(void) =
 		tfw_training_mode_adjust_req_new_client;
+	void (*add)(TfwClientCounter *counter, int delta) =
+		tfw_client_counter_add;
 
-	return tfw_client_counter_training_adjust(counter, delta,
-						  adjust_new_client,
-						  training_epoch);
+	return tfw_client_counter_training_adjust(counter, adjust_new_client,
+						  add, training_epoch, delta);
 }
 
 void
@@ -814,10 +832,11 @@ tfw_client_counter_training_adjust_mem(TfwClientCounter *counter, int delta,
 {
 	void (*adjust_new_client)(void) =
 		tfw_training_mode_adjust_mem_new_client;
+	void (*add)(TfwClientCounter *counter, int delta) =
+		tfw_client_counter_add;
 
-	return tfw_client_counter_training_adjust(counter, delta,
-						  adjust_new_client,
-						  training_epoch);
+	return tfw_client_counter_training_adjust(counter, adjust_new_client,
+						  add, training_epoch, delta);
 }
 
 static inline bool
@@ -847,7 +866,7 @@ tfw_client_counter_training_check(TfwClientCounter *counter,
 				  bool(*defence)(u64))
 {
 	u64 delta1, delta2;
-	long curr;
+	s64 curr;
 
 	if (tfw_mode_is_disabled())
 		return true;
@@ -883,6 +902,38 @@ tfw_client_counter_training_check_mem(TfwClientCounter *counter)
 	return tfw_client_counter_training_check(counter, adjust_num,
 						 defence);
 }	
+
+static inline void
+tfw_client_counter_add_ema(TfwClientCounter *counter, int delta)
+{
+	s64 *ema = this_cpu_ptr(counter->counter);
+	static const unsigned int ema_alpha_shift = 4;
+
+	*ema += ((s64)delta - *ema) >> ema_alpha_shift;
+}
+
+bool
+tfw_client_counter_training_check_cpu(TfwClientCounter *counter,
+				      u64 time_begin)
+{
+	u64 delta =  get_cycles() - time_begin;
+	void (*adjust_new_client)(void) =
+		tfw_training_mode_adjust_cpu_new_client;
+	void (*add)(TfwClientCounter *counter, int delta) =
+		tfw_client_counter_add_ema;
+	void (*adjust_num)(u64, u64) =
+		tfw_training_mode_adjust_cpu;
+	bool (*defence)(u64) = tfw_training_mode_defence_cpu;
+
+	if (tfw_mode_is_disabled())
+		return true;
+
+	__tfw_client_counter_training_adjust(counter, adjust_new_client,
+					     add, delta);
+
+	return tfw_client_counter_training_check(counter, adjust_num,
+						 defence);
+}
 
 /**
  * Beware: @fn is called under client hash bucket spin lock.

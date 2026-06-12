@@ -77,6 +77,7 @@ typedef struct tfw_client_counters_t {
 	struct percpu_ref	refcnt;
 	TfwClientMem		cli_mem;
 	TfwClientCounter	req_counter;
+	TfwClientCounter	cpu_ema_counter;
 } TfwClientCounters;
 
 /**
@@ -135,6 +136,8 @@ void tfw_client_counter_training_adjust_mem(TfwClientCounter *counter,
  */
 bool tfw_client_counter_training_check_req(TfwClientCounter *counter);
 bool tfw_client_counter_training_check_mem(TfwClientCounter *counter);
+bool tfw_client_counter_training_check_cpu(TfwClientCounter *counter,
+					   u64 time_begin);
 void tfw_client_filter_block_ip(TfwClient *cli);
 
 #define CLIENT_MEM_FROM_CONN(conn)				\
