@@ -317,9 +317,6 @@ int tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
 				  TfwHttpResp *__restrict resp,
 				  unsigned char *__restrict src, unsigned long n,
 				  TfwDecodeCacheIter *__restrict cd_iter);
-int tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *tbl, struct sk_buff *skb_head,
-			       unsigned int offset,
-			       unsigned int *acc_len);
 
 static inline unsigned int
 tfw_hpack_int_size(unsigned long index, unsigned short max)
