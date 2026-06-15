@@ -72,11 +72,11 @@ struct tfw_skb_cb {
 
 #define TFW_SKB_CB(skb) ((struct tfw_skb_cb *)&((skb)->cb[0]))
 
+void ss_skb_orphan(struct sk_buff *skb);
+void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
 void ss_skb_set_owner(struct sk_buff *skb, TfwClientMem *owner,
 		      unsigned int delta);
 void ss_skb_adjust_client_mem(struct sk_buff *skb, int delta);
-void ss_skb_dflt_destructor(struct sk_buff *skb);
-void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
 
 static inline bool
 ss_skb_is_within_fragment(char *begin_fragment, char *position,
@@ -188,23 +188,6 @@ ss_skb_queue_splice(struct sk_buff **skb_head, struct sk_buff **skb)
 	(*skb)->prev = tail;
 
 	*skb = NULL;
-}
-
-/*
- * Orphan skb from Tempesta-specific ownership. 
- * We use our own version (instead of using `skb_orphan`) to
- * don't use `skb->sk` field inside Tempesta FW source code.
- */
-static inline void
-ss_skb_orphan(struct sk_buff *skb)
-{
-	if (skb_tfw_is_in_socket_write_queue(skb))
-		return;
-
-	if (TFW_SKB_CB(skb)->cli_mem) {
-		ss_skb_dflt_destructor(skb);
-		TFW_SKB_CB(skb)->cli_mem = NULL;
-	}
 }
 
 static inline void
