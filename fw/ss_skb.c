@@ -1744,22 +1744,26 @@ ss_skb_realloc_headroom(struct sk_buff *skb)
 }
 ALLOW_ERROR_INJECTION(ss_skb_realloc_headroom, ERRNO);
 
+/*
+ * Orphan skb from Tempesta-specific ownership.
+ * We use our own version (instead of using `skb_orphan`) to
+ * don't use `skb->sk` field inside Tempesta FW source code.
+ */
 void
-ss_skb_dflt_destructor(struct sk_buff *skb)
+ss_skb_orphan(struct sk_buff *skb)
 {
-	TfwClientMem *cli_mem =
-		(TfwClientMem *)TFW_SKB_CB(skb)->cli_mem;
+	TfwClientMem *cli_mem;
 
-	/*
-	 * If skb is in socket write queue, skb->cb is used to store
-	 * `struct tcp_sock` data. Inside `ss_skb_adjust_client_mem`
-	 * we also access skb->cb, so we corrupt `tcp_sock` data for
-	 * skbs in socket write queue.
-	 */
-	BUG_ON(skb_tfw_is_in_socket_write_queue(skb));
-	ss_skb_adjust_client_mem(skb, -TFW_SKB_CB(skb)->mem);
-	WARN_ON(TFW_SKB_CB(skb)->mem);
-	tfw_client_mem_put(cli_mem);
+	if (skb_tfw_is_in_socket_write_queue(skb))
+		return;
+
+	cli_mem = (TfwClientMem *)TFW_SKB_CB(skb)->cli_mem;
+	if (cli_mem) {
+		ss_skb_adjust_client_mem(skb, -TFW_SKB_CB(skb)->mem);
+		WARN_ON(TFW_SKB_CB(skb)->mem);
+		tfw_client_mem_put(cli_mem);
+		TFW_SKB_CB(skb)->cli_mem = NULL;
+	}
 }
 
 void
