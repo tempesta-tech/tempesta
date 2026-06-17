@@ -28,9 +28,14 @@
 /*
  * Client memory accounting structure for Tempesta FW.
  *
- * @mem	- Per-CPU memory accounting storage.
+ * @mem_lim	- structure to track memory usage for the current client.
+ *		  Used in adaptive_limits module to collect statistic
+ *		  and z-score calculation;
+ * @mem		- Per-CPU memory accounting storage (this storage is not
+ *		  zeroed on the next training epoch);
  */
 typedef struct tfw_client_mem_t {
+	TfwAdaptiveLimitLock	mem_lim;
 	s64 __percpu		*mem;
 } TfwClientMem;
 
@@ -43,10 +48,13 @@ typedef struct tfw_client_mem_t {
  * @refcnt	- percpu reference counter. Provides scalable and
  *		  thread-safe reference tracking on SMP systems with
  *		  minimal contention;
- * cli_mem	- client memory accounting structure for Tempesta FW;
- * req_lim	- structure to track non-idempotent requests count in
+ * @req_lim	- structure to track non-idempotent requests count in
  *		  fly for the current client. Used in adaptive_limits
  *		  module to collect statistic and z-score calculation;
+ * @cpu_lim	- structure to track cpu usage for current client. Used
+ *		  in adaptive_limits module to collect statistic and
+ *		  z-score calculation;
+ * @cli_mem	- client memory accounting structure for Tempesta FW;
  */
 typedef struct tfw_adaptive_limits_t {
 	union {
@@ -54,9 +62,9 @@ typedef struct tfw_adaptive_limits_t {
 		struct tfw_adaptive_limits_t	*next_free;
 	};
 	struct percpu_ref	refcnt;
-	TfwClientMem		cli_mem;
 	TfwAdaptiveLimitLock	req_lim;
 	TfwAdaptiveLimitLock	cpu_lim;
+	TfwClientMem		cli_mem;
 } TfwClientAdaptiveLimits;
 
 /**
@@ -98,9 +106,16 @@ void tfw_client_filter_block_ip(TfwClient *cli);
 	&CLIENT_LIMITS_FROM_CONN(conn)->cli_mem
 
 static inline void
-tfw_client_adjust_mem(TfwClientMem *cli_mem, int delta)
+__tfw_client_adjust_mem(TfwClientMem *cli_mem, int delta)
 {
 	this_cpu_add(*cli_mem->mem, delta);
+}
+
+static inline void
+tfw_client_adjust_mem(TfwClientMem *cli_mem, int delta, u16 *epoch)
+{
+	__tfw_client_adjust_mem(cli_mem, delta);
+	tfw_adaptive_limits_acc_mem(&cli_mem->mem_lim, delta, epoch);
 }
 
 static inline bool

@@ -545,6 +545,17 @@ tfw_adaptive_limits_check_req_num(TfwAdaptiveLimitLock *limit)
 	return true;
 }
 
+void tfw_adaptive_limits_acc_mem(TfwAdaptiveLimitLock *limit,
+				 int delta, u16 *epoch)
+{
+
+}
+
+bool tfw_adaptive_limits_check_mem(TfwAdaptiveLimitLock *limit)
+{
+	return true;
+}
+
 bool
 tfw_adaptive_limits_check_cpu(TfwAdaptiveLimitLock *limit, u64 time_begin)
 {

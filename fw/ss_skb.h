@@ -43,8 +43,9 @@ typedef struct tfw_client_mem_t TfwClientMem;
  * @mem			- memory used for this skb, used to account appropriate
  *			  client memory;
  * @stream_id		- id of sender stream;
- * @tls_type		- tls type of current skb, if it's data should be
- *			  encrypted;
+ * @epoch		- training epoch identifier. Used to don't adjust memory
+ *			  allocations/deallocations for current skb in trainging
+ *			  if skb belongs to the previous training epoch;
  * @is_head		- flag indicates that this is a head of skb list;
  */
 struct tfw_skb_cb {
@@ -54,6 +55,7 @@ struct tfw_skb_cb {
 	on_tcp_entail_t on_tcp_entail;
 	long int	mem;
 	unsigned int 	stream_id;
+	u16		epoch;
 	bool		is_head;
 };
 

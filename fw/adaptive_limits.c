@@ -339,6 +339,12 @@ tfw_adaptive_limits_adjust_req_new_client(void)
 }
 
 static void
+tfw_adaptive_limits_adjust_mem_new_client(void)
+{
+	return tfw_adaptive_limits_adjust_new_client(g_mem_num);
+}
+
+static void
 tfw_adaptive_limits_adjust_cpu_new_client(void)
 {
 	return tfw_adaptive_limits_adjust_new_client(g_cpu_num);
@@ -374,7 +380,13 @@ tfw_adaptive_limits_adjust_req_num(u64 delta1, u128 delta2)
 }
 
 static void
-tfw_adaptive_limits_adjust_cpu(u64 delta1, u128_acc delta2)
+tfw_adaptive_limits_adjust_mem(u64 delta1, u128 delta2)
+{
+	return tfw_adaptive_limits_adjust_new_el(g_mem_num, delta1, delta2);
+}
+
+static void
+tfw_adaptive_limits_adjust_cpu(u64 delta1, u128 delta2)
 {
 	return tfw_adaptive_limits_adjust_new_el(g_cpu_num, delta1, delta2);
 }
@@ -447,6 +459,14 @@ tfw_adaptive_limits_check_and_set_epoch(u16 *epoch, bool new_event)
 		*epoch = g_training_epoch;
 
 	return true;
+}
+
+static inline bool
+tfw_adaptive_limits_defence_mem(u64 val)
+{
+	int threshold = tfw_adaptive_limits_z_score_mem;
+
+	return tfw_adaptive_limits_defence(g_mem_num, val, threshold);
 }
 
 static inline bool
@@ -633,6 +653,17 @@ tfw_adaptive_limits_acc_req_num(TfwAdaptiveLimitLock *limit, int delta,
 }
 
 void
+tfw_adaptive_limits_acc_mem(TfwAdaptiveLimitLock *limit, int delta, u16 *epoch)
+{
+	void (*adjust_new_client)(void) =
+		tfw_adaptive_limits_adjust_mem_new_client;
+	void (*add)(TfwAdaptiveLimitLock *limit, int delta) =
+		tfw_adaptive_limits_counter_add;
+
+	tfw_adaptive_limits_acc(limit, delta, adjust_new_client, add, epoch);
+}
+
+void
 tfw_adaptive_limits_acc_cpu(TfwAdaptiveLimitLock *limit, u64 time_begin)
 {
 	void (*adjust_new_client)(void) =
@@ -648,8 +679,21 @@ tfw_adaptive_limits_acc_cpu(TfwAdaptiveLimitLock *limit, u64 time_begin)
 	__tfw_adaptive_limits_acc(limit, delta, adjust_new_client, add);
 }
 
+static inline s64
+tfw_adaptive_limits_no_convert(s64 val)
+{
+	return val;
+}
+
+static inline s64
+tfw_adaptive_limits_page_convert(s64 val)
+{
+	return val >> PAGE_SHIFT;
+}
+
 static inline bool
-tfw_adaptive_limits_change_max(TfwAdaptiveLimitLock *limit, s64 curr,
+tfw_adaptive_limits_change_max(TfwAdaptiveLimitLock *limit,
+			       s64 (*convert_val)(s64), s64 curr,
 			       u64 *delta1, u128 *delta2)
 {
 	s64 old_max = atomic64_read(&limit->max);
@@ -663,6 +707,9 @@ tfw_adaptive_limits_change_max(TfwAdaptiveLimitLock *limit, s64 curr,
 			return false;
 	} while (!atomic64_try_cmpxchg(&limit->max, &old_max, curr));
 
+	curr = convert_val(curr);
+	old_max = convert_val(old_max);
+
 	*delta1 = ((u64)curr - (u64)old_max);
 	*delta2 = (u128)curr * (u128) curr - (u128)old_max * (u128)old_max;
 
@@ -671,6 +718,7 @@ tfw_adaptive_limits_change_max(TfwAdaptiveLimitLock *limit, s64 curr,
 
 static bool
 tfw_adaptive_limits_check(TfwAdaptiveLimitLock *limit,
+			  s64 (*convert_val)(s64),
 			  void (*adjust_num)(u64, u128),
 			  bool(*defence)(u64))
 {
@@ -698,11 +746,12 @@ tfw_adaptive_limits_check(TfwAdaptiveLimitLock *limit,
 	 */
 	WARN_ON(curr < 0 && adjust_num != tfw_adaptive_limits_adjust_cpu);
 	if (tfw_adaptive_limits_mode_is_defence()) {
-		rc = defence(curr);
+		rc = defence(convert_val(curr));
 		goto out;
 	}
 
-	if (tfw_adaptive_limits_change_max(limit, curr, &delta1, &delta2))
+	if (tfw_adaptive_limits_change_max(limit, convert_val, curr, &delta1,
+					   &delta2))
 		adjust_num(delta1, delta2);
 
 out:
@@ -717,8 +766,22 @@ tfw_adaptive_limits_check_req_num(TfwAdaptiveLimitLock *limit)
 	void (*adjust_num)(u64, u128) =
 		tfw_adaptive_limits_adjust_req_num;
 	bool (*defence)(u64) = tfw_adaptive_limits_defence_req_num;
+	s64 (*convert_val)(s64) = tfw_adaptive_limits_no_convert;
 
-	return tfw_adaptive_limits_check(limit, adjust_num, defence);
+	return tfw_adaptive_limits_check(limit, convert_val, adjust_num,
+					 defence);
+}
+
+bool
+tfw_adaptive_limits_check_mem(TfwAdaptiveLimitLock *limit)
+{
+	void (*adjust_num)(u64, u128) =
+		tfw_adaptive_limits_adjust_mem;
+	bool (*defence)(u64) = tfw_adaptive_limits_defence_mem;
+	s64 (*convert_val)(s64) = tfw_adaptive_limits_page_convert;
+
+	return tfw_adaptive_limits_check(limit, convert_val, adjust_num,
+					 defence);
 }
 
 bool
@@ -729,16 +792,18 @@ tfw_adaptive_limits_check_cpu(TfwAdaptiveLimitLock *limit, u64 time_begin)
 		tfw_adaptive_limits_adjust_cpu_new_client;
 	void (*add)(TfwAdaptiveLimitLock *limit, int delta) =
 		tfw_adaptive_limits_counter_add_ema;
-	void (*adjust_num)(u64, u128_acc) =
+	void (*adjust_num)(u64, u128) =
 		tfw_adaptive_limits_adjust_cpu;
 	bool (*defence)(u64) = tfw_adaptive_limits_defence_cpu;
+	s64 (*convert_val)(s64) = tfw_adaptive_limits_no_convert;
 
 	if (tfw_adaptive_limits_mode_is_disabled())
 		return true;
 
 	__tfw_adaptive_limits_acc(limit, delta, adjust_new_client, add);
 
-	return tfw_adaptive_limits_check(limit, adjust_num, defence);
+	return tfw_adaptive_limits_check(limit, convert_val, adjust_num,
+					 defence);
 }
 
 static inline void

@@ -81,6 +81,36 @@ static struct {
 	unsigned int		order;
 } cli_adaptive_limits_pool;
 
+static inline int
+tfw_client_mem_init(TfwClientMem *cli_mem, gfp_t flags)
+{
+	int r;
+
+	flags |= __GFP_ZERO;
+
+	cli_mem->mem = tfw_alloc_percpu_gfp(s64, flags);
+	if (unlikely(!cli_mem->mem))
+		return -ENOMEM;
+
+	r = tfw_adaptive_limit_lock_init(&cli_mem->mem_lim, flags);
+	if (unlikely(r))
+		goto free_cli_mem;
+
+	return 0;
+
+free_cli_mem:
+	free_percpu(cli_mem->mem);
+
+	return r;
+}
+
+static inline void
+tfw_client_mem_destroy(TfwClientMem *cli_mem)
+{
+	tfw_adaptive_limit_lock_destroy(&cli_mem->mem_lim);
+	free_percpu(cli_mem->mem);
+}
+
 static inline bool
 tfw_cli_adaptive_limits_belongs_to_pool(TfwClientAdaptiveLimits *limits)
 {
@@ -93,9 +123,9 @@ static void
 __cli_adaptive_limits_release(TfwClientAdaptiveLimits *limits)
 {
 	percpu_ref_exit(&limits->refcnt);
-	free_percpu(limits->cli_mem.mem);
 	tfw_adaptive_limit_lock_destroy(&limits->req_lim);
 	tfw_adaptive_limit_lock_destroy(&limits->cpu_lim);
+	tfw_client_mem_destroy(&limits->cli_mem);
 	if (!tfw_cli_adaptive_limits_belongs_to_pool(limits))
 		kmem_cache_free(tfw_cli_adaptive_limits_cache, limits);
 }
@@ -115,6 +145,7 @@ tfw_cli_adaptive_limits_pool_free(TfwClientAdaptiveLimits *limits)
 		*per_cpu_ptr(limits->cli_mem.mem, cpu) = 0;
 		*per_cpu_ptr(limits->req_lim.counter, cpu) = 0;
 		*per_cpu_ptr(limits->cpu_lim.counter, cpu) = 0;
+		*per_cpu_ptr(limits->cli_mem.mem_lim.counter, cpu) = 0;
 	}
 	percpu_ref_reinit(&limits->refcnt);
 	limits->next_free = cli_adaptive_limits_pool.free_list;
@@ -202,13 +233,13 @@ tfw_cli_adaptive_limits_init(TfwClientAdaptiveLimits *limits, gfp_t flags)
 	TfwAdaptiveLimitLock *cpu_lim = &limits->cpu_lim;
 	int r;
 
-	cli_mem->mem = tfw_alloc_percpu_gfp(s64, flags | __GFP_ZERO);
-	if (unlikely(!cli_mem->mem))
-		return -ENOMEM;
+	r = tfw_client_mem_init(cli_mem, flags);
+	if (unlikely(r))
+		return r;
 
 	r = tfw_adaptive_limit_lock_init(req_lim, flags | __GFP_ZERO);
 	if (unlikely(r))
-		goto free_cli_mem;
+		goto destroy_cli_mem;
 
 	r = tfw_adaptive_limit_lock_init(cpu_lim, flags | __GFP_ZERO);
 	if (unlikely(r))
@@ -225,8 +256,8 @@ destroy_cpu_lim:
 	tfw_adaptive_limit_lock_destroy(cpu_lim);
 destroy_req_lim:
 	tfw_adaptive_limit_lock_destroy(req_lim);
-free_cli_mem:
-	free_percpu(cli_mem->mem);
+destroy_cli_mem:
+	tfw_client_mem_destroy(cli_mem);
 	
 	return r;
 }

@@ -35,6 +35,8 @@
 #define TFW_POOL_CHUNK_ROOM(p)	(TFW_POOL_CHUNK_SZ((p)) - (p)->off)
 #define TFW_POOL_ALIGN_SZ(n)	(((n) + 7) & ~7UL)
 #define TFW_POOL_ALIGN_PTR(p)	((void *)TFW_POOL_ALIGN_SZ((unsigned long)p))
+#define TFW_POOL_FOR_EACH_CHUNK_FROM(pos, next)	\
+	for (; pos; pos = next)
 
 typedef struct tfw_client_mem_t TfwClientMem;
 
@@ -42,13 +44,17 @@ typedef struct tfw_client_mem_t TfwClientMem;
  * Memory pool chunk descriptor.
  *
  * @next	- pointer to next memory chunk;
- * @order	- order of number of pages in the chunk;
  * @off		- current chunk offset;
+ * @order	- order of number of pages in the chunk;
+ * @epoch	- training epoch identifier. Used to don't adjust memory
+ *		  allocations/deallocations for current chunk in trainging
+ *		  if chunk belongs to the previous training epoch;
  */
 typedef struct tfw_pool_chunk_t {
 	struct tfw_pool_chunk_t	*next;
-	unsigned int		order;
 	unsigned int		off;
+	u16			order;
+	u16			epoch;
 } TfwPoolChunk;
 
 /**
@@ -56,13 +62,13 @@ typedef struct tfw_pool_chunk_t {
  *
  * @curr	- current chunk to allocate memory from;
  * @owner	- owner for memory accounting;
- * @order,@off	- cached members of @curr;
+ * @off,@order	- cached members of @curr;
  */
 typedef struct {
 	TfwPoolChunk	*curr;
 	TfwClientMem	*owner;
-	unsigned int	order;
 	unsigned int	off;
+	u16		order;
 } TfwPool;
 
 #define tfw_pool_new(struct_name, owner, mask)				\

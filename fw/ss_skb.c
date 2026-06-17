@@ -1794,7 +1794,8 @@ ss_skb_set_owner(struct sk_buff *skb, void (*destructor)(struct sk_buff *),
 	WARN_ON(TFW_SKB_CB(skb)->mem != 0);
 	WARN_ON(TFW_SKB_CB(skb)->destructor || TFW_SKB_CB(skb)->opaque_data);
 	__ss_skb_set_owner(skb, destructor, owner);
-	ss_skb_adjust_client_mem(skb, mem);
+	TFW_SKB_CB(skb)->mem = mem;
+	tfw_client_adjust_mem(owner, mem, &TFW_SKB_CB(skb)->epoch);
 }
 
 void
@@ -1809,6 +1810,17 @@ ss_skb_adjust_client_mem(struct sk_buff *skb, int delta)
 	if (cli_mem) {
 		TFW_SKB_CB(skb)->mem += delta;
 		WARN_ON(TFW_SKB_CB(skb)->mem < 0);
-		tfw_client_adjust_mem(cli_mem, delta);
+		/*
+		 * `epoch` is set during skb allocation when we
+		 * set owner for current skb. If `epoch` was not
+		 * set (because training was disabled), we should
+		 * not adjust such skb in the new training.
+		 */
+		if (TFW_SKB_CB(skb)->epoch) {
+			tfw_client_adjust_mem(cli_mem, delta,
+					      &TFW_SKB_CB(skb)->epoch);
+		} else {
+			__tfw_client_adjust_mem(cli_mem, delta);
+		}
 	}
 }

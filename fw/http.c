@@ -2920,7 +2920,7 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 		if (likely(hm->req->conn)) {
 			TfwClientMem *cli_mem =
 				CLIENT_MEM_FROM_CONN(hm->req->conn);
-			int delta = PAGE_SIZE << hm->pool->order;
+			TfwPoolChunk *c, *next;
 
 			hm->pool->owner = cli_mem;
 			/*
@@ -2933,7 +2933,15 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 			 * already released client.
 			 */
 			BUG_ON(!tfw_client_mem_get(cli_mem));
-			tfw_client_adjust_mem(cli_mem, delta);
+			c = hm->pool->curr;
+			TFW_POOL_FOR_EACH_CHUNK_FROM(c, next) {
+				int delta;
+
+				next = c->next;
+				delta = PAGE_SIZE << c->order;
+				tfw_client_adjust_mem(cli_mem, delta,
+						      &c->epoch);
+			}
 		}
 
 		if (TFW_MSG_H2(hm->req)) {
@@ -3218,6 +3226,7 @@ tfw_http_conn_recv_finish(TfwConn *conn, u64 time_begin)
 	TfwClient *cli = (TfwClient *)conn->peer;
 	TfwAdaptiveLimitLock *req_lim = &cli->limits->req_lim;
 	TfwAdaptiveLimitLock *cpu_lim = &cli->limits->cpu_lim;
+	TfwAdaptiveLimitLock *mem_lim = &cli->limits->cli_mem.mem_lim;
 
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
 		tfw_h2_conn_recv_finish(conn);
@@ -3240,6 +3249,14 @@ tfw_http_conn_recv_finish(TfwConn *conn, u64 time_begin)
 
 	if (unlikely(!tfw_adaptive_limits_check_cpu(cpu_lim, time_begin))) {
 		T_WARN_ADDR("Client connection dropped: client cpu"
+			    " usage z-score exceeded the configured"
+			    " threshold\n", &cli->addr, TFW_NO_PORT);
+		tfw_client_filter_block_ip(cli);
+		return T_BLOCK_WITH_RST;
+	}
+
+	if (unlikely(!tfw_adaptive_limits_check_mem(mem_lim))) {
+		T_WARN_ADDR("Client connection dropped: client memory"
 			    " usage z-score exceeded the configured"
 			    " threshold\n", &cli->addr, TFW_NO_PORT);
 		tfw_client_filter_block_ip(cli);
