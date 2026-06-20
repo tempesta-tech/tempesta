@@ -16,31 +16,47 @@ At the end of the training phase the mean and standard deviation are computed an
 
 Several approaches for online variance calculation were evaluated, including Welford’s algorithm and the sum/sumsq method.
 
-The classical Welford algorithm was found to be unsuitable for this workload. In its original form Welford assumes an append-only stream of samples, where each new observation increases the total sample count. In our case, however, "n" represents the number of clients rather than the number of events. For each client we continuously update the current maximum number of connections/requests/memory/cpu usage. Therefore, when a client metric changes, the previous value must first be removed from the statistics and only then the new value can be added (we need replace operation). This requires a modified reversible version of Welford’s algorithm, which significantly complicates the implementation.
+The classical Welford algorithm was found to be unsuitable for this workload. In its original form Welford assumes an append-only stream of samples, where each new observation increases the total sample count. In our case, however, "n" represents the number of clients rather than the number of events. For each client we continuously update the current maximum number of connections/requests/memory/cpu usage. Therefore, when a client metric changes, the previous value must first be removed from the aggregated statistics before the updated value can be inserted. In other words, the algorithm must support a replace operation rather than a simple append operation. This requires a modified reversible version of Welford’s algorithm, which significantly complicates the implementation.
 
-In addition, kernel-space constraints prohibit floating-point arithmetic, requiring the use of fixed-point integer arithmetic instead. While Welford’s algorithm is known for its excellent numerical stability with floating-point arithmetic, its fixed-point implementation introduces truncation errors during repeated division operations. In workloads where metric values remain relatively small and close to each other (e.g. connection/request maxima), these rounding errors accumulate over time and may lead to noticeable precision degradation. Since memory usage is tracked in pages and CPU usage is represented as an EMA value, the range of possible maximum values is also relatively limited.
+In addition, kernel-space constraints prohibit floating-point arithmetic, requiring the use of fixed-point integer arithmetic instead. While Welford’s algorithm is well known for its numerical stability when implemented with floating-point arithmetic, a fixed-point implementation introduces truncation errors due to repeated division operations. In workloads where metric values remain relatively small and close to each other (e.g. connection/request maxima), these rounding errors accumulate over time and may lead to noticeable precision degradation. Since memory usage is tracked in pages and CPU usage is represented as an EMA value, the range of possible maximum values is also relatively limited.
 
-Benchmarking (see `benchmark_training` folder) also demonstrated that the modified fixed-point Welford implementation is slower than the alternative approach due to additional arithmetic operations, extra division steps, and the need to perform a more sophisticated replace operation for each update.
+Benchmarking (see the benchmark_training directory) demonstrated that the modified fixed-point Welford implementation is slower than the sum/sumsq approach due to additional arithmetic operations, extra division steps, and the need to perform a more complex replace operation on every update.
 
-Benchmark                       Time             CPU   Iterations
-BM_welford_fixed_point       6.75 ns         6.75 ns    102297118
-BM_sum_sumsq                 4.55 ns         4.55 ns    151356982
+Operation	Native `__int128`	Custom 128-bit
+Welford update		7.24 ns		20.9 ns
+sum/sumsq update	4.59 ns		15.6 ns
 
 Accuracy was also calculated for four different cases.
-client maximum increases +1 on each iteration (same as for connection tracking).
-accuracy (exact, sum_sumsq): ( 8.33333e+06, 8.33333e+06 )
-accuracy (exact, welford): ( 8.33333e+06, 8.33334e+06 )
-client maximum randomly increases in a range (1 - 10) on each iteration (possible for non-idempotent request tracking, since we use algorithm at the end of the `ss_tcp_process_data`, when we can already process several requests). 
-accuracy (exact, sum_sumsq): ( 2.55257e+08, 2.55257e+08 )
-accuracy (exact, welford): ( 2.55257e+08, 2.55257e+08 )
-client maximum randomly increases in a range (1 - 100) on each iteration
-accuracy (exact, sum_sumsq): ( 2.11362e+10, 2.11362e+10 )
-accuracy (exact, welford): ( 2.11362e+10, 2.11362e+10 )
-client maximum randomly increases in a range (1 - 1000) on each iteration (possible for memory usage tracking, since we use algorithm at the end of the `ss_tcp_process_data`, and track memory usage in pages). 
-accuracy (exact, sum_sumsq): ( 2.15425e+10, 2.15425e+10 )
-accuracy (exact, welford): ( 2.15425e+10, 2.15426e+10 )
 
-As shown above, both algorithms provide very good accuracy, with the sum/sumsq method demonstrating slightly better results in the evaluated scenarios. But sum of squares method is faster. As a result, the implementation uses the sum of values / sum of squares method (sum/sumsq method). This approach maintains:
+client maximum increases +1 on each iteration (same as for connection tracking):
+exact                = 8.33e+08
+sum/sumsq (128-bit)  = 8.33e+08
+Welford (128-bit)    = 8.33e+08
+sum/sumsq (64-bit)	 = 8.33e+08
+Welford (64-bit)     = 32.4295
+
+client maximum randomly increases in a range (1 - 10) on each iteration (possible for non-idempotent request tracking, since we use algorithm at the end of the `ss_tcp_process_data`, when we can already process several requests):
+exact 				 = 2.51356e+10
+sum/sumsq (128-bit)	 = 2.51356e+10
+Welford (128-bit)	 = 2.51356e+10
+sum/sumsq (64-bit)	 = -2.95145e+15
+Welford (64-bit)	 = 32.4279
+
+client maximum randomly increases in a range (1 - 100) on each iteration:
+exact                = 2.11991e+12
+sum/sumsq (128-bit)  = 2.11991e+12
+Welford (128-bit)    = 2.11991e+12
+sum/sumsq (64-bit)	 = -2.52349e+17
+Welford (64-bit)     = 32.4355
+
+client maximum randomly increases in a range (1 - 1000) on each iteration (possible for memory usage tracking, since we use algorithm at the end of the `ss_tcp_process_data`, and track memory usage in pages):
+exact                = 2.07582e+14
+sum/sumsq (128-bit)  = 2.07582e+14
+Welford (128-bit)    = 2.07582e+14
+sum/sumsq (64-bit)	 = -2.48049e+19
+Welford (64-bit)	 = 32.4198
+
+As shown above, both algorithms provide excellent accuracy; however, the sum/sumsq method is consistently faster. As a result, the implementation uses the sum of values / sum of squares method (sum/sumsq method). This approach maintains:
 
 - the sum of all values,
 - the sum of squared values,
@@ -50,7 +66,7 @@ The variance is then computed using the standard relation:
 
 Var(X) = E[X²] − E[X]²
 
-This is a classic streaming statistics approach commonly referred to as the “sum/squared-sum” method or “naive variance algorithm” (Wikipedia — “Algorithms for calculating variance”)
+This is a classic streaming-statistics technique commonly referred to as the sum/squared-sum method or the "naive variance algorithm” (Wikipedia — “Algorithms for calculating variance”)
 This approach is efficient because:
 
 - O(1) update cost,
@@ -70,17 +86,40 @@ The variance computation subtracts two extremely large nearly identical numbers,
 
 For the target workload, client metrics are bounded and remain within a relatively small range. Under these conditions, the sum/sumsq approach provides sufficient numerical accuracy while being significantly simpler, faster, and easier to maintain than a reversible fixed-point implementation of Welford’s algorithm.
 
-We calculate mean and standard deviation using SCALE_SHIFT = 10 - fixed-point scaling factor used for integer arithmetic. We also save both these values in scaled format for accuracy, because linux kernel code avoids floating point operations.
+Mean and standard deviation are calculated using SCALE_SHIFT = 10, a fixed-point scaling factor used for integer arithmetic. We also save both these values in scaled format for accuracy, because linux kernel code avoids floating point operations.
 
 ### Defence Mode
 Each new observation is evaluated using:
 
 z = ((x << SCALE_SHIFT) - mean) / std
 
-where SCALE_SHIFT = 10 is the fixed-point scaling factor used during mean and standard deviation calculation. So all fractional calculations (e.g. mean, variance, z-score) are performed using scaled integers). If z > configured_threshold the event is considered anomalous. Drop connection with TCP RST and optionally block client by IP.
+where SCALE_SHIFT = 10 is the fixed-point scaling factor used during mean and standard deviation calculation. All fractional computations (e.g. mean, variance, and z-score) are therefore performed using scaled integers. If z > configured_threshold the event is considered anomalous. Drop connection with TCP RST and optionally block client by IP.
 
 ### Disabled Mode
 Internal state used during transitions. Ensures safe updates of shared data (via RCU synchronization). This mode can also be exposed as a user-configurable operating mode rather than being used solely as an internal transition state. Doing so completely eliminates the overhead associated with statistics collection and anomaly detection when the feature is not required.
+
+
+## 128-bit arithmetic support
+
+### Accuracy
+Both the `sum/sumsq` and fixed-point Welford implementations require 128-bit intermediate values to maintain sufficient numerical accuracy.
+
+The Linux kernel does not provide generic 128-bit arithmetic support and many architectures do not support native `__int128` operations in kernel code. To address this limitation, a lightweight 128-bit arithmetic library was implemented using a pair of 64-bit values.
+
+The library provides the operations required by the adaptive limits
+subsystem:
+
+* addition and subtraction;
+* multiplication;
+* division by a 64-bit value;
+* square root;
+* left and right shifts.
+
+Accuracy tests show that a 64-bit implementation is insufficient for production use. While the native and library-backed 128-bit implementations produce results identical to the exact variance 
+calculation, the 64-bit implementation quickly loses precision and eventually overflows (see accuracy results in previous chapter). The results demonstrate that 64-bit accumulators are unable to maintain acceptable precision for the large datasets (100000 clients), while the custom 128-bit implementation matches the native `__int128` implementation.
+
+### Performance impact
+The custom 128-bit implementation introduces additional arithmetic overhead compared to native `__int128` operations. However, statistics are updated relatively infrequently, and the most computationally expensive operations (such as division and square-root calculation) are performed only during transitions from Training Mode to Defence Mode. Consequently, no measurable impact on overall performance was observed (see the benchmark results at the end of this document).
 
 
 ## HTTP Protection Library Implementation Details (Adaptive Limits Library Implementation)
@@ -160,16 +199,16 @@ We use new implemented structure and common function to track `sum/sumsq` for ea
  *
  * @sumsq - sum of squares of observed values.
  * @sum   - sum of observed values.
- * @num   - number of samples (e.g. number of clients).
  * @mean  - calculated mean (scaled by SCALE_SHIFT).
  * @std   - calculated standard deviation (scaled).
+ * @num   - number of samples (e.g. number of clients).
  */
 struct stats {
-	u64 __percpu	*sumsq;
-	u64 __percpu	*sum;
-	u32 __percpu	*num;
+	u128_acc __percpu	*sumsq;
+	u64 __percpu		*sum;
 	u64 			mean;
 	u64 			std;
+	u32 __percpu		*num;
 };
 ```
 A separate instance of `struct stats` is maintained for each tracked metric (connections, non-idempotent requests, memory usage, and CPU usage). Per-CPU counters are used to avoid atomic contention during training. The statistics are aggregated over client maxima rather than individual events. Consequently, the sample count (`num`) corresponds to the number of participating clients rather than the total number of observed events. The global values are aggregated only during switching from training mode to defence mode. 
@@ -185,34 +224,23 @@ A separate instance of `struct stats` is maintained for each tracked metric (con
  */
 static inline void
 tfw_adaptive_limits_adjust_new_el(struct stats __rcu *g_stats, u64 delta1,
-								  u64 delta2)
+				  u128_acc delta2)
 {
 	struct stats *s;
 
-	rcu_read_lock();
-
 	/*
-	 * We check mode every where before call this function (see appropriate
-	 * functions e.g. `tfw_adaptive_limits_check_conn_num`). But there is a
-	 * race - mode can be switched after appropriate check and before this
-	 * function call. Here we check mode again for safe access `stats`
-	 * pointer under `rcu`.
-	 * During switching modes we first of all disable trainging mode (using
-	 * `tfw_adaptive_limits_disable_training_or_defence`) and then call
-	 * `synchronize_rcu`, so we will wait until we finish to collect
-	 * statistic before free `stats` pointers.
+	 * rcu pointer dereference should be done under rcu lock,
+	 * to prevent memory corruption.
 	 */
-	if (likely(!tfw_adaptive_limits_mode_is_disabled())) {
-		s = rcu_dereference(g_stats);
-		this_cpu_add(*s->sum, delta1);
-		this_cpu_add(*s->sumsq, delta2);
-	}
-
-	rcu_read_unlock();
+	BUG_ON(!rcu_read_lock_held());
+	s = rcu_dereference(g_stats);
+	this_cpu_add(*s->sum, delta1);
+	*this_cpu_ptr(s->sumsq) =
+		u128_add_u128(*this_cpu_ptr(s->sumsq), delta2);
 }
 ```
 
-We also implement some functions for fast track count of events in per cpu storage without any lock.
+Event accounting is performed through a common helper that updates per-CPU counters without requiring global synchronization.
 ```C
 static void
 __tfw_adaptive_limits_acc(TfwAdaptiveLimitLock *limit, int delta,
@@ -236,23 +264,46 @@ tfw_adaptive_limits_acc(TfwAdaptiveLimitLock *limit, int delta,
 {
 	bool new_event;
 
+	/*
+	 * Prevent training epoch changes while processing the event.
+	 *
+	 * A new training epoch is started only after:
+	 *
+	 *	synchronize_rcu();
+	 *	g_training_epoch++;
+	 *
+	 * Therefore, while we are inside this RCU read-side critical
+	 * section, `g_training_epoch` cannot change and the event is
+	 * guaranteed to be processed against a stable training epoch.
+	 *
+	 * This avoids races where an event is validated against one
+	 * epoch and accounted after statistics have already been reset
+	 * for the next epoch.
+	 */
+	rcu_read_lock();
+
 	if (tfw_adaptive_limits_mode_is_disabled())
-		return;
+		goto out;
 
 	new_event = delta > 0 && !(*epoch);
 	if (!tfw_adaptive_limits_check_and_set_epoch(epoch, new_event))
-		return;
+		goto out;
 
 	__tfw_adaptive_limits_acc(limit, delta, adjust_new_client, add);
+
+out:
+	rcu_read_unlock();
 }
 ```
-We also update `max` value for further `sum`/`sumsq` calculation only at the end of  `ss_tcp_process_data` function to prevent performance degradation.
+To minimize hot-path overhead, maximum values are evaluated only once at the end of `ss_tcp_process_data`.
 ```C
 static inline bool
-tfw_adaptive_limits_change_max(TfwAdaptiveLimitLock *limit, s64 curr,
-			       u64 *delta1, u64 *delta2)
+tfw_adaptive_limits_change_max(TfwAdaptiveLimitLock *limit,
+			       s64 (*convert_val)(s64), s64 curr,
+			       u64 *delta1, u128_acc *delta2)
 {
 	s64 old_max = atomic64_read(&limit->max);
+	u128_acc tmp1, tmp2;
 
 	/*
 	 * Can be called concurrentrly on other cpu with different
@@ -263,8 +314,13 @@ tfw_adaptive_limits_change_max(TfwAdaptiveLimitLock *limit, s64 curr,
 			return false;
 	} while (!atomic64_try_cmpxchg(&limit->max, &old_max, curr));
 
-	*delta1 = (u64)curr - (u64)old_max;
-	*delta2 = (u64)curr * curr - (u64)old_max * old_max;
+	curr = convert_val(curr);
+	old_max = convert_val(old_max);
+
+	*delta1 = ((u64)curr - (u64)old_max);
+	tmp1 = u128_u64_mult_u64(curr, curr);
+	tmp2 = u128_u64_mult_u64(old_max, old_max);
+	*delta2 = u128_sub_u128(tmp1, tmp2);
 
 	return true;
 }
@@ -281,30 +337,26 @@ During switching from training to defence modes Tempesta FW aggregates all per-C
 static inline void
 __calculate_mean_and_std(struct stats *s)
 {
-	u64 total_sumsq = 0;
-	u64 total_sum = 0;
-	u32 num_clients = 0;
-	u64 variance;
+	u128_acc variance, tmp1, tmp2;
+	u128_acc total_sumsq;
+	u64 total_sum;
+	u32 num_clients;
 
-	total_sumsq = tfw_percpu_u64_counter_sum(s->sumsq);
+	total_sumsq = tfw_percpu_u128_counter_sum(s->sumsq);
 	total_sum = tfw_percpu_u64_counter_sum(s->sum);
 	num_clients = tfw_percpu_u32_counter_sum(s->num);
 
 	if (!unlikely(num_clients))
 		return;
 
+	tmp1 = u128_left_shift_u32(total_sumsq, SCALE_SHIFT);
+	tmp1 = u128_div_u64(tmp1, num_clients, NULL);
+	tmp2 = u128_u64_mult_u64(s->mean, s->mean);
+	tmp2 = u128_right_shift_u32(tmp2, SCALE_SHIFT);
+
 	s->mean = (total_sum << SCALE_SHIFT) / num_clients;
-	/*
-	 * Population variance:
-	 *
-	 * Var(X) = E[X²] - E[X]²
-	 *
-	 * All values are represented using fixed-point arithmetic
-	 * scaled by SCALE_SHIFT.
-	 */
-	variance = ((total_sumsq << SCALE_SHIFT) / num_clients) -
-		((s->mean * s->mean) >> SCALE_SHIFT);
-	s->std = int_sqrt64(variance << SCALE_SHIFT);
+	variance = u128_sub_u128(tmp1, tmp2);
+	s->std = u128_sqrt(u128_left_shift_u32(variance, SCALE_SHIFT));
 }
 ```
 
@@ -317,21 +369,20 @@ tfw_adaptive_limits_defence(struct stats __rcu *g_stats, u64 val, int threshold)
 	struct stats *p;
 	s64 z_score;
 
-	rcu_read_lock();
-
-	if (!tfw_adaptive_limits_mode_is_defence()) {
-		rcu_read_unlock();
-		return true;
-	}
+	/*
+	 * rcu pointer dereference should be done under rcu lock,
+	 * to prevent memory corruption.
+	 */
+	BUG_ON(!rcu_read_lock_held());
 
 	p = rcu_dereference(g_stats);
-
 	if (!__calculate_z_score(val, p, &z_score)) {
-		rcu_read_unlock();
+		/*
+		 * Observations are treated as valid if a z-score cannot
+		 * be computed (e.g. due to zero variance).
+		 */
 		return true;
 	}
-
-	rcu_read_unlock();
 
 	/*
 	 * Only positive deviations are currently considered. Observations whose
@@ -408,6 +459,40 @@ tfw_adaptive_limits_change_epoch(TfwAdaptiveLimitLock *limit)
 }
 ```
 
+When new training started we call special function:
+```C
+/*
+ * Disable both training and defence modes.
+ *
+ * Ensures that no readers are accessing RCU-protected stats,
+ * so pointers can be safely replaced.
+ */
+static inline void
+tfw_adaptive_limits_disable_training_or_defence(void)
+{
+	/*
+	 * Set TFW_ADAPTIVE_LIMITS_MODE_IS_DISABLED, now we stop
+	 * calling all new defence and training functions. We don't
+	 * try to make rcu pointer dereference after it.
+	 */
+	WRITE_ONCE(tfw_adaptive_limits_mode,
+		   TFW_ADAPTIVE_LIMITS_MODE_IS_DISABLED);
+	/*
+	 * Wait until all previous rcu calls finished, to be sure
+	 * that we can safely change pointers.
+	 */
+	synchronize_rcu();
+}
+```
+
+Since all library functions enter an RCU read-side critical section before accessing statistics, the active training epoch cannot change while an operation is in progress.
+```C
+	rcu_read_lock();
+
+	if (tfw_adaptive_limits_mode_is_disabled())
+		goto out;
+```
+
 ### Concurrency model
 
 The implementation combines several synchronization mechanisms:
@@ -425,7 +510,7 @@ A `TfwAdaptiveLimit conn_lim` field is stored in the `TfwClient` structure to tr
 training and defence modes.
 
 ### Training mode
-During training, `conn_lim->counter` is incremented when a connection is established and decremented when it is closed.
+During Training Mode, conn_lim->counter tracks the current number of active client connections. The counter is incremented when a connection is established and decremented when it is closed.
 For each client, the subsystem tracks the maximum number of concurrent connections observed during the current training epoch (`conn_lim->max`). Whenever this maximum increases, the corresponding
 global statistics are updated incrementally:
 
@@ -436,27 +521,46 @@ These deltas are added to the global `sum` and `sumsq` accumulators, which are l
 ```C
 bool
 tfw_adaptive_limits_check_conn_num(TfwAdaptiveLimit *limit, int delta,
-								   u16 *epoch)
+				   u16 *epoch)
 {
-	u64 delta1, delta2;
+	u128_acc delta2, tmp1, tmp2;
+	u64 delta1;
 	unsigned int old_max;
-	bool new_client = false;
-	bool new_event;
+	bool new_event, new_client = false;
+	bool rc = true;
+
+	/*
+	 * Prevent training epoch changes while processing the event.
+	 *
+	 * A new training epoch is started only after:
+	 *
+	 *	synchronize_rcu();
+	 *	g_training_epoch++;
+	 *
+	 * Therefore, while we are inside this RCU read-side critical
+	 * section, `g_training_epoch` cannot change and the event is
+	 * guaranteed to be processed against a stable training epoch.
+	 *
+	 * This avoids races where an event is validated against one
+	 * epoch and accounted after statistics have already been reset
+	 * for the next epoch.
+	 */
+	rcu_read_lock();
 
 	if (tfw_adaptive_limits_mode_is_disabled())
-		return true;
+		goto out;
 
 	new_event = delta > 0 && !(*epoch);
 	if (!tfw_adaptive_limits_check_and_set_epoch(epoch, new_event))
-		return true;
+		goto out;
 
 	if (tfw_adaptive_limits_mode_is_defence()) {
 		limit->counter += delta;
 		WARN_ON(limit->counter < 0);
 
-		if (delta < 0)
-			return true;
-		return tfw_adaptive_limits_defence_conn_num(limit->counter);
+		if (delta > 0)
+			rc = tfw_adaptive_limits_defence_conn_num(limit->counter);
+		goto out;
 	}
 
 	/*
@@ -480,30 +584,32 @@ tfw_adaptive_limits_check_conn_num(TfwAdaptiveLimit *limit, int delta,
 
 	old_max = limit->max;
 	if (limit->counter <= old_max)
-		return true;
+		goto out;
 	limit->max = limit->counter;
 	delta1 = limit->counter - old_max;
-	delta2 = (u64)limit->counter * limit->counter -
-		(u64)old_max * old_max;
+	tmp1 = u128_u64_mult_u64(limit->counter, limit->counter);
+	tmp2 = u128_u64_mult_u64(old_max, old_max);
+	delta2 = u128_sub_u128(tmp1, tmp2);
 	tfw_adaptive_limits_adjust_conn_num(delta1, delta2);
 
-	return true;
+out:
+	rcu_read_unlock();
+
+	return rc;
 }
 ```
 
-As discussed earlier, the sum/sumsq approach provides sufficient numerical accuracy for this workload while being simpler and faster than the evaluated reversible fixed-point implementation of Welford’s
-algorithm.
+As discussed in the previous section, the sum/sumsq approach provides sufficient numerical accuracy for this workload while remaining significantly simpler and faster than a reversible fixed-point implementation of Welford’s algorithm.
 
 ### Defence mode
-During defence mode, `conn_lim->counter` tracks the current number of active connections associated with the client. Whenever a new connection is established, the current connection count is
-evaluated using:
+During Defence Mode, every newly established connection triggers an anomaly check based on the current value of conn_lim->counter:
 
 `z = ((conn_lim->counter << SCALE_SHIFT) - mean) / std`
 
-where `mean` and `std` are the values calculated during the preceding training phase. If the calculated z-score exceeds the configured threshold, the connection is considered anomalous and is rejected. Depending on the configuration, the client IP address may also be temporarily blocked.
+where `mean` and `std` are the values calculated during the preceding training phase (both `mean` and `std` are stored in scaled form using the fixed-point factor SCALE_SHIFT). If the calculated z-score exceeds the configured threshold, the connection is considered anomalous and is rejected. Depending on the configuration, the client IP address may also be temporarily blocked.
 
 ### Epoch handling
-Each connection is tagged with the training epoch identifier (A dedicated epoch field is added to `tempesta_sock` and initialized when the connection is first observed). Epoch handling is required to prevent statistics collected during different training phases from being mixed together. If an event originates from a connection that belongs to an older training epoch, the event is ignored and does not contribute to the statistics of the current epoch. We also check epoch for `TfwAdaptiveLimit` structure and lazy zero statistic (`counter` and `max`) on the new training epoch.
+Each connection is associated with a training epoch identifier. A dedicated epoch field is added to `tempesta_sock` and initialized when the connection is first observed. Epoch handling is required to prevent statistics collected during different training phases from being mixed together. If an event originates from a connection that belongs to an older training epoch, the event is ignored and does not contribute to the statistics of the current epoch. We also check epoch for `TfwAdaptiveLimit` structure and lazy zero statistic (`counter` and `max`) on the new training epoch.
 
 
 ## Request Count Tracking (Non-idempotent)
@@ -543,8 +649,7 @@ If the aggregated value exceeds the previously recorded maximum, the maximum is 
 During defence mode, request accounting is performed in the same manner as during training. At the end of `ss_tcp_process_data`, the current number of in-flight non-idempotent requests is obtained by summing all per-CPU counters. Instead of updating training statistics, the aggregated value is evaluated against the statistics collected during the training phase. The z-score is calculated using the common adaptive-limits infrastructure (`tfw_adaptive_limits_defence_req_num` ultimately calls `tfw_adaptive_limits_defence` with the corresponding statistics structure). If the calculated z-score exceeds the configured threshold, the request activity is considered anomalous. In this case, the client connection is terminated and, depending on the configuration, the client IP address may also be temporarily blocked.
 
 ### Epoch handling
-Non-idempotent request tracking uses the client connection epoch identifier If a new training epoch begins while an existing connection remains active, requests originating from that connection continue to carry the previous epoch identifier. Such requests are ignored and do not contribute to the statistics collected for the new training epoch. This mechanism prevents mixing observations collected during different training phases and ensures that all statistics correspond to a single training generation. Because training periods are expected to be relatively long, only a small number of active connections typically survive an epoch transition. Consequently, the number of ignored requests is negligible and has no meaningful impact on the resulting statistics.
-
+Epoch handling for non-idempotent requests is identical to that used for connection tracking. Each request is associated with a training epoch identifier. A dedicated epoch field is added to `TfwHttpReq`structure and initialized when the request is added to the server connection queue (if this request is non-idempotent). The corresponding fields in `TfwAdaptiveLimitLock req_lim` are also reset lazily when the first event of a new training epoch is processed (see `tfw_adaptive_limits_change_epoch`).
 
 ## Memory usage tracking
 Memory usage tracking differs slightly from connection and request tracking. A dedicated structure is required because memory accounting is used not only by the adaptive-limits subsystem but also by Frang's existing client memory limit enforcement logic. Unlike other tracked metrics, memory allocations may outlive a training epoch. Since adaptive-limits counters are reset when a new training epoch begins and memory allocation events from previous epochs are ignored, a separate accounting mechanism is required to maintain the actual amount of memory currently owned by the client. 
@@ -595,7 +700,7 @@ Whenever the current value exceeds the previously observed maximum, the maximum 
 During defence mode, client memory usage is evaluated in the same way as during training. At the end of `ss_tcp_process_data`, the current memory usage is obtained by summing all per-CPU counters. Instead of updating training statistics, the aggregated value is compared against the statistics collected during the training phase. The z-score is calculated using the common adaptive-limits infrastructure (`tfw_adaptive_limits_defence_mem` ultimately calls `tfw_adaptive_limits_defence` with the corresponding statistics structure). If the calculated z-score exceeds the configured threshold, the client activity is considered anomalous. In this case, the client connection is terminated and, depending on the configuration, the client IP address may also be temporarily blocked.
 
 ### Epoch handling
-Memory allocations are associated with the training epoch in which the corresponding object was created. To support this, a dedicated `u16 epoch` field is added to both `TfwPool` and `TFW_SKB_CB`. The current training epoch is stored when the pool or skb is created. During subsequent allocation and deallocation operations, the stored epoch is compared against the current global training epoch. If the object belongs to an older training epoch, the corresponding memory accounting event is ignored by the adaptive-limits subsystem and does not contribute to the statistics collected for the current training phase. This mechanism prevents memory usage observations from different training epochs from being mixed together while still allowing the separate mem accounting path to maintain the correct amount of memory currently owned by the client.
+Memory allocations are associated with the training epoch in which the corresponding object was created. To support this, a dedicated `u16 epoch` field is added to both `TfwPoolChunk` and `TFW_SKB_CB`. The current training epoch is stored when the chunk or skb is created. During subsequent allocation and deallocation operations, the stored epoch is compared against the current global training epoch. If the object belongs to an older training epoch, the corresponding memory accounting event is ignored by the adaptive-limits subsystem and does not contribute to the statistics collected for the current training phase. This mechanism prevents memory usage observations from different training epochs from being mixed together while still allowing the separate mem accounting path to maintain the correct amount of memory currently owned by the client.
 
 
 ## CPU Tracking
@@ -603,6 +708,16 @@ The `TfwAdaptiveLimitLock cpu_lim` structure is used to track per-client CPU con
 At the beginning of `ss_tcp_process_data`, the current CPU cycle counter is recorded: `u64 time_begin = get_cycles();`. At the end of `skb` processing, in the `on_rcv_finish` callback, the elapsed processing time is calculated as `delta_time = get_cycles() - time_begin;`. This value is treated as the CPU usage and is used for adaptive-limits accounting.
 
 Using an EMA instead of a raw accumulated counter is important for CPU tracking because CPU consumption is inherently time-dependent. A simple counter would grow monotonically throughout the lifetime of a client, making it unsuitable for anomaly detection. The EMA provides a bounded and continuously adapting estimate of recent CPU activity.
+
+### Time Source Selection
+
+The implementation uses `get_cycles()` rather than `ktime_get_ns()` as the time source for CPU usage tracking and EMA (Exponential Moving Average) calculations.
+
+The primary reason is that `get_cycles()` provides lower overhead than `ktime_get_ns()`, making it more suitable for performance-sensitive code paths. Although end-to-end benchmarking did not reveal a measurable difference in overall system performance, the lower cost of cycle-counter reads remains preferable for hot-path telemetry.
+
+An additional consideration is numerical stability. The EMA calculation uses the elapsed time (`delta`) between observations. When `ktime_get_ns()` is used, `delta` values are expressed in nanoseconds and may become very large, particularly when observations are infrequent. Since the adaptive-limits subsystem relies entirely on fixed-point integer arithmetic, large time deltas can significantly increase the magnitude of intermediate calculations and may theoretically lead to overflow, even when 128-bit accumulators are used in large-scale deployments involving millions of clients.
+
+In contrast, `get_cycles()` provides sufficient timing precision while keeping the numerical range of `delta` values substantially smaller. This results in a more practical operating range for EMA calculations, reduces the risk of arithmetic overflow, and simplifies fixed-point computations without sacrificing the accuracy required for anomaly detection.
 
 ### Training mode
 CPU usage is tracked in two places.
@@ -639,24 +754,18 @@ Performance measurements were conducted to verify that the adaptive-limits subsy
 Benchmark results:
 
 ```text
-No mode:
-finished in 50.03s, 1244320.00 req/s, 963.47 MB/s
-finished in 50.03s, 1242224.16 req/s, 962.34 MB/s
-finished in 50.03s, 1249728.72 req/s, 968.96 MB/s
-
 Training mode:
-finished in 50.03s, 1245938.16 req/s, 966.02 MB/s
-finished in 50.03s, 1224614.22 req/s, 949.49 MB/s
-finished in 50.03s, 1238774.08 req/s, 960.47 MB/s
+finished in 50.03s, 1262705.36 req/s, 977.65MB/s
+finished in 50.03s, 1272612.60 req/s, 986.17MB/s
+finished in 50.03s, 1264687.98 req/s, 980.56MB/s
+Defence Mode:
+finished in 50.03s, 1272456.16 req/s, 986.58MB/s
+finished in 50.03s, 1263205.18 req/s, 979.41MB/s
+finished in 50.03s, 1256503.58 req/s, 974.21MB/s
+master:
+finished in 50.03s, 1253438.10 req/s, 970.45MB/s
+finished in 50.03s, 1253206.98 req/s, 970.75MB/s
+finished in 50.03s, 1248472.82 req/s, 967.99MB/s
 
-Defence mode:
-finished in 50.03s, 1257063.30 req/s, 974.65 MB/s
-finished in 50.03s, 1231469.62 req/s, 954.80 MB/s
-finished in 50.03s, 1240568.38 req/s, 961.86 MB/s
-
-Master:
-finished in 50.03s, 1209948.62 req/s, 936.78 MB/s
-finished in 50.03s, 1221063.28 req/s, 945.85 MB/s
-finished in 50.03s, 1221093.04 req/s, 946.76 MB/s
 ```
 The results show no statistically significant throughput degradation in either training or defence mode. This is primarily achieved through the use of per-CPU accounting structures on the request-processing hot path. Most metric updates are performed using lockless per-CPU counters, while atomic operations are only required when updating client maxima. Furthermore, maximum updates are performed only once per invocation of `ss_tcp_process_data`, rather than for every individual event. As a result, the adaptive-limits subsystem introduces negligible overhead while providing continuous statistics collection and anomaly detection capabilities.
