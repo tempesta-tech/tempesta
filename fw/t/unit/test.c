@@ -152,6 +152,9 @@ test_run_all(void)
 	EXPECT_EQ(tfw_client_mem(__tfw_client_mem_from_conn(&conn_req)), 0);
 	__fpu_schedule();
 
+	TEST_SUITE_RUN(128bit);
+	__fpu_schedule();
+
 	TEST_SUITE_RUN(hash);
 	__fpu_schedule();
 
