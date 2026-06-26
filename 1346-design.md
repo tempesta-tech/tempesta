@@ -22,11 +22,11 @@ In addition, kernel-space constraints prohibit floating-point arithmetic, requir
 
 Benchmarking (see the benchmark_training directory) demonstrated that the modified fixed-point Welford implementation is slower than the sum/sumsq approach due to additional arithmetic operations, extra division steps, and the need to perform a more complex replace operation on every update.
 
-Operation	Native `__int128`	Custom 128-bit
-Welford update		7.24 ns		20.9 ns
-sum/sumsq update	4.59 ns		15.6 ns
+Benchmark                       Time             CPU   Iterations
+BM_welford_fixed_point       6.87 ns         6.87 ns    103916246
+BM_sum_sumsq                 4.61 ns         4.61 ns    152374299
 
-Accuracy was also calculated for four different cases.
+Accuracy (variance) was also calculated for four different cases.
 
 client maximum increases +1 on each iteration (same as for connection tracking):
 exact                = 8.33e+08
@@ -36,25 +36,25 @@ sum/sumsq (64-bit)	 = 8.33e+08
 Welford (64-bit)     = 32.4295
 
 client maximum randomly increases in a range (1 - 10) on each iteration (possible for non-idempotent request tracking, since we use algorithm at the end of the `ss_tcp_process_data`, when we can already process several requests):
-exact 				 = 2.51356e+10
-sum/sumsq (128-bit)	 = 2.51356e+10
-Welford (128-bit)	 = 2.51356e+10
+exact 				 = 2.53805e+10
+sum/sumsq (128-bit)	 = 2.53805e+10
+Welford (128-bit)	 = 2.53805e+10
 sum/sumsq (64-bit)	 = -2.95145e+15
-Welford (64-bit)	 = 32.4279
+Welford (64-bit)	 = 32.43
 
 client maximum randomly increases in a range (1 - 100) on each iteration:
-exact                = 2.11991e+12
-sum/sumsq (128-bit)  = 2.11991e+12
-Welford (128-bit)    = 2.11991e+12
-sum/sumsq (64-bit)	 = -2.52349e+17
-Welford (64-bit)     = 32.4355
+exact                = 2.12403e+12
+sum/sumsq (128-bit)  = 2.12403e+12
+Welford (128-bit)    = 2.12403e+12
+sum/sumsq (64-bit)	 = -2.52534e+17
+Welford (64-bit)     = 32.4224
 
 client maximum randomly increases in a range (1 - 1000) on each iteration (possible for memory usage tracking, since we use algorithm at the end of the `ss_tcp_process_data`, and track memory usage in pages):
-exact                = 2.07582e+14
-sum/sumsq (128-bit)  = 2.07582e+14
-Welford (128-bit)    = 2.07582e+14
-sum/sumsq (64-bit)	 = -2.48049e+19
-Welford (64-bit)	 = 32.4198
+exact                = 2.08852e+14
+sum/sumsq (128-bit)  = 2.08852e+14
+Welford (128-bit)    = 2.08852e+14
+sum/sumsq (64-bit)	 = -2.47926e+19
+Welford (64-bit)	 = 32.419
 
 As shown above, both algorithms provide excellent accuracy; however, the sum/sumsq method is consistently faster. As a result, the implementation uses the sum of values / sum of squares method (sum/sumsq method). This approach maintains:
 
@@ -86,14 +86,14 @@ The variance computation subtracts two extremely large nearly identical numbers,
 
 For the target workload, client metrics are bounded and remain within a relatively small range. Under these conditions, the sum/sumsq approach provides sufficient numerical accuracy while being significantly simpler, faster, and easier to maintain than a reversible fixed-point implementation of Welford’s algorithm.
 
-Mean and standard deviation are calculated using SCALE_SHIFT = 10, a fixed-point scaling factor used for integer arithmetic. We also save both these values in scaled format for accuracy, because linux kernel code avoids floating point operations.
+The mean and standard deviation are computed using a SCALE_SHIFT factor equal to 10 or 0, depending on the magnitude of the measured values. We use SCALE_SHIFT = 10 when sum < U32_MAX; otherwise, we compute the values without scaling to prevent potential overflow and because scaling is not necessary in that case.
 
 ### Defence Mode
 Each new observation is evaluated using:
 
 z = ((x << SCALE_SHIFT) - mean) / std
 
-where SCALE_SHIFT = 10 is the fixed-point scaling factor used during mean and standard deviation calculation. All fractional computations (e.g. mean, variance, and z-score) are therefore performed using scaled integers. If z > configured_threshold the event is considered anomalous. Drop connection with TCP RST and optionally block client by IP.
+where SCALE_SHIFT = (10 or 0) is the fixed-point scaling factor used during mean and standard deviation calculation. All fractional computations (e.g. mean, variance, and z-score) are therefore performed using scaled integers. If z > configured_threshold the event is considered anomalous. Drop connection with TCP RST and optionally block client by IP.
 
 ### Disabled Mode
 Internal state used during transitions. Ensures safe updates of shared data (via RCU synchronization). This mode can also be exposed as a user-configurable operating mode rather than being used solely as an internal transition state. Doing so completely eliminates the overhead associated with statistics collection and anomaly detection when the feature is not required.
@@ -104,22 +104,17 @@ Internal state used during transitions. Ensures safe updates of shared data (via
 ### Accuracy
 Both the `sum/sumsq` and fixed-point Welford implementations require 128-bit intermediate values to maintain sufficient numerical accuracy.
 
-The Linux kernel does not provide generic 128-bit arithmetic support and many architectures do not support native `__int128` operations in kernel code. To address this limitation, a lightweight 128-bit arithmetic library was implemented using a pair of 64-bit values.
+The Linux kernel does not provide generic 128-bit arithmetic support (for some functions). To address this limitation, a lightweight 128-bit arithmetic library was implemented.
 
-The library provides the operations required by the adaptive limits
-subsystem:
+The library provides the operations required by the adaptive limits subsystem which are not supported in linux kernel:
 
-* addition and subtraction;
-* multiplication;
-* division by a 64-bit value;
+* division by a 32-bit value;
 * square root;
-* left and right shifts.
 
-Accuracy tests show that a 64-bit implementation is insufficient for production use. While the native and library-backed 128-bit implementations produce results identical to the exact variance 
-calculation, the 64-bit implementation quickly loses precision and eventually overflows (see accuracy results in previous chapter). The results demonstrate that 64-bit accumulators are unable to maintain acceptable precision for the large datasets (100000 clients), while the custom 128-bit implementation matches the native `__int128` implementation.
+Accuracy tests show that a 64-bit implementation is insufficient for production use. While the 128-bit implementations produce results identical to the exact variance calculation, the 64-bit implementation quickly loses precision and eventually overflows (see accuracy results in previous chapter). The results demonstrate that 64-bit accumulators are unable to maintain acceptable precision for the large datasets (100000 clients).
 
 ### Performance impact
-The custom 128-bit implementation introduces additional arithmetic overhead compared to native `__int128` operations. However, statistics are updated relatively infrequently, and the most computationally expensive operations (such as division and square-root calculation) are performed only during transitions from Training Mode to Defence Mode. Consequently, no measurable impact on overall performance was observed (see the benchmark results at the end of this document).
+Custom 128-bit functions are only invoked when switching from training mode to defense mode and do not affect performance.
 
 
 ## HTTP Protection Library Implementation Details (Adaptive Limits Library Implementation)
@@ -175,19 +170,23 @@ We introduce a dedicated structure for tracking all adaptive-limit related clien
  * @refcnt		- percpu reference counter. Provides scalable and
  *				  thread-safe reference tracking on SMP systems with
  *				  minimal contention;
+ * @req_lim		- structure to track non-idempotent requests count in
+ *				  fly for the current client. Used in adaptive_limits
+ *				  module to collect statistic and z-score calculation;
+ * @cpu_lim		- structure to track cpu usage for current client. Used
+ *				  in adaptive_limits module to collect statistic and
+ *				  z-score calculation;
  * @cli_mem		- client memory accounting structure for Tempesta FW;
- * @req_lim 	- tracks the number of in-flight non-idempotent requests
- *				  for the current client;
  */
 typedef struct tfw_adaptive_limits_t {
 	union {
-		struct work_struct				kill_work;
+		struct work_struct		kill_work;
 		struct tfw_adaptive_limits_t	*next_free;
 	};
-	struct percpu_ref		refcnt;
+	struct percpu_ref	refcnt;
 	TfwAdaptiveLimitLock	req_lim;
 	TfwAdaptiveLimitLock	cpu_lim;
-	TfwClientMem			cli_mem; // Contains TfwAdaptiveLimitLock inside.
+	TfwClientMem		cli_mem;
 } TfwClientAdaptiveLimits;
 ```
 
@@ -197,21 +196,23 @@ We use new implemented structure and common function to track `sum/sumsq` for ea
 /*
  * Per-metric aggregated statistics.
  *
- * @sumsq - sum of squares of observed values.
- * @sum   - sum of observed values.
- * @mean  - calculated mean (scaled by SCALE_SHIFT).
- * @std   - calculated standard deviation (scaled).
- * @num   - number of samples (e.g. number of clients).
+ * @sumsq 			- sum of squares of observed values.
+ * @sum   			-	sum of observed values.
+ * @mean  			- calculated mean (scaled by SCALE_SHIFT).
+ * @std   			- calculated standard deviation (scaled).
+ * @num   			- number of samples (e.g. number of clients).
+ * @@scale_shift	- scaling factor;
  */
 struct stats {
-	u128_acc __percpu	*sumsq;
-	u64 __percpu		*sum;
+	u128 __percpu	*sumsq;
+	u64 __percpu	*sum;
 	u64 			mean;
 	u64 			std;
-	u32 __percpu		*num;
+	u32 __percpu	*num;
+	unsigned int	scale_shift;
 };
 ```
-A separate instance of `struct stats` is maintained for each tracked metric (connections, non-idempotent requests, memory usage, and CPU usage). Per-CPU counters are used to avoid atomic contention during training. The statistics are aggregated over client maxima rather than individual events. Consequently, the sample count (`num`) corresponds to the number of participating clients rather than the total number of observed events. The global values are aggregated only during switching from training mode to defence mode. 
+A separate instance of `struct stats` is maintained for each tracked metric (connections, non-idempotent requests, memory usage, and CPU usage). Per-CPU counters are used to avoid atomic contention during training. The statistics are aggregated over client maxima rather than individual events. Consequently, the sample count (`num`) corresponds to the number of participating clients rather than the total number of observed events. The global values are aggregated only during switching from training mode to defence mode.
 
 ### Training mode
 ```C
@@ -224,7 +225,7 @@ A separate instance of `struct stats` is maintained for each tracked metric (con
  */
 static inline void
 tfw_adaptive_limits_adjust_new_el(struct stats __rcu *g_stats, u64 delta1,
-				  u128_acc delta2)
+				  u128 delta2)
 {
 	struct stats *s;
 
@@ -235,8 +236,8 @@ tfw_adaptive_limits_adjust_new_el(struct stats __rcu *g_stats, u64 delta1,
 	BUG_ON(!rcu_read_lock_held());
 	s = rcu_dereference(g_stats);
 	this_cpu_add(*s->sum, delta1);
-	*this_cpu_ptr(s->sumsq) =
-		u128_add_u128(*this_cpu_ptr(s->sumsq), delta2);
+	/* `this_cpu_add` is not implemented for 128-bit value. */
+	*this_cpu_ptr(s->sumsq) += delta2;
 }
 ```
 
@@ -300,10 +301,9 @@ To minimize hot-path overhead, maximum values are evaluated only once at the end
 static inline bool
 tfw_adaptive_limits_change_max(TfwAdaptiveLimitLock *limit,
 			       s64 (*convert_val)(s64), s64 curr,
-			       u64 *delta1, u128_acc *delta2)
+			       u64 *delta1, u128 *delta2)
 {
 	s64 old_max = atomic64_read(&limit->max);
-	u128_acc tmp1, tmp2;
 
 	/*
 	 * Can be called concurrentrly on other cpu with different
@@ -318,9 +318,7 @@ tfw_adaptive_limits_change_max(TfwAdaptiveLimitLock *limit,
 	old_max = convert_val(old_max);
 
 	*delta1 = ((u64)curr - (u64)old_max);
-	tmp1 = u128_u64_mult_u64(curr, curr);
-	tmp2 = u128_u64_mult_u64(old_max, old_max);
-	*delta2 = u128_sub_u128(tmp1, tmp2);
+	*delta2 = (u128)curr * (u128) curr - (u128)old_max * (u128)old_max;
 
 	return true;
 }
@@ -337,8 +335,8 @@ During switching from training to defence modes Tempesta FW aggregates all per-C
 static inline void
 __calculate_mean_and_std(struct stats *s)
 {
-	u128_acc variance, tmp1, tmp2;
-	u128_acc total_sumsq;
+	u128 variance, tmp1, tmp2;
+	u128 total_sumsq;
 	u64 total_sum;
 	u32 num_clients;
 
@@ -349,14 +347,14 @@ __calculate_mean_and_std(struct stats *s)
 	if (!unlikely(num_clients))
 		return;
 
-	tmp1 = u128_left_shift_u32(total_sumsq, SCALE_SHIFT);
-	tmp1 = u128_div_u64(tmp1, num_clients, NULL);
-	tmp2 = u128_u64_mult_u64(s->mean, s->mean);
-	tmp2 = u128_right_shift_u32(tmp2, SCALE_SHIFT);
-
-	s->mean = (total_sum << SCALE_SHIFT) / num_clients;
-	variance = u128_sub_u128(tmp1, tmp2);
-	s->std = u128_sqrt(u128_left_shift_u32(variance, SCALE_SHIFT));
+	s->scale_shift = total_sum < U32_MAX ? SCALE_SHIFT : 0;
+	tmp1 = total_sumsq << s->scale_shift;
+	tmp1 = u128_div_u32(tmp1, num_clients);
+	s->mean = (total_sum << s->scale_shift) / num_clients;
+	tmp2 = (u128)s->mean * (u128)s->mean;
+	tmp2 = tmp2 >> s->scale_shift;
+	variance = tmp1 - tmp2;
+	s->std = u128_sqrt(variance << s->scale_shift);
 }
 ```
 
@@ -523,7 +521,7 @@ bool
 tfw_adaptive_limits_check_conn_num(TfwAdaptiveLimit *limit, int delta,
 				   u16 *epoch)
 {
-	u128_acc delta2, tmp1, tmp2;
+	u128 delta2;
 	u64 delta1;
 	unsigned int old_max;
 	bool new_event, new_client = false;
@@ -585,11 +583,11 @@ tfw_adaptive_limits_check_conn_num(TfwAdaptiveLimit *limit, int delta,
 	old_max = limit->max;
 	if (limit->counter <= old_max)
 		goto out;
+
 	limit->max = limit->counter;
 	delta1 = limit->counter - old_max;
-	tmp1 = u128_u64_mult_u64(limit->counter, limit->counter);
-	tmp2 = u128_u64_mult_u64(old_max, old_max);
-	delta2 = u128_sub_u128(tmp1, tmp2);
+	delta2 = (u128)limit->counter * (u128)limit->counter -
+		(u128)old_max * (u128)old_max;
 	tfw_adaptive_limits_adjust_conn_num(delta1, delta2);
 
 out:
@@ -755,17 +753,17 @@ Benchmark results:
 
 ```text
 Training mode:
-finished in 50.03s, 1262705.36 req/s, 977.65MB/s
-finished in 50.03s, 1272612.60 req/s, 986.17MB/s
-finished in 50.03s, 1264687.98 req/s, 980.56MB/s
+finished in 50.03s, 1205382.84 req/s, 933.22MB/s
+finished in 50.03s, 1206352.90 req/s, 935.01MB/s
+finished in 50.03s, 1212849.66 req/s, 940.37MB/s
 Defence Mode:
-finished in 50.03s, 1272456.16 req/s, 986.58MB/s
-finished in 50.03s, 1263205.18 req/s, 979.41MB/s
-finished in 50.03s, 1256503.58 req/s, 974.21MB/s
+finished in 50.03s, 1202041.02 req/s, 931.99MB/s
+finished in 50.03s, 1221799.64 req/s, 947.31MB/s
+finished in 50.02s, 1214020.14 req/s, 941.28MB/s
 master:
-finished in 50.03s, 1253438.10 req/s, 970.45MB/s
-finished in 50.03s, 1253206.98 req/s, 970.75MB/s
-finished in 50.03s, 1248472.82 req/s, 967.99MB/s
+finished in 50.03s, 1204474.98 req/s, 932.55MB/s
+finished in 50.03s, 1214912.74 req/s, 941.36MB/s
+finished in 50.03s, 1221197.26 req/s, 946.84MB/s
 
 ```
 The results show no statistically significant throughput degradation in either training or defence mode. This is primarily achieved through the use of per-CPU accounting structures on the request-processing hot path. Most metric updates are performed using lockless per-CPU counters, while atomic operations are only required when updating client maxima. Furthermore, maximum updates are performed only once per invocation of `ss_tcp_process_data`, rather than for every individual event. As a result, the adaptive-limits subsystem introduces negligible overhead while providing continuous statistics collection and anomaly detection capabilities.
