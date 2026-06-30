@@ -1164,7 +1164,7 @@ index 394c3b660..acdf61fb8 100644
  	union {
  		struct ip_options_rcu __rcu	*ireq_opt;
 diff --git a/include/net/sock.h b/include/net/sock.h
-index fa055cf17..d0a10fdc1 100644
+index fa055cf17..1f135528a 100644
 --- a/include/net/sock.h
 +++ b/include/net/sock.h
 @@ -533,6 +533,30 @@ struct sock {
@@ -1198,12 +1198,14 @@ index fa055cf17..d0a10fdc1 100644
  	void			(*sk_error_report)(struct sock *sk);
  	int			(*sk_backlog_rcv)(struct sock *sk,
  						  struct sk_buff *skb);
-@@ -953,6 +977,16 @@ enum sock_flags {
+@@ -953,6 +977,18 @@ enum sock_flags {
  	SOCK_XDP, /* XDP is attached */
  	SOCK_TSTAMP_NEW, /* Indicates 64 bit timestamps always */
  	SOCK_RCVMARK, /* Receive SO_MARK  ancillary data with packet */
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +	SOCK_TEMPESTA, /* The socket is managed by Tempesta FW */
++	SOCK_TEMPESTA_CLNT, /* The socket is client Tempesta FW socket. */
++	SOCK_TEMPESTA_SRV, /* The socket is server Tempesta FW socket. */
 +	SOCK_TEMPESTA_HAS_DATA, /* The socket has data in Tempesta FW
 +				 * write queue.
 +				 */
@@ -1215,7 +1217,7 @@ index fa055cf17..d0a10fdc1 100644
  };
  
  #define SK_FLAGS_TIMESTAMP ((1UL << SOCK_TIMESTAMP) | (1UL << SOCK_TIMESTAMPING_RX_SOFTWARE))
-@@ -1162,6 +1196,16 @@ static inline void sock_rps_reset_rxhash(struct sock *sk)
+@@ -1162,6 +1198,16 @@ static inline void sock_rps_reset_rxhash(struct sock *sk)
  		__rc;							\
  	})
  
@@ -1232,7 +1234,7 @@ index fa055cf17..d0a10fdc1 100644
  int sk_stream_wait_connect(struct sock *sk, long *timeo_p);
  int sk_stream_wait_memory(struct sock *sk, long *timeo_p);
  void sk_stream_wait_close(struct sock *sk, long timeo_p);
-@@ -2059,8 +2103,12 @@ static inline bool sk_rethink_txhash(struct sock *sk)
+@@ -2059,8 +2105,12 @@ static inline bool sk_rethink_txhash(struct sock *sk)
  static inline struct dst_entry *
  __sk_dst_get(const struct sock *sk)
  {
@@ -1245,6 +1247,16 @@ index fa055cf17..d0a10fdc1 100644
  }
  
  static inline struct dst_entry *
+@@ -2887,6 +2937,9 @@ int sock_set_timestamping(struct sock *sk, int optname,
+ 
+ void sock_enable_timestamps(struct sock *sk);
+ void sock_no_linger(struct sock *sk);
++#ifdef CONFIG_SECURITY_TEMPESTA
++void sock_set_keepalive_locked(struct sock *sk);
++#endif
+ void sock_set_keepalive(struct sock *sk);
+ void sock_set_priority(struct sock *sk, u32 priority);
+ void sock_set_rcvbuf(struct sock *sk, int val);
 diff --git a/include/net/tcp.h b/include/net/tcp.h
 index d1948d357..33f7ed999 100644
 --- a/include/net/tcp.h
@@ -2585,6 +2597,27 @@ index 74149dc4e..a10153df5 100644
  	skb->data = data;
  	skb_set_end_offset(skb, size);
  	skb_reset_tail_pointer(skb);
+diff --git a/net/core/sock.c b/net/core/sock.c
+index a83f64a1d..58a554258 100644
+--- a/net/core/sock.c
++++ b/net/core/sock.c
+@@ -946,6 +946,16 @@ int sock_set_timestamping(struct sock *sk, int optname,
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++void sock_set_keepalive_locked(struct sock *sk)
++{
++	if (sk->sk_prot->keepalive)
++		sk->sk_prot->keepalive(sk, true);
++	sock_valbool_flag(sk, SOCK_KEEPOPEN, true);
++}
++EXPORT_SYMBOL(sock_set_keepalive_locked);
++#endif
++
+ void sock_set_keepalive(struct sock *sk)
+ {
+ 	lock_sock(sk);
 diff --git a/net/core/stream.c b/net/core/stream.c
 index b16dfa568..65ba00d1f 100644
 --- a/net/core/stream.c
@@ -2733,7 +2766,7 @@ index 49811c928..d728f0b40 100644
  	skb_reset_network_header(skb2);
  	skb2->transport_header = skb2->network_header + state->hlen;
 diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
-index 4f77bd862..781e1fff4 100644
+index 4f77bd862..c64888c30 100644
 --- a/net/ipv4/tcp.c
 +++ b/net/ipv4/tcp.c
 @@ -471,7 +471,11 @@ void tcp_init_sock(struct sock *sk)
@@ -2881,7 +2914,17 @@ index 4f77bd862..781e1fff4 100644
  
  int tcp_disconnect(struct sock *sk, int flags)
  {
-@@ -4864,10 +4919,15 @@ void tcp_done(struct sock *sk)
+@@ -3631,6 +3686,9 @@ int tcp_sock_set_keepidle_locked(struct sock *sk, int val)
+ 
+ 	return 0;
+ }
++#ifdef CONFIG_SECURITY_TEMPESTA
++EXPORT_SYMBOL(tcp_sock_set_keepidle_locked);
++#endif
+ 
+ int tcp_sock_set_keepidle(struct sock *sk, int val)
+ {
+@@ -4864,10 +4922,15 @@ void tcp_done(struct sock *sk)
  
  	WRITE_ONCE(sk->sk_shutdown, SHUTDOWN_MASK);
  
@@ -3613,6 +3656,31 @@ index 8efc58716..c51226710 100644
  		err = tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);
  		if (!err)
  			tcp_event_new_data_sent(sk, skb);
+diff --git a/net/ipv4/tcp_timer.c b/net/ipv4/tcp_timer.c
+index 79064580c..59920b38c 100644
+--- a/net/ipv4/tcp_timer.c
++++ b/net/ipv4/tcp_timer.c
+@@ -799,6 +799,10 @@ static void tcp_keepalive_timer (struct timer_list *t)
+ 	if (elapsed >= keepalive_time_when(tp)) {
+ 		u32 user_timeout = READ_ONCE(icsk->icsk_user_timeout);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++		if (sock_flag(sk, SOCK_TEMPESTA_CLNT))
++			goto reset;
++#endif
+ 		/* If the TCP_USER_TIMEOUT option is enabled, use that
+ 		 * to determine when to timeout instead.
+ 		 */
+@@ -807,6 +811,9 @@ static void tcp_keepalive_timer (struct timer_list *t)
+ 		    icsk->icsk_probes_out > 0) ||
+ 		    (user_timeout == 0 &&
+ 		    icsk->icsk_probes_out >= keepalive_probes(tp))) {
++#ifdef CONFIG_SECURITY_TEMPESTA
++reset:
++#endif
+ 			tcp_send_active_reset(sk, GFP_ATOMIC,
+ 					      SK_RST_REASON_TCP_KEEPALIVE_TIMEOUT);
+ 			tcp_write_err(sk);
 diff --git a/net/ipv6/tcp_ipv6.c b/net/ipv6/tcp_ipv6.c
 index 59173f58c..05fbe8ba2 100644
 --- a/net/ipv6/tcp_ipv6.c

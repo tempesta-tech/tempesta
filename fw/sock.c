@@ -1655,10 +1655,23 @@ ss_do_shutdown(struct sock *sk)
 	 * after sending all pending data.
 	 */
 	SS_CONN_TYPE(sk) |= Conn_Shutdown;
-	if (sk->sk_fill_write_queue(sk, mss_now))
+	if (sk->sk_fill_write_queue(sk, mss_now)) {
 		ss_linkerror(sk, 0);
-	else
-		SS_CALL(connection_on_shutdown, sk->sk_user_data);
+	} else {
+		unsigned int tcp_fin_time_in_sec =
+			jiffies_to_msecs(tcp_fin_time(sk)) / 1000;
+
+		/*
+		 * Socket that was closed by `tcp_shutdown` is not orphaned.
+		 * After receiving ack from remote peer, such socket moved
+		 * to TCP_FIN_WAIT2 state and can stay in this state unlimited
+		 * time (`tcp_fin_timeout` which was set to 10 seconds during
+		 * Tempesta FW start doesn't work for such sockets).
+		 * To prevent such situation set keepalive timer to 10 seconds
+		 * and abort connection if this time is expired.
+		 */
+		tcp_sock_set_keepidle_locked(sk, tcp_fin_time_in_sec);
+	}
 }
 
 static inline bool

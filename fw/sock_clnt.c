@@ -77,31 +77,6 @@ tfw_cli_cache(int type)
 	}
 }
 
-static void
-tfw_sock_cli_keepalive_timer_cb(struct timer_list *t)
-{
-	TfwCliConn *cli_conn = from_timer(cli_conn, t, timer);
-	TfwConn *conn = (TfwConn *)cli_conn;
-
-	T_DBG("Client timeout end\n");
-
-	if (TFW_CONN_TYPE(conn) & Conn_Shutdown) {
-		/*
-		 * If socket was shut down it is in TCP_FIN_WAIT1 or
-		 * TCP_FIN_WAIT2 state depends on receiving ack from
-		 * remote peer. We don't skip default closing procedure
-		 * for socket in such states, so we should call
-		 * `tfw_connection_abort` instead of `tfw_connection_close`.
-		 */
-		tfw_connection_abort(conn);
-	} else {
-		if (tfw_connection_close(conn, true)) {
-			mod_timer(&cli_conn->timer,
-				  jiffies + msecs_to_jiffies(1000));
-		}
-	}
-}
-
 static TfwCliConn *
 tfw_cli_conn_alloc(int type)
 {
@@ -115,7 +90,6 @@ tfw_cli_conn_alloc(int type)
 	INIT_LIST_HEAD(&cli_conn->seq_queue);
 	spin_lock_init(&cli_conn->seq_qlock);
 	spin_lock_init(&cli_conn->ret_qlock);
-	spin_lock_init(&cli_conn->timer_lock);
 	bzero_fast(cli_conn->js_histoty, sizeof(cli_conn->js_histoty));
 #ifdef CONFIG_LOCKDEP
 	/*
@@ -128,8 +102,6 @@ tfw_cli_conn_alloc(int type)
 			 &__lockdep_no_validate__, 2);
 #endif
 
-	timer_setup(&cli_conn->timer, tfw_sock_cli_keepalive_timer_cb, 0);
-
 	return cli_conn;
 }
 ALLOW_ERROR_INJECTION(tfw_cli_conn_alloc, NULL);
@@ -137,8 +109,6 @@ ALLOW_ERROR_INJECTION(tfw_cli_conn_alloc, NULL);
 static void
 tfw_cli_conn_free(TfwCliConn *cli_conn)
 {
-	BUG_ON(timer_pending(&cli_conn->timer));
-
 	/* Check that all nested resources are freed. */
 	tfw_connection_validate_cleanup((TfwConn *)cli_conn);
 	BUG_ON(!list_empty(&cli_conn->seq_queue));
@@ -157,23 +127,6 @@ tfw_cli_conn_release(TfwCliConn *cli_conn)
 	TFW_INC_STAT_BH(clnt.conn_disconnects);
 }
 
-static inline void
-tfw_cli_conn_mod_timer(TfwCliConn *conn, unsigned int timeout)
-{
-	/*
-	 * The lock is needed because the timer deletion was moved from release() to
-	 * drop(). While release() is called when there are no other users, there is
-	 * no such luxury with drop() and the connection can still be used due to
-	 * lingering threads.
-	 */
-	spin_lock(&conn->timer_lock);
-	if (timer_pending(&conn->timer))
-		mod_timer(&conn->timer,
-			  jiffies + msecs_to_jiffies(timeout * 1000));
-	spin_unlock(&conn->timer_lock);
-}
-
-
 int
 tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 {
@@ -181,13 +134,6 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 
 	tfw_connection_get((TfwConn *)cli_conn);
 	r = tfw_connection_send((TfwConn *)cli_conn, msg);
-
-	/*
-	 * If connection was shut down keepalive timer was set
-	 * in `tfw_connection_send`.
-	 */
-	tfw_cli_conn_mod_timer(cli_conn, tfw_cli_cfg_ka_timeout);
-
 	if (r)
 		/* Quite usual on system shutdown. */
 		T_DBG("Cannot send data to client (%d)\n", r);
@@ -264,10 +210,9 @@ tfw_sock_clnt_new(struct sock *sk)
 	}
 	sk->sk_fill_write_queue = tfw_sock_clnt_fill_write_queue;
 
-	/* Activate keepalive timer. */
-	mod_timer(&((TfwCliConn *)conn)->timer,
-		  jiffies +
-		  msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
+	sock_set_flag(sk, SOCK_TEMPESTA_CLNT);
+	sock_set_keepalive_locked(sk);
+	tcp_sock_set_keepidle_locked(sk, tfw_cli_cfg_ka_timeout);
 
 	T_DBG3("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
 	       sk, conn, cli);
@@ -302,10 +247,6 @@ tfw_sock_clnt_drop(struct sock *sk)
 	T_DBG3("connection lost: close client socket: sk=%p, conn=%p, "
 	       "client=%p\n", sk, conn, conn->peer);
 
-	spin_lock(&((TfwCliConn *)conn)->timer_lock);
-	del_timer_sync(&((TfwCliConn *)conn)->timer);
-	spin_unlock(&((TfwCliConn *)conn)->timer_lock);
-
 	/*
 	 * A TLS connection was lost during handshake processing. Call FSM
 	 * hooks to warn the Frang, since it accounts uncompleted TLS
@@ -333,34 +274,11 @@ tfw_sock_clnt_drop(struct sock *sk)
 	tfw_connection_put(conn);
 }
 
-static inline void
-tfw_cli_conn_on_shutdown(TfwConn *conn)
-{
-	static const unsigned int tcp_fin_timeout = 10;
-
-	/*
-	 * Socket that was closed by `tcp_shutdown` is not orphaned.
-	 * After receiving ack from remote peer, such socket moved
-	 * to TCP_FIN_WAIT2 state and can stay in this state unlimited
-	 * time (`tcp_fin_timeout` which was set to 10 seconds during
-	 * Tempesta FW start doesn't work for such sockets).
-	 * To prevent such situation set connection keepalive timer
-	 * to 10 seconds and abort connection if this time is expired.
-	 *
-	 * TODO 1346: Rework this part of code, during removing client
-	 * connection keep alive timer. Since we decide to patch and
-	 * reuse TCP keep alive timer, we don't need this callback and
-	 * should directly modify TCP keep alive timer from sock.c.
-	 */
-	tfw_cli_conn_mod_timer((TfwCliConn *)conn, tcp_fin_timeout);
-}
-
 static const SsHooks tfw_sock_http_clnt_ss_hooks = {
 	.connection_new		= tfw_sock_clnt_new,
 	.connection_drop	= tfw_sock_clnt_drop,
 	.connection_recv	= tfw_connection_recv,
 	.connection_recv_finish = tfw_connection_recv_finish,
-	.connection_on_shutdown	= tfw_cli_conn_on_shutdown,
 };
 
 static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
@@ -368,7 +286,6 @@ static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
 	.connection_drop	= tfw_sock_clnt_drop,
 	.connection_recv	= tfw_tls_connection_recv,
 	.connection_recv_finish = tfw_connection_recv_finish,
-	.connection_on_shutdown	= tfw_cli_conn_on_shutdown,
 };
 
 /*

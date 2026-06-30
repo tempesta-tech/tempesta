@@ -161,22 +161,18 @@ typedef struct tfw_conn_t {
 /*
  * These are specific properties that are relevant to client connections.
  *
- * @timer	- The keep-alive timer for the connection;
  * @seq_queue	- queue of client's messages in the order they came;
  * @seq_qlock	- lock for accessing @seq_queue;
  * @ret_qlock	- lock for serializing sets of responses;
- * @timer_lock	- lock for serializing of deleting/modifing keep-alive timer;
  * @js_histoty	- history of client js challenge misses. High 48 bits are
  *		  timestamp, low 16 bits are count of misses;
  *
  */
 typedef struct tfw_cli_conn_t {
 	TFW_CONN_COMMON;
-	struct timer_list	timer;
 	struct list_head	seq_queue;
 	spinlock_t		seq_qlock;
 	spinlock_t		ret_qlock;
-	spinlock_t		timer_lock;
 	u64			js_histoty[FRANG_FREQ];
 } TfwCliConn;
 

@@ -34,17 +34,8 @@
 #define TFW_CONN_HTTP_TYPE(c)	\
 	(TFW_FSM_TYPE(TFW_CONN_TYPE(c)) & (TFW_FSM_HTTP | TFW_FSM_HTTPS))
 
-/**
- * Global level websocket configuration.
- *
- * @client_ws_timeout	- timeout between two consecutive client sends before
- * 			  connection close;
- */
-static struct {
-	int client_ws_timeout;
-} tfw_cfg_ws;
-
 static struct kmem_cache *tfw_ws_conn_cache;
+static int client_ws_timeout;
 
 static void
 tfw_ws_srv_ss_hook_drop(struct sock *sk)
@@ -71,25 +62,6 @@ static const SsHooks tfw_ws_srv_ss_hooks = {
 	.connection_drop	= tfw_ws_srv_ss_hook_drop,
 	.connection_recv	= tfw_connection_recv,
 };
-
-/**
- * Rearm client connection timer for client timeout functionality,
- * `client_ws_timeout` is a corresponding config setting.
- * TODO #736: do not update time on each packet handling.
- */
-void
-tfw_ws_cli_mod_timer(TfwCliConn *conn)
-{
-	BUG_ON(!(TFW_CONN_TYPE(conn) & Conn_Clnt));
-
-	spin_lock(&conn->timer_lock);
-	if (timer_pending(&conn->timer))
-		mod_timer(&conn->timer,
-			jiffies + msecs_to_jiffies(
-				(long)tfw_cfg_ws.client_ws_timeout
-					* 1000));
-	spin_unlock(&conn->timer_lock);
-}
 
 static void
 tfw_ws_conn_release(void *conn)
@@ -202,7 +174,7 @@ tfw_http_websocket_upgrade(TfwSrvConn *srv_conn, TfwCliConn *cli_conn)
 	ws_conn->pair = (TfwConn *)cli_conn;
 	tfw_connection_get(ws_conn->pair);
 
-	tfw_ws_cli_mod_timer(cli_conn);
+	tcp_sock_set_keepidle(cli_conn->sk, client_ws_timeout);
 
 	/* Now websocket hooks will be called on the connection. */
 	cli_conn->proto.type |= TFW_FSM_WEBSOCKET;
@@ -244,10 +216,6 @@ tfw_ws_msg_process(TfwConn *conn, struct sk_buff *skb)
 		T_DBG("%s: cannot send data via websocket\n", __func__);
 		tfw_connection_close(conn, true);
 	}
-
-	/* When receiving data from client we consider client timeout */
-	if ((TFW_CONN_TYPE(conn) & Conn_Clnt))
-		tfw_ws_cli_mod_timer((TfwCliConn *)conn);
 
 	return r;
 }
@@ -401,7 +369,7 @@ tfw_cfgop_ws_client_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (timeout < 0)
 		return -EINVAL;
 
-	tfw_cfg_ws.client_ws_timeout = timeout;
+	client_ws_timeout = timeout;
 
 	return 0;
 }
