@@ -2493,19 +2493,15 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		}
 
 		unsigned int snd_wnd_budget = __tfw_h2_snd_wnd_limit(*snd_wnd);
+		snd_wnd_budget = min3(snd_wnd_budget,
+				      (unsigned int)ctx->rem_wnd,
+				      (unsigned int)stream->rem_wnd);
 		unsigned int frame_length =
 			__tfw_h2_calc_data_frame_len(ctx, stream,
 						     snd_wnd_budget);
 		unsigned int is_last_chunk =
 				frame_length == stream->xmit.b_len;
 
-		/*
-		 * Calculate min_to_send only for send window, not HTTP2
-		 * connection window. This allows us to not postpone streams
-		 * that have small window, we want to send such streams and
-		 * move to the next stream in the queue if tcp send window is
-		 * enough.
-		 */
 		if (snd_wnd_budget < min_to_send && !is_last_chunk) {
 			/*
 			 * NOTE: As possible optimization, in this case we
