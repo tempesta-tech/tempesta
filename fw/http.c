@@ -7657,6 +7657,8 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 
 	if (likely(req->vhost))
 		req->location = req->vhost->loc_dflt;
+	else
+		goto cleanup;
 
 	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)req, srv);
 	if (!srv_conn) {
