@@ -41,8 +41,8 @@ typedef struct {
 typedef struct {
 	unsigned char type;
 	union {
-	TfwVhost *vhost;
-	TfwHttpRedir redir;
+		TfwVhost *vhost;
+		TfwHttpRedir redir;
 	};
 } TfwHttpActionResult;
 
