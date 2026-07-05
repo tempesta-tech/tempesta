@@ -82,13 +82,18 @@ static DECLARE_RWSEM(sg_sem);
 void
 tfw_server_destroy(TfwServer *srv)
 {
+	BUG_ON(timer_pending(&srv->gs_timer));
+	/*
+	 * Must be called before srv->cleanup(). Otherwise, a race is possible:
+	 * srv->cleanup() removes all server connections, then the APM timer
+	 * fires and attempts to send a health-monitor request through one of
+	 * the already removed connections, resulting in a use-after-free.
+	 */
+	tfw_apm_del_srv(srv);
 	if (srv->cleanup)
 		srv->cleanup(srv);
 	/* Close all connections before freeing the server! */
 	BUG_ON(!list_empty(&srv->conn_list));
-	BUG_ON(timer_pending(&srv->gs_timer));
-
-	tfw_apm_del_srv(srv);
 	if (srv->sg)
 		tfw_sg_put(srv->sg);
 	kmem_cache_free(srv_cache, srv);
