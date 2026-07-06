@@ -55,7 +55,7 @@ clickhouse: $(CLICKHOUSE_DIR)
 	cd $(CLICKHOUSE_DIR)/build && cmake .. && $(MAKE)
 
 $(CLICKHOUSE_DIR):
-	git clone $(CLICKHOUSE_REPO_URL) $(CLICKHOUSE_DIR)
+	git clone --branch v2.6.2 --depth 1 $(CLICKHOUSE_REPO_URL) $(CLICKHOUSE_DIR)
 
 clickhouse_install:
 	$(MAKE) -C $(CLICKHOUSE_BUILD_DIR) install
