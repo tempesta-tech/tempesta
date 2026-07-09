@@ -25,6 +25,7 @@
 #include <linux/string.h>
 #include <net/net_namespace.h> /* for sysctl */
 
+#include "sync_socket.h"
 #include "tempesta_fw.h"
 #include "cfg.h"
 #include "client.h"
@@ -33,6 +34,7 @@
 #include "str.h"
 #include "sync_socket.h"
 #include "lib/fsm.h"
+#include <net/sock.h>
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
@@ -478,6 +480,9 @@ tfw_exit(void)
 	for (i = exit_hooks_n - 1; i >= 0; --i)
 		exit_hooks[i]();
 
+	PRINT = NULL;
+	ADJUST = NULL;
+
 	unregister_net_sysctl_table(tfw_sysctl_hdr);
 }
 
@@ -529,6 +534,9 @@ tfw_init(void)
 	DO_INIT(http_tbl);
 	DO_INIT(sched_hash);
 	DO_INIT(sched_ratio);
+
+	PRINT = tfw_sk_history_print;
+	ADJUST = tfw_sk_adjust_1;
 
 	return 0;
 err:

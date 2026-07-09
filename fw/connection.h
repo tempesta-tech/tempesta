@@ -538,7 +538,7 @@ tfw_connection_link_from_sk(TfwConn *conn, struct sock *sk)
 static inline void
 tfw_connection_link_to_sk(TfwConn *conn, struct sock *sk)
 {
-	ss_sock_hold(sk);
+	ss_sock_hold(sk, 88);
 	conn->sk = sk;
 	if (TFW_CONN_TLS(conn))
 		tfw_tls_context(conn)->sk = sk;

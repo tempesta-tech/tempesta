@@ -506,6 +506,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	 */
 	srv_conn->destructor = (void *)tfw_srv_conn_release;
 
+	sock_set_flag(sk, SOCK_TEMPESTA_SRV);
 	/*
 	 * There are two possible use patterns of this function:
 	 *

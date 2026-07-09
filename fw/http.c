@@ -3199,8 +3199,22 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 static int
 tfw_http_conn_recv_finish(TfwConn *conn)
 {
+	bool xxx = false;
+
+	if (conn && conn->sk)
+		xxx = true;
+
+	if (ADJUST && conn && conn->sk)
+		ADJUST(conn->sk, 8989);
+
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
 		tfw_h2_conn_recv_finish(conn);
+
+	if ((!conn || !conn->sk) && xxx)
+		printk(KERN_ALERT "FFFFF %px %px\n", conn, conn->sk);
+
+	if (ADJUST && conn && conn->sk)
+		ADJUST(conn->sk, 98989);
 
 	/*
 	 * SoftIRQ shot is very short, 0.001 to 0.01 sec, so we can account
@@ -3209,6 +3223,10 @@ tfw_http_conn_recv_finish(TfwConn *conn)
 	 */
 	if (unlikely(frang_client_mem_limit((TfwCliConn *)conn, true)))
 		return T_BLOCK_WITH_RST;
+
+	if (ADJUST && conn && conn->sk)
+                ADJUST(conn->sk, 9898933);
+
 
 	return 0;
 }

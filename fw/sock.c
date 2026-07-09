@@ -70,6 +70,17 @@ typedef struct {
 	size_t			size;
 } SsCloseBacklog;
 
+DEFINE_PER_CPU(tfw_sk_history, sk_history);
+
+void
+tfw_sk_history_print(void)
+{
+	tfw_sk_history *h = this_cpu_ptr(&sk_history);
+
+	printk(KERN_ALERT "CURRENT %d\n", smp_processor_id());
+	tfw_sk_history_print_one(h);
+}
+
 /**
  * Node of close backlog.
  *
@@ -698,12 +709,12 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * Synchronous operations with the work queue are used to avoid memory
 	 * leakage, so we never use synchronous sending.
 	 */
-	sock_hold(sk);
+	ss_sock_hold(sk, 288);
 	if (ss_wq_push(&sw, cpu)) {
 		T_DBG2("Cannot schedule socket %p for transmission"
 		       " (queue size %d)\n", sk,
 		       tfw_wq_size(&per_cpu(si_wq, cpu)));
-		sock_put(sk);
+		ss_sock_put(sk, 177);
 		r = -EBUSY;
 		goto err;
 	}
@@ -797,7 +808,7 @@ ss_do_close(struct sock *sk, int flags)
 	}
 
 adjudge_to_death:
-	sock_hold(sk);
+	ss_sock_hold(sk, 188);
 	sock_orphan(sk);
 
 	/*
@@ -857,7 +868,7 @@ ss_close_not_connected_socket(struct sock *sk)
 	bh_lock_sock(sk);
 	ss_do_close(sk, 0);
 	bh_unlock_sock(sk);
-	sock_put(sk);
+	ss_sock_put(sk, 377);
 	SS_CALL(connection_drop, sk);
 }
 
@@ -875,7 +886,7 @@ ss_linkerror(struct sock *sk, int flags)
 {
 	ss_do_close(sk, flags);
 	ss_conn_drop_guard_exit(sk);
-	sock_put(sk);	/* paired with ss_do_close() */
+	ss_sock_put(sk, 477);	/* paired with ss_do_close() */
 }
 
 /**
@@ -903,7 +914,7 @@ ss_close(struct sock *sk, int flags)
 	ss_sk_incoming_cpu_update(sk);
 	cpu = sk->sk_incoming_cpu;
 
-	sock_hold(sk);
+	ss_sock_hold(sk, 488);
 	ticket = ss_wq_push(&sw, cpu);
 	if (!ticket)
 		return T_OK;
@@ -921,7 +932,7 @@ ss_close(struct sock *sk, int flags)
 
 	return T_OK;
 err:
-	sock_put(sk);
+	ss_sock_put(sk, 677);
 	return T_BAD;
 }
 
@@ -1047,6 +1058,21 @@ out:
 #undef ADJUST_PROCESSED_SKB
 }
 
+void
+tfw_sk_adjust_1(struct sock *sk, int op)
+{
+	 tfw_sk_history *h = this_cpu_ptr(&sk_history);
+
+        if (!sock_flag(sk, SOCK_TEMPESTA_1))
+		return;
+
+	if (sk != h->sk)
+		return;
+	
+	tfw_sk_history_adjust(sk, op);
+}
+
+
 /**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
  *
@@ -1063,8 +1089,16 @@ ss_tcp_process_data(struct sock *sk)
 	unsigned int skb_len, skb_seq;
 	struct sk_buff *skb, *tmp;
 	struct tcp_sock *tp = tcp_sk(sk);
+	tfw_sk_history *h = this_cpu_ptr(&sk_history);
 
+	tfw_sk_history_init(h);
+	sock_set_flag(sk, SOCK_TEMPESTA_1);
+	h->begin = refcount_read(&sk->sk_refcnt);
+	h->sk = sk;
+	h->old_state1 = sk->sk_state;
+	
 	skb_queue_walk_safe(&sk->sk_receive_queue, skb, tmp) {
+		h->iteration_count++;
 		if (unlikely(before(tp->copied_seq, TCP_SKB_CB(skb)->seq))) {
 			T_WARN("recvmsg bug: TCP sequence gap at seq %X"
 			       " recvnxt %X\n",
@@ -1073,7 +1107,14 @@ ss_tcp_process_data(struct sock *sk)
 		}
 
 		__skb_unlink(skb, &sk->sk_receive_queue);
+
+		if (refcount_read(&sk->sk_refcnt) != h->begin)
+			sock_set_flag(sk, SOCK_TEMPESTA_3);
+
 		skb_orphan(skb);
+
+		if (refcount_read(&sk->sk_refcnt) != h->begin)
+			sock_set_flag(sk, SOCK_TEMPESTA_4);
 
 		WARN_ON_ONCE(skb_shared(skb));
 
@@ -1082,7 +1123,21 @@ ss_tcp_process_data(struct sock *sk)
 		skb_seq = TCP_SKB_CB(skb)->seq;
 
 		count = 0;
+		
+		if (refcount_read(&sk->sk_refcnt) != h->begin)
+			sock_set_flag(sk, SOCK_TEMPESTA_5);
+
+		if (ADJUST)
+			ADJUST(sk, 1212);
+
 		r = ss_tcp_process_skb(sk, skb, &count);
+
+		if (ADJUST)
+			ADJUST(sk, 1313);
+
+		if (refcount_read(&sk->sk_refcnt) != h->begin)
+			sock_set_flag(sk, SOCK_TEMPESTA_6);
+
 		processed += count;
 
 		if (r < 0)
@@ -1094,10 +1149,18 @@ ss_tcp_process_data(struct sock *sk)
 				 skb_len);
 	}
 out:
+	h->mid1 = refcount_read(&sk->sk_refcnt);
+
+	if (ADJUST)
+		ADJUST(sk, 5555);
+
+	h->old_state2 = sk->sk_state;
 	tmp_r = SS_CALL(connection_recv_finish, sk->sk_user_data);
 	if (unlikely(tfw_error_code_more_crucial(tmp_r, r)))
 		r = tmp_r;
 
+	h->old_state3 = sk->sk_state;
+	h->mid2 = refcount_read(&sk->sk_refcnt);
 	/*
 	 * Recalculate an appropriate TCP receive buffer space
 	 * and send ACK to a client with the new window.
@@ -1106,6 +1169,8 @@ out:
 	if (processed)
 		tcp_cleanup_rbuf(sk, processed);
 
+	h->end = refcount_read(&sk->sk_refcnt);
+	sock_reset_flag(sk, SOCK_TEMPESTA_1);
 	return r;
 }
 
@@ -1230,7 +1295,7 @@ ss_tcp_state_change(struct sock *sk)
 		 */
 		if (ss_active_guard_enter(SS_V_ACT_NEWCONN)) {
 			ss_do_close(sk, 0);
-			sock_put(sk);
+			ss_sock_put(sk, 777);
 			/*
 			 * The case of a connect to an upstream server that
 			 * cannot be completed now. Paired with ss_connect()
@@ -1246,7 +1311,7 @@ ss_tcp_state_change(struct sock *sk)
 
 		if (!is_srv_sock && ss_active_guard_enter(SS_V_ACT_LIVECONN)) {
 			ss_do_close(sk, 0);
-			sock_put(sk);
+			ss_sock_put(sk, 877);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			/* Paired with @frang_conn_new() */
 			tfw_classify_conn_close(sk);
@@ -1304,6 +1369,7 @@ ss_tcp_state_change(struct sock *sk)
 		ss_close(sk, SS_F_SYNC);
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
+		bool was_set = false;
 		/*
 		 * We reach the state on regular tcp_close() tcp_shutdown()
 		 * (including the active closing from our side), tcp_abort()
@@ -1324,7 +1390,14 @@ ss_tcp_state_change(struct sock *sk)
 		 */
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
+		if (refcount_read(&sk->sk_refcnt) == 1) {
+			sock_set_flag(sk, SOCK_TEMPESTA_1);
+			was_set = true;
+			printk(KERN_ALERT "OOOOOOOOOOOOOOOOOOOOOOOOO %px\n", sk);
+		}
 		ss_linkerror(sk, 0);
+		if (was_set)
+			sock_reset_flag(sk, SOCK_TEMPESTA_1);
 	}
 }
 
@@ -1643,7 +1716,7 @@ __sk_close_locked(struct sock *sk, int flags)
 		SS_CONN_TYPE(sk) |= Conn_Closing;
 	}
 	bh_unlock_sock(sk);
-	sock_put(sk); /* paired with ss_do_close() */
+	ss_sock_put(sk, 977); /* paired with ss_do_close() */
 }
 
 static inline void
@@ -1775,7 +1848,7 @@ ss_tx_action(void)
 			BUG();
 		}
 dead_sock:
-		sock_put(sk); /* paired with push() calls */
+		ss_sock_put(sk, 1077); /* paired with push() calls */
 		ss_skb_queue_purge(&sw.skb_head);
 	}
 

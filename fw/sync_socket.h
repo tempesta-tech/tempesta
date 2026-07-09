@@ -24,6 +24,7 @@
 #include <net/sock.h>
 #include <net/tcp.h>
 #include <linux/skbuff.h>
+#include <linux/bug.h>
 
 #include "addr.h"
 #include "ss_skb.h"
@@ -38,6 +39,88 @@ typedef enum {
 	SS_SEND,
 	SS_CLOSE,
 } SsAction;
+
+#define TFW_H_MAX 30
+
+typedef struct {
+	void *p;
+	struct sock *sk;
+	int op;
+	int refcnt;
+} t_history;
+
+typedef struct {
+	int begin;
+	int mid1;
+	int mid2;
+	int end;
+	int old_state1;
+	int old_state2;
+	int old_state3;
+	int iteration_count;
+	struct sock *sk;
+	atomic_t cnt;
+	t_history history[TFW_H_MAX];
+} tfw_sk_history;
+
+extern DEFINE_PER_CPU(tfw_sk_history, sk_history);
+
+static inline void
+tfw_sk_history_init(tfw_sk_history *h)
+{
+	int i;
+
+	h->old_state3 = h->old_state2 = h->old_state1 = h->begin = h->end = h->mid1 = h->mid2 = h->iteration_count = 0;
+	h->sk = NULL;
+	atomic_set(&h->cnt, 0);
+	for (i = 0; i < TFW_H_MAX; i++) {
+		h->history[i].p = NULL;
+		h->history[i].op = 0;
+		h->history[i].refcnt = 0;
+		h->history[i].sk = NULL;
+	}
+}
+
+static inline void
+tfw_sk_history_print_one(tfw_sk_history *h)
+{
+	int cnt = atomic_read(&h->cnt);
+	int i;
+
+	printk(KERN_ALERT "old_state %d %d %d begin %d mid1 %d mid2 %d end %d iter %d sk %px cnt %d\n",
+                h->old_state1, h->old_state2, h->old_state3, h->begin, h->mid1, h->mid2, h->end, h->iteration_count, h->sk, cnt);
+	if (h->sk)
+		printk(KERN_ALERT "%d %d %d %d %d %d %d %d %d %d\n",
+			sock_flag(h->sk, SOCK_TEMPESTA_1),
+			sock_flag(h->sk, SOCK_TEMPESTA_2),
+			sock_flag(h->sk, SOCK_TEMPESTA_3),
+			sock_flag(h->sk, SOCK_TEMPESTA_4),
+			sock_flag(h->sk, SOCK_TEMPESTA_5),
+			sock_flag(h->sk, SOCK_TEMPESTA_6),
+			sock_flag(h->sk, SOCK_TEMPESTA_7),
+			sock_flag(h->sk, SOCK_TEMPESTA_8),
+			sock_flag(h->sk, SOCK_TEMPESTA_9),
+			sock_flag(h->sk, SOCK_TEMPESTA_10));
+	
+	
+	for (i = 0; i < cnt; i++)
+		printk(KERN_ALERT "%d: %ps op %d sk %px ref %d\n",
+			i, h->history[i].p, h->history[i].op, h->history[i].sk,
+			h->history[i].refcnt);
+}
+
+static inline void
+tfw_sk_history_adjust(struct sock *sk, int op)
+{
+	tfw_sk_history *h = this_cpu_ptr(&sk_history);
+	int cnt = atomic_fetch_add(1, &h->cnt);
+
+	if (cnt < TFW_H_MAX) {
+		h->history[cnt].op = op;
+		h->history[cnt].sk = sk;
+		h->history[cnt].refcnt = refcount_read(&sk->sk_refcnt);
+	}
+}
 
 /*
  * Flag bits definition for SsProto.type field.
@@ -109,16 +192,24 @@ typedef struct {
 } SsStat;
 
 static inline void
-ss_sock_hold(struct sock *sk)
+ss_sock_hold(struct sock *sk, int op)
 {
-	sock_hold(sk);
+	if (ADJUST)
+                ADJUST(sk, op);
+	refcount_inc(&sk->sk_refcnt);
 }
 
 static inline void
-ss_sock_put(struct sock *sk)
+ss_sock_put(struct sock *sk, int op)
 {
-	sock_put(sk);
+	if (ADJUST)
+                ADJUST(sk, op);
+
+        if (refcount_dec_and_test_tfw(&sk->sk_refcnt, 155))
+                sk_free(sk);
 }
+
+void tfw_sk_adjust_1(struct sock *sk, int op);
 
 static inline bool
 ss_sock_is_closed(struct sock *sk)

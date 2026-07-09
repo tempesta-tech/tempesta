@@ -242,7 +242,7 @@ tfw_connection_unlink_to_sk(TfwConn *conn)
 	if (tempesta_sock(sk)->class_prvt)
 		tfw_classify_conn_close(sk);
 	conn->sk = NULL;
-	ss_sock_put(sk);
+	ss_sock_put(sk, 77);
 }
 
 static inline int

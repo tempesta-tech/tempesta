@@ -253,6 +253,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	tfw_connection_link_from_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
 
+	sock_set_flag(sk, SOCK_TEMPESTA_CLNT);
 	ss_set_callbacks(sk);
 	if (TFW_CONN_TLS(conn)) {
 		/*
