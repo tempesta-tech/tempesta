@@ -204,9 +204,13 @@ int ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
  */
 #define SS_IN_USE_PROTECT(lambda)					\
 do {									\
+	bool already_in_use =						\
+		WARN_ON(sock_flag(sk, SOCK_TEMPESTA_IN_USE));		\
+									\
 	sock_set_flag(sk, SOCK_TEMPESTA_IN_USE);			\
 	lambda;								\
-	sock_reset_flag(sk, SOCK_TEMPESTA_IN_USE);			\
+	if (likely(!already_in_use))					\
+		sock_reset_flag(sk, SOCK_TEMPESTA_IN_USE);		\
 } while (0)
 
 
