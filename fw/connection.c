@@ -245,19 +245,6 @@ tfw_connection_unlink_to_sk(TfwConn *conn)
 	ss_sock_put(sk);
 }
 
-static inline int
-tfw_connection_shutdown(TfwConn *conn)
-{
-	struct sock *sk = conn->sk;
-
-	SS_IN_USE_PROTECT({
-		tcp_shutdown(sk, SEND_SHUTDOWN);
-	});
-	if (unlikely(sk->sk_state == TCP_CLOSE))
-		return -ENOMEM;
-	return 0;
-}
-
 int
 tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now)
 {
@@ -296,9 +283,9 @@ tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now)
 		if (unlikely(!conn->write_queue)) {
 			sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);
 			if (unlikely(SS_CONN_TYPE(sk) & Conn_Shutdown))
-				r = tfw_connection_shutdown(conn);
+				tcp_shutdown(sk, SEND_SHUTDOWN);
 		}
-		return r;
+		return 0;
 	}
 
 	r = tfw_h2_make_frames(sk, h2, mss_now, snd_wnd);
@@ -314,10 +301,10 @@ tfw_connection_fill_sk_write_queue(TfwConn *conn, unsigned int mss_now)
 		    && (!h2->error
 			|| tfw_h2_conn_or_stream_wnd_is_exceeded(h2,
 								 h2->error)))
-			r = tfw_connection_shutdown(conn);
+			tcp_shutdown(sk, SEND_SHUTDOWN);
 		if (!tfw_h2_is_ready_to_send(h2))
 			sock_reset_flag(sk, SOCK_TEMPESTA_HAS_DATA);
 	}
 
-	return r;
+	return 0;
 }

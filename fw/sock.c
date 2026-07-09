@@ -578,9 +578,6 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	if (ss_skb_on_send(conn, skb_head))
 		goto cleanup;
 
-	if (flags & SS_F_CONN_CLOSE)
-		return;
-
 	/*
 	 * We set SOCK_TEMPESTA_HAS_DATA when we add some skb in our
 	 * scheduler tree or connection write queue.
@@ -1296,6 +1293,8 @@ ss_tcp_state_change(struct sock *sk)
 		 */
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
+
+		SS_STATE_PROCESS_RETURN(sk);
 		T_DBG2("[%d]: Peer connection closing\n", smp_processor_id());
 		/*
 		 * Closing a socket should go through the queue and should be
@@ -1622,13 +1621,6 @@ EXPORT_SYMBOL(ss_getpeername);
 static void
 __sk_close_locked(struct sock *sk, int flags)
 {
-	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
-
-	if (sk->sk_fill_write_queue(sk, mss_now)) {
-		ss_linkerror(sk, 0);
-		bh_unlock_sock(sk);
-		return;
-	}
 	ss_do_close(sk, flags);
 	if (!sk_stream_closing(sk)) {
 		ss_conn_drop_guard_exit(sk);
@@ -1649,16 +1641,18 @@ __sk_close_locked(struct sock *sk, int flags)
 static inline void
 ss_do_shutdown(struct sock *sk)
 {
-	int size, mss_now = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	/*
-	 * `tcp_shutdown` will ne called from `sk->sk_fill_write_queue`
+	 * `tcp_shutdown` will be called from `sk->sk_fill_write_queue`
 	 * after sending all pending data.
 	 */
 	SS_CONN_TYPE(sk) |= Conn_Shutdown;
-	if (sk->sk_fill_write_queue(sk, mss_now))
-		ss_linkerror(sk, 0);
-	else
-		SS_CALL(connection_on_shutdown, sk->sk_user_data);
+	if (!sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
+		SS_IN_USE_PROTECT({
+			tcp_shutdown(sk, SEND_SHUTDOWN);
+		});
+		SS_STATE_PROCESS_RETURN(sk);
+	}
+	SS_CALL(connection_on_shutdown, sk->sk_user_data);
 }
 
 static inline bool
