@@ -259,6 +259,30 @@ index 1209c7aeb..3a9aa7d98 100644
  }
  EXPORT_SYMBOL_GPL(kernel_fpu_end);
  
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index e6c469b32..c82b608b9 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -41,6 +41,9 @@
+ #define CREATE_TRACE_POINTS
+ #include <asm/trace/exceptions.h>
+ 
++tfw_on_panic TFW_PANIC;
++EXPORT_SYMBOL(TFW_PANIC);
++
+ /*
+  * Returns 0 if mmiotrace is disabled, or if the fault is not
+  * handled by mmiotrace:
+@@ -541,6 +544,9 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
+ 		pr_alert("BUG: unable to handle page fault for address: %px\n",
+ 			(void *)address);
+ 
++	if (TFW_PANIC)
++		TFW_PANIC();
++
+ 	pr_alert("#PF: %s %s in %s mode\n",
+ 		 (error_code & X86_PF_USER)  ? "user" : "supervisor",
+ 		 (error_code & X86_PF_INSTR) ? "instruction fetch" :
 diff --git a/crypto/aead.c b/crypto/aead.c
 index cade53241..fcc8a9226 100644
 --- a/crypto/aead.c
@@ -793,6 +817,20 @@ index 457151f9f..e98331b6f 100644
  
  DECLARE_PER_CPU(struct task_struct *, ksoftirqd);
  
+diff --git a/include/linux/kernel.h b/include/linux/kernel.h
+index be2e8c0a1..443d5bf47 100644
+--- a/include/linux/kernel.h
++++ b/include/linux/kernel.h
+@@ -57,6 +57,9 @@
+ struct completion;
+ struct user;
+ 
++typedef void (*tfw_on_panic)(void);
++extern tfw_on_panic TFW_PANIC;
++
+ #ifdef CONFIG_PREEMPT_VOLUNTARY_BUILD
+ 
+ extern int __cond_resched(void);
 diff --git a/include/linux/lsm_count.h b/include/linux/lsm_count.h
 index 16eb49761..9c222f5ee 100644
 --- a/include/linux/lsm_count.h

@@ -478,6 +478,8 @@ tfw_exit(void)
 	for (i = exit_hooks_n - 1; i >= 0; --i)
 		exit_hooks[i]();
 
+	TFW_PANIC = NULL;
+
 	unregister_net_sysctl_table(tfw_sysctl_hdr);
 }
 
@@ -528,6 +530,8 @@ tfw_init(void)
 	DO_INIT(http_tbl);
 	DO_INIT(sched_hash);
 	DO_INIT(sched_ratio);
+
+	TFW_PANIC = tfw_apm_on_panic;
 
 	return 0;
 err:

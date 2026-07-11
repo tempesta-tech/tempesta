@@ -1054,6 +1054,30 @@ tfw_apm_stats_global(TfwPrcntlStats *pstats)
 	return __tfw_apm_stats(tfw_apm_global_data, pstats);
 }
 
+static DEFINE_PER_CPU(int, prcntl_tmfn_cnt);
+static DEFINE_PER_CPU(int, prcntl_tmfn_cnt_1);
+static DEFINE_PER_CPU(int, prcntl_tmfn_cnt_2);
+static DEFINE_PER_CPU(int, prcntl_tmfn_cnt_3);
+static DEFINE_PER_CPU(int, prcntl_tmfn_cnt_4);
+static DEFINE_PER_CPU(int, apm_start_cnt);
+static DEFINE_PER_CPU(int, apm_stop_cnt);
+
+void
+tfw_apm_on_panic(void)
+{
+	int *tmfn_cnt = this_cpu_ptr(&prcntl_tmfn_cnt);
+        int *tmfn_cnt_1 = this_cpu_ptr(&prcntl_tmfn_cnt_1);
+        int *tmfn_cnt_2 = this_cpu_ptr(&prcntl_tmfn_cnt_2);
+        int *tmfn_cnt_3 = this_cpu_ptr(&prcntl_tmfn_cnt_3);
+        int *tmfn_cnt_4 = this_cpu_ptr(&prcntl_tmfn_cnt_4);
+	int *start_cnt = this_cpu_ptr(&apm_start_cnt);
+	int *stop_cnt = this_cpu_ptr(&apm_stop_cnt);
+
+	printk(KERN_ALERT "PANIC %d %d %d %d %d %d %d\n",
+		*tmfn_cnt, *tmfn_cnt_1, *tmfn_cnt_2, *tmfn_cnt_3,
+		*tmfn_cnt_4, *start_cnt, *stop_cnt);
+}
+
 /*
  * Calculate the latest percentiles if necessary.
  * Runs periodically on timer.
@@ -1062,9 +1086,22 @@ static void
 tfw_apm_prcntl_tmfn(struct timer_list *t)
 {
 	int i, icpu;
-	TfwApmData *data = from_timer(data, t, timer);
-	TfwApmRBuf *rbuf = &data->rbuf;
-	TfwApmRBEnt *rbent = rbuf->rbent;
+	TfwApmData *data;
+	TfwApmRBuf *rbuf;
+	TfwApmRBEnt *rbent;
+	int *tmfn_cnt = this_cpu_ptr(&prcntl_tmfn_cnt);
+	int *tmfn_cnt_1 = this_cpu_ptr(&prcntl_tmfn_cnt_1);
+	int *tmfn_cnt_2 = this_cpu_ptr(&prcntl_tmfn_cnt_2);
+	int *tmfn_cnt_3 = this_cpu_ptr(&prcntl_tmfn_cnt_3);
+	int *tmfn_cnt_4 = this_cpu_ptr(&prcntl_tmfn_cnt_4);
+
+	*tmfn_cnt = *tmfn_cnt_1 = *tmfn_cnt_2 = *tmfn_cnt_3 = *tmfn_cnt_4 = 1;
+	data = from_timer(data, t, timer);
+	*tmfn_cnt = (data == tfw_apm_global_data ? *tmfn_cnt + 1 : *tmfn_cnt + 10000);
+        rbuf = &data->rbuf;
+	(*tmfn_cnt)++;
+        rbent = rbuf->rbent;
+	(*tmfn_cnt)++;
 
 	/*
 	 * Increment the counter and make the updates use the other array
@@ -1072,27 +1109,46 @@ tfw_apm_prcntl_tmfn(struct timer_list *t)
 	 * filled with updates to process them and calculate percentiles.
 	 */
 	for_each_online_cpu(icpu) {
-		TfwApmUBuf *ubuf = per_cpu_ptr(data->ubuf, icpu);
-		unsigned long idxval = atomic64_inc_return(&ubuf->counter);
-		TfwApmUBEnt *ubent = ubuf->ubent[(idxval - 1) % 2];
+		TfwApmUBuf *ubuf;
+		unsigned long idxval;
+		TfwApmUBEnt *ubent;
 		TfwApmUBEnt rtt_data;
 
+		(*tmfn_cnt_1)++;
+		ubuf = per_cpu_ptr(data->ubuf, icpu);
+		(*tmfn_cnt_1)++;
+                idxval = atomic64_inc_return(&ubuf->counter);
+		(*tmfn_cnt_1)++;
+                ubent = ubuf->ubent[(idxval - 1) % 2];
+		(*tmfn_cnt_1)++;
+
 		for (i = 0; i < ubuf->ubufsz; ++i) {
+			(*tmfn_cnt_2)++;
 			rtt_data.data = READ_ONCE(ubent[i].data);
 			if (rtt_data.data == ULONG_MAX)
 				continue;
+
+			(*tmfn_cnt_3)++;
 			WRITE_ONCE(ubent[i].data, ULONG_MAX);
 			tfw_stats_update(&rbent[rtt_data.centry].pcntrng,
 					 rtt_data.rtt);
+			(*tmfn_cnt_3)++;
 		}
+		(*tmfn_cnt_1)++;
 	}
 
+	(*tmfn_cnt_1)++;
+	(*tmfn_cnt_4)++;
 	if (unlikely(!tfw_apm_calc(data)))
 		T_DBG3("%s: Incomplete calculation\n", __func__);
+	(*tmfn_cnt_4)++;
 
 	smp_mb();
-	if (test_bit(TFW_APM_DATA_F_REARM, &data->flags))
+	if (test_bit(TFW_APM_DATA_F_REARM, &data->flags)) {
+		(*tmfn_cnt_4)++;
 		mod_timer(&data->timer, jiffies + TFW_APM_TIMER_INTVL);
+	}
+	*tmfn_cnt = *tmfn_cnt_1 = *tmfn_cnt_2 = *tmfn_cnt_3 = *tmfn_cnt_4 = 0;
 }
 
 /*
@@ -1799,21 +1855,32 @@ tfw_apm_cfgend(void)
 {
 	int r;
 	TfwApmData *r2;
+	int *start_cnt = this_cpu_ptr(&apm_start_cnt);
 
 	if (tfw_runstate_is_reconfig())
 		return 0;
 
+	(*start_cnt)++;
 	r2 = tfw_apm_data_create();
 	if (IS_ERR(r2))
 		return PTR_ERR(r2);
 
+	(*start_cnt)++;
 	tfw_apm_global_data = r2;
+	(*start_cnt)++;
 	tfw_apm_data_start_timer(tfw_apm_global_data);
+	(*start_cnt)++;
 
 	if ((r = tfw_apm_create_def_hm()))
 		return r;
 
-	return tfw_apm_create_def_health_stat_srv();
+	(*start_cnt)++;
+	r = tfw_apm_create_def_health_stat_srv();
+	if (unlikely(r))
+		return r;
+	(*start_cnt)++;
+
+	return 0;
 }
 
 static void
@@ -1832,21 +1899,31 @@ tfw_cfgop_apm_cleanup_server_failover(TfwCfgSpec *cs)
 static void
 tfw_apm_cfgclean(void)
 {
+	int *stop_cnt = this_cpu_ptr(&apm_stop_cnt);
+
 	if (tfw_runstate_is_reconfig())
 		return;
 
+	(*stop_cnt)++;
 	if (tfw_apm_global_data) {
+		(*stop_cnt) += 10000;
 		tfw_apm_data_stop_timer(tfw_apm_global_data);
+		(*stop_cnt)++;
 		tfw_apm_data_destroy(tfw_apm_global_data);
+		(*stop_cnt)++;
 		tfw_apm_global_data = NULL;
+		(*stop_cnt)++;
 	}
+	(*stop_cnt) += 100000;
 
 	/*
 	 * 'auto' health monitor may be created implicitly in cfgend(),
 	 * even if no `health_check` directive found.
 	 */
 	__tfw_cfgop_cleanup_apm_hm();
+	(*stop_cnt)++;
 	tfw_cfgop_apm_cleanup_server_failover(NULL);
+	(*stop_cnt)++;
 }
 
 /**
