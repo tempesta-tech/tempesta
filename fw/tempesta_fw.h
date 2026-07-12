@@ -126,6 +126,7 @@ tfw_srv_loop_sched_rcu(void)
 	rcu_barrier();
 }
 
-void tfw_apm_on_panic(void);
+extern void tfw_apm_on_panic(void);
+extern void tfw_on_stall_impl(void);
 
 #endif /* __TEMPESTA_FW_H__ */

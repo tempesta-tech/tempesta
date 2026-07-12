@@ -1130,6 +1130,11 @@ tfw_apm_prcntl_tmfn(struct timer_list *t)
 
 			(*tmfn_cnt_3)++;
 			WRITE_ONCE(ubent[i].data, ULONG_MAX);
+			 if (rtt_data.centry > rbuf->rbufsz) {
+                               printk(KERN_ALERT "BUGBUGBUG %u %u\n",
+                                       rtt_data.centry, rbuf->rbufsz);
+                       }
+
 			tfw_stats_update(&rbent[rtt_data.centry].pcntrng,
 					 rtt_data.rtt);
 			(*tmfn_cnt_3)++;

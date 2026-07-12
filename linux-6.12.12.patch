@@ -818,15 +818,17 @@ index 457151f9f..e98331b6f 100644
  DECLARE_PER_CPU(struct task_struct *, ksoftirqd);
  
 diff --git a/include/linux/kernel.h b/include/linux/kernel.h
-index be2e8c0a1..443d5bf47 100644
+index be2e8c0a1..52aa5ce26 100644
 --- a/include/linux/kernel.h
 +++ b/include/linux/kernel.h
-@@ -57,6 +57,9 @@
+@@ -57,6 +57,11 @@
  struct completion;
  struct user;
  
 +typedef void (*tfw_on_panic)(void);
 +extern tfw_on_panic TFW_PANIC;
++typedef void (*tfw_on_stall)(void);
++extern tfw_on_stall TFW_ON_STALL;
 +
  #ifdef CONFIG_PREEMPT_VOLUNTARY_BUILD
  
@@ -1520,6 +1522,32 @@ index 8c4524ce6..f211e6b13 100644
  
  void __raise_softirq_irqoff(unsigned int nr)
  {
+diff --git a/lib/nmi_backtrace.c b/lib/nmi_backtrace.c
+index 33c154264..7f86d0d3c 100644
+--- a/lib/nmi_backtrace.c
++++ b/lib/nmi_backtrace.c
+@@ -19,6 +19,10 @@
+ #include <linux/nmi.h>
+ #include <linux/cpu.h>
+ #include <linux/sched/debug.h>
++#include <linux/kernel.h>
++
++tfw_on_stall TFW_ON_STALL;
++EXPORT_SYMBOL(TFW_ON_STALL);
+ 
+ #ifdef arch_trigger_cpumask_backtrace
+ /* For reliability, we're prepared to waste bits here. */
+@@ -107,6 +111,10 @@ bool nmi_cpu_backtrace(struct pt_regs *regs)
+ 				cpu, (void *)instruction_pointer(regs));
+ 		} else {
+ 			pr_warn("NMI backtrace for cpu %d\n", cpu);
++			if (TFW_ON_STALL)
++				TFW_ON_STALL();
++			else
++				printk(KERN_ALERT "NO TFW_ON_STALL !!!!!!!!!!\n");
+ 			if (regs)
+ 				show_regs(regs);
+ 			else
 diff --git a/mm/Makefile b/mm/Makefile
 index d5639b036..6b555f82a 100644
 --- a/mm/Makefile

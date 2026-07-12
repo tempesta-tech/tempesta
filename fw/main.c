@@ -63,6 +63,33 @@ static int tfw_ss_users = 0;
 static LIST_HEAD(tfw_mods);
 static DEFINE_RWLOCK(tfw_mods_lock);
 
+static DEFINE_PER_CPU(int, main_start_1);
+static DEFINE_PER_CPU(int, main_start_2);
+static DEFINE_PER_CPU(int, main_start_3);
+static DEFINE_PER_CPU(int, main_start_4);
+static DEFINE_PER_CPU(int, main_stop_1);
+static DEFINE_PER_CPU(int, main_stop_2);
+static DEFINE_PER_CPU(int, main_clean_1);
+static DEFINE_PER_CPU(int, main_clean_2);
+
+void
+tfw_on_stall_impl(void)
+{
+	int *start_1 = this_cpu_ptr(&main_start_1);
+	int *start_2 = this_cpu_ptr(&main_start_2);
+	int *start_3 = this_cpu_ptr(&main_start_3);
+	int *start_4 = this_cpu_ptr(&main_start_4);
+	int *stop_1 = this_cpu_ptr(&main_stop_1);
+	int *stop_2 = this_cpu_ptr(&main_stop_2);
+	int *clean_1 = this_cpu_ptr(&main_clean_1);
+	int *clean_2 = this_cpu_ptr(&main_clean_2);
+
+	printk(KERN_ALERT "start %d %d %d %d stop %d %d clean %d %d\n",
+		*start_1, *start_2, *start_3, *start_4, *stop_1,
+		*stop_2, *clean_1, *clean_2);
+}
+
+
 /**
  * Return true if Tempesta is reconfiguring, and false otherwise.
  */
@@ -139,10 +166,21 @@ tfw_mod_find(const char *name)
 static void
 tfw_cleanup(void)
 {
-	tfw_cfg_cleanup(&tfw_mods);
+	int *clean_1 = this_cpu_ptr(&main_clean_1);
+        int *clean_2 = this_cpu_ptr(&main_clean_2);
 
-	if (!tfw_runstate_is_reconfig())
+	*clean_1 = *clean_2 = 1;
+
+	(*clean_1)++;
+	tfw_cfg_cleanup(&tfw_mods);
+	(*clean_1)++;
+
+	if (!tfw_runstate_is_reconfig()) {
+		(*clean_2)++;
 		tfw_sg_wait_release();
+		(*clean_2)++;
+	}
+	(*clean_1)++;
 	T_DBG("New configuration is cleaned.\n");
 }
 
@@ -460,25 +498,44 @@ tfw_exit(void)
 {
 	int i;
 
+	int *stop_1 = this_cpu_ptr(&main_stop_1);
+	int *stop_2 = this_cpu_ptr(&main_stop_2);
+
 	T_LOG_NL("exiting...\n");
+
+	*stop_1 = *stop_2 = 1;
 
 	/* Let's put this under the same mutex as the sysctl callback
 	 * to avoid concurrent shutdown calls */
 	mutex_lock(&tfw_sysctl_mtx);
+	(*stop_1)++;
 	if (tfw_runstate_is_started()) {
+		(*stop_2)++;
 		T_WARN_NL("Tempesta FW is still running, shutting down...\n");
+		(*stop_2)++;
 		tfw_stop();
+		(*stop_2)++;
 		WRITE_ONCE(tfw_state, TFW_STATE_STOPPED);
+		(*stop_2)++;
 	}
+	(*stop_1)++;
 	mutex_unlock(&tfw_sysctl_mtx);
+	(*stop_1)++;
 
 	/* Wait for outstanding RCU callbacks to complete. */
 	rcu_barrier();
+	(*stop_1)++;
 
-	for (i = exit_hooks_n - 1; i >= 0; --i)
+	for (i = exit_hooks_n - 1; i >= 0; --i) {
+		(*stop_1)++;
 		exit_hooks[i]();
+		(*stop_1)++;
+	}
+
+	(*stop_2)++;
 
 	TFW_PANIC = NULL;
+	TFW_ON_STALL = NULL;
 
 	unregister_net_sysctl_table(tfw_sysctl_hdr);
 }
@@ -532,6 +589,7 @@ tfw_init(void)
 	DO_INIT(sched_ratio);
 
 	TFW_PANIC = tfw_apm_on_panic;
+	TFW_ON_STALL = tfw_on_stall_impl;
 
 	return 0;
 err:
