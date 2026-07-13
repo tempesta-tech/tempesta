@@ -394,6 +394,9 @@ typedef struct {
  * @method_override - Overridden HTTP request method, passed in request headers;
  * @header_list_sz - total size of headers in bytes;
  * @headers_cnt - total headers count;
+ * @epoch 	- training epoch identifier. Used to ignore requests that
+ *		  belong to previous training epochs when updating statistics
+ *		  for the current training epoch;
  *
  * TfwStr members must be the first for efficient scanning.
  */
@@ -431,6 +434,7 @@ struct tfw_http_req_t {
 	unsigned char		method_override;
 	unsigned int		header_list_sz;
 	unsigned int		headers_cnt;
+	u16			epoch;
 };
 
 #define TFW_IDX_BITS		24
@@ -604,7 +608,7 @@ tfw_http_msg_client_mem(TfwHttpMsg *msg)
 	TfwCliConn *conn = (TfwCliConn *)(tfw_http_msg_is_req(msg) ?
 		msg->conn : msg->pair->conn);
 
-	return ((TfwClient *)conn->peer)->cli_mem;
+	return &((TfwClient *)conn->peer)->limits->cli_mem;
 }
 
 static inline int

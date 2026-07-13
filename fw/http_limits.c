@@ -45,6 +45,7 @@
 #include "http_match.h"
 #include "http.h"
 #include "http_sess.h"
+#include "adaptive_limits.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -213,14 +214,23 @@ frang_time_quantum(unsigned short tframe)
 }
 
 static int
-frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
+frang_conn_limit(struct sock *sk, FrangGlobCfg *conf)
 {
+	FrangAcc *ra = frang_acc_from_sk(sk);
+	u16 *training_epoch = &tempesta_sock(sk)->training_epoch;
 	const unsigned long ts = frang_time_quantum(conf->conn_rate_tf);
 	const int i = ts % FRANG_FREQ;
+	TfwAdaptiveLimit *conn_lim;
 
 	spin_lock(&ra->lock);
 
 	frang_acc_history_init(ra, ts);
+
+	conn_lim = &FRANG_ACC2CLI(ra)->conn_lim;
+	if (!tfw_adaptive_limits_check_conn_num(conn_lim, 1, training_epoch)) {
+		spin_unlock(&ra->lock);
+		return T_BLOCK;
+	}
 
 	if (conf->conn_max && unlikely(ra->conn_curr > conf->conn_max)) {
 		frang_limmsg("connections max num.", ra->conn_curr,
@@ -310,6 +320,7 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	 * TfwConn{}.
 	 */
 	tempesta_sock(sk)->class_prvt = ra;
+	tempesta_sock(sk)->training_epoch = 0;
 	if (tfw_http_mark_is_in_whitlist(skb->mark)) {
 		/*
 		 * Netfilter works on TCP/IP level, so once we observe a
@@ -339,7 +350,7 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	 * and to configure it, while making some of the limits to be global
 	 * for a single client is absolutely straight-forward.
 	 */
-	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
+	r = frang_conn_limit(sk, dflt_vh->frang_gconf);
 	if (unlikely(r == T_BLOCK) && dflt_vh->frang_gconf->ip_block)
 		tfw_filter_block_ip(cli,
 				    dflt_vh->frang_gconf->ip_block_duration);
@@ -357,6 +368,8 @@ void
 tfw_classify_conn_close(struct sock *sk)
 {
 	FrangAcc *ra = frang_acc_from_sk(sk);
+	u16 *training_epoch = &tempesta_sock(sk)->training_epoch;
+	TfwAdaptiveLimit *conn_lim;
 
 	if (unlikely(!sock_flag(sk, SOCK_TEMPESTA)))
 		return;
@@ -366,8 +379,11 @@ tfw_classify_conn_close(struct sock *sk)
 
 	spin_lock(&ra->lock);
 
+	conn_lim = &FRANG_ACC2CLI(ra)->conn_lim;
 	BUG_ON(ra->conn_curr == 0);
 	ra->conn_curr--;
+	WARN_ON(!tfw_adaptive_limits_check_conn_num(conn_lim, -1,
+						    training_epoch));
 
 	if (!ra->conn_curr)
 		TFW_DEC_STAT_BH(clnt.online);
@@ -375,6 +391,7 @@ tfw_classify_conn_close(struct sock *sk)
 	spin_unlock(&ra->lock);
 
 	tempesta_sock(sk)->class_prvt = NULL;
+	tempesta_sock(sk)->training_epoch = 0;
 
 	tfw_client_put(FRANG_ACC2CLI(ra));
 }
@@ -1675,25 +1692,16 @@ int
 frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
 {
 	TfwClient *cli = (TfwClient *)conn->peer;
-	TfwVhost *dflt_vh;
+	TfwClientMem *cli_mem = &cli->limits->cli_mem;
 
 	if (likely(!tfw_cli_hard_mem_limit
-		   || tfw_client_mem(cli->cli_mem) <= tfw_cli_hard_mem_limit))
+		   || tfw_client_mem(cli_mem) <= tfw_cli_hard_mem_limit))
 		return 0;
 
 	if (!block_if_exceeded)
 		return T_BLOCK;
 
-	dflt_vh = tfw_vhost_lookup_default();
-	if (WARN_ON_ONCE(!dflt_vh))
-		return T_BLOCK;
-
-	if (dflt_vh->frang_gconf->ip_block) {
-		unsigned int duration = dflt_vh->frang_gconf->ip_block_duration;
-
-		tfw_filter_block_ip(cli, duration);
-	}
-	tfw_vhost_put(dflt_vh);
+	tfw_client_filter_block_ip(cli);
 
 	return T_BLOCK;
 }

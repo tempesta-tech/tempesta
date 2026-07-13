@@ -116,6 +116,7 @@
 #include "websocket.h"
 #include "tf_filter.h"
 #include "tf_conf.h"
+#include "adaptive_limits.h"
 
 #include "sync_socket.h"
 #include "lib/common.h"
@@ -1357,6 +1358,19 @@ tfw_http_conn_nip_reset(TfwSrvConn *srv_conn)
 		clear_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
 }
 
+static inline void
+tfw_http_adjust_nip_req(TfwHttpReq *req, int delta)
+{
+	TfwClient *cli = req->conn ? (TfwClient *)req->conn->peer : NULL;
+	TfwAdaptiveLimitLock *req_lim;
+
+	if (unlikely(!cli))
+		return;
+
+	req_lim = &cli->limits->req_lim;
+	tfw_adaptive_limits_acc_req_num(req_lim, delta, &req->epoch);
+}
+
 /*
  * Put @req on the list of non-idempotent requests in @srv_conn.
  * Raise the flag saying that @srv_conn has non-idempotent requests.
@@ -1364,6 +1378,7 @@ tfw_http_conn_nip_reset(TfwSrvConn *srv_conn)
 static inline void
 tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	tfw_http_adjust_nip_req(req, 1);
 	BUG_ON(!list_empty(&req->nip_list));
 	list_add_tail(&req->nip_list, &srv_conn->nip_queue);
 	set_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
@@ -1382,6 +1397,7 @@ tfw_http_req_nip_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 	if (!list_empty(&req->nip_list)) {
 		list_del_init(&req->nip_list);
 		tfw_http_conn_nip_reset(srv_conn);
+		tfw_http_adjust_nip_req(req, -1);
 	}
 }
 
@@ -2902,9 +2918,9 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 
 		/* Can be equal to zero for health monitor requests. */
 		if (likely(hm->req->conn)) {
-			TfwClient *cli = (TfwClient *)hm->req->conn->peer;
-			TfwClientMem *cli_mem = cli->cli_mem;
-			int delta = PAGE_SIZE << hm->pool->order;
+			TfwClientMem *cli_mem =
+				CLIENT_MEM_FROM_CONN(hm->req->conn);
+			TfwPoolChunk *c, *next;
 
 			hm->pool->owner = cli_mem;
 			/*
@@ -2917,7 +2933,15 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 			 * already released client.
 			 */
 			BUG_ON(!tfw_client_mem_get(cli_mem));
-			tfw_client_adjust_mem(cli_mem, delta);
+			c = hm->pool->curr;
+			TFW_POOL_FOR_EACH_CHUNK_FROM(c, next) {
+				int delta;
+
+				next = c->next;
+				delta = PAGE_SIZE << c->order;
+				tfw_client_adjust_mem(cli_mem, delta,
+						      &c->epoch);
+			}
 		}
 
 		if (TFW_MSG_H2(hm->req)) {
@@ -3197,8 +3221,13 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 }
 
 static int
-tfw_http_conn_recv_finish(TfwConn *conn)
+tfw_http_conn_recv_finish(TfwConn *conn, u64 time_begin)
 {
+	TfwClient *cli = (TfwClient *)conn->peer;
+	TfwAdaptiveLimitLock *req_lim = &cli->limits->req_lim;
+	TfwAdaptiveLimitLock *cpu_lim = &cli->limits->cpu_lim;
+	TfwAdaptiveLimitLock *mem_lim = &cli->limits->cli_mem.mem_lim;
+
 	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
 		tfw_h2_conn_recv_finish(conn);
 
@@ -3209,6 +3238,30 @@ tfw_http_conn_recv_finish(TfwConn *conn)
 	 */
 	if (unlikely(frang_client_mem_limit((TfwCliConn *)conn, true)))
 		return T_BLOCK_WITH_RST;
+
+	if (unlikely(!tfw_adaptive_limits_check_req_num(req_lim))) {
+		T_WARN_ADDR("Client connection dropped: non-idempotent"
+			    " request z-score exceeded the configured"
+			    " threshold\n", &cli->addr, TFW_NO_PORT);
+		tfw_client_filter_block_ip(cli);
+		return T_BLOCK_WITH_RST;
+	}
+
+	if (unlikely(!tfw_adaptive_limits_check_cpu(cpu_lim, time_begin))) {
+		T_WARN_ADDR("Client connection dropped: client cpu"
+			    " usage z-score exceeded the configured"
+			    " threshold\n", &cli->addr, TFW_NO_PORT);
+		tfw_client_filter_block_ip(cli);
+		return T_BLOCK_WITH_RST;
+	}
+
+	if (unlikely(!tfw_adaptive_limits_check_mem(mem_lim))) {
+		T_WARN_ADDR("Client connection dropped: client memory"
+			    " usage z-score exceeded the configured"
+			    " threshold\n", &cli->addr, TFW_NO_PORT);
+		tfw_client_filter_block_ip(cli);
+		return T_BLOCK_WITH_RST;
+	}
 
 	return 0;
 }
@@ -7800,7 +7853,9 @@ int
 tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 			     struct sk_buff *skb, struct sk_buff **next)
 {
+	u64 time_begin = get_cycles();
 	int r = T_BAD;
+	TfwClientAdaptiveLimits *limits;
 	TfwHttpMsg *req;
 	bool websocket;
 
@@ -7830,6 +7885,20 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 	 * so we cannot move it iside `if` clause. */
 	req = ((TfwHttpMsg *)stream->msg)->pair;
 	websocket = test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags);
+	limits = req->conn ? CLIENT_LIMITS_FROM_CONN(req->conn) : NULL;
+	if (likely(limits)) {
+		/*
+		 * `tfw_client_limits_get` returns false, if we already
+		 * call `percpu_ref_kill` for `limits` after client
+		 * was freed. We hold the client reference counter
+		 * here due to active connections, so this situation
+		 * is impossible, moreover, false result here means
+		 * memory corruption, since we access `limits` for
+		 * already released client.
+		 */
+		BUG_ON(!tfw_client_limits_get(limits));
+	}
+
 	if ((r = tfw_http_resp_process(conn, stream, skb, next))) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		/*
@@ -7839,6 +7908,11 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 		 */
 		if (websocket)
 			clear_bit(TFW_CONN_B_UNSCHED, &srv_conn->flags);
+	}
+
+	if (likely(limits)) {
+		tfw_adaptive_limits_acc_cpu(&limits->cpu_lim, time_begin);
+		tfw_client_limits_put(limits);
 	}
 
 	return r;

@@ -75,12 +75,14 @@ do {								\
 	HDR_COMPOUND_STR(hdr_res, name, value);			\
 } while (0)
 
-static DEFINE_PER_CPU(long, mem);
-static TfwClientMem cli_mem = {
-	.mem = &mem,
+static DEFINE_PER_CPU(s64, mem);
+static TfwClientAdaptiveLimits limits = {
+	.cli_mem = {
+		.mem = &mem,
+	},
 };
 static TfwClient client = {
-	.cli_mem = &cli_mem,
+	.limits = &limits,
 };
 static TfwH2Conn conn;
 static TfwH2Ctx *ctx;

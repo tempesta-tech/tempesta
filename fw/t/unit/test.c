@@ -94,7 +94,7 @@ extern void tfw_pool_exit(void);
 static inline TfwClientMem *
 __tfw_client_mem_from_conn(TfwConn *conn)
 {
-	return ((TfwClient *)conn_req.peer)->cli_mem;
+	return &((TfwClient *)conn_req.peer)->limits->cli_mem;
 }
 
 int
@@ -150,6 +150,9 @@ test_run_all(void)
 	TEST_SUITE_RUN(http_msg);
 	test_req_resp_cleanup();
 	EXPECT_EQ(tfw_client_mem(__tfw_client_mem_from_conn(&conn_req)), 0);
+	__fpu_schedule();
+
+	TEST_SUITE_RUN(128bit);
 	__fpu_schedule();
 
 	TEST_SUITE_RUN(hash);

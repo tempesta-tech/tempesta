@@ -273,6 +273,7 @@ TEST_SUITE(http_sticky);
 TEST_SUITE(http_cache);
 TEST_SUITE(http_match);
 TEST_SUITE(http_msg);
+TEST_SUITE(128bit);
 TEST_SUITE(hash);
 TEST_SUITE(addr);
 TEST_SUITE(wq);
