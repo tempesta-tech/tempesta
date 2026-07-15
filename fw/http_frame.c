@@ -2276,11 +2276,11 @@ __tfw_h2_make_headers_frame(TfwH2Ctx *ctx, TfwStream *stream)
 		flags |= HTTP2_F_END_STREAM;
 
 	r = tfw_h2_stream_fsm_ignore_err(ctx, stream, type, flags);
-	ctx->cur_send_headers = stream;
 	if (unlikely(r)) {
 		stream->xmit.h_len += frame_length;
 		return r;
 	}
+	ctx->cur_send_headers = stream;
 
 	return tfw_h2_insert_frame_header(ctx, stream, type, frame_length,
 					  flags,
@@ -2635,9 +2635,9 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			 * skbs and rst stream/goaway/tls alert if exist.
 			 */
 			tfw_h2_stream_purge_send_queue(stream);
+			ctx->cur_send_headers = NULL;
 
-			if (unlikely(stream->xmit.postponed) &&
-			    !ctx->cur_send_headers) {
+			if (unlikely(stream->xmit.postponed)) {
 				struct sk_buff **head = &stream->xmit.postponed;
 
 				r = tfw_h2_stream_send_postponed(sk, head,
