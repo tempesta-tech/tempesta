@@ -2598,6 +2598,7 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		if (stream->xmit.t_len)
 			T_FSM_JMP(HTTP2_MAKE_TRAILER_FRAMES);
 
+		WARN_ON(stream->xmit.bytes_to_send);
 		fallthrough;
 	}
 
@@ -2697,6 +2698,7 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			return r;
 		}
 	}
+	WARN_ON(stream->xmit.bytes_to_send);
 
 	return r;
 
