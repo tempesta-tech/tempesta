@@ -319,10 +319,9 @@ __tfw_h2_send_frame_on_rx(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
 	TfwConn *conn = (TfwConn *)ctx->conn;
 	unsigned char tls_type = TTLS_MSG_APPLICATION_DATA;
 
-	if (hdr_str->data) {
-		WARN_ONCE(1, "Frame already has data.\n");
+	if (WARN_ONCE(hdr_str->data, "Frame already has data.\n"))
 		return -EINVAL;
-	}
+
 	hdr_str->data = buf;
 	hdr_str->len = FRAME_HEADER_SIZE;
 
@@ -2136,10 +2135,8 @@ tfw_h2_insert_frame_header(TfwH2Ctx *ctx, TfwStream *stream, TfwFrameType type,
 
 	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
 					 stream->xmit.bytes_to_send);
-	if (unlikely(!data)) {
-		WARN_ONCE(1, "Can't find offset in skb.");
+	if (WARN_ONCE(!data, "Can't find offset in skb."))
 		return -EPIPE;
-	}
 
 	if (type == HTTP2_CONTINUATION || type == HTTP2_DATA) {
 		TfwStr dst = {};
@@ -2184,10 +2181,8 @@ tfw_h2_insert_enc_tbl_sz(TfwHPackETbl *tbl, struct sk_buff *skb_head,
 
 	data = ss_skb_data_ptr_by_offset(skb_head,
 					 offset + FRAME_HEADER_SIZE);
-	if (unlikely(!data)) {
-		WARN_ONCE(1, "Can't find offset in skb.");
+	if (WARN_ONCE(!data, "Can't find offset in skb."))
 		return -EPIPE;
-	}
 
 	size = min_val.sz + max_val.sz;
 	r = ss_skb_get_room_w_frag(skb_head, skb_head, data, size, &dst, &_);
