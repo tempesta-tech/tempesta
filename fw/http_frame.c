@@ -2296,6 +2296,14 @@ __tfw_h2_make_continuation_frame(TfwH2Ctx *ctx, TfwStream *stream)
 	if (!stream->xmit.h_len)
 		flags |= HTTP2_F_END_HEADERS;
 
+	/*
+	 * NOTE:
+	 * Do not call tfw_h2_stream_fsm_ignore_err() from this function.
+	 * If an RST_STREAM frame is received after the response headers have
+	 * been prepared, they must still be sent to preserve HPACK dynamic
+	 * table synchronization. Otherwise, the HTTP/2 connection may become
+	 * desynchronized, resulting in a protocol violation.
+	 */
 	return tfw_h2_insert_frame_header(ctx, stream, type, frame_length,
 					  flags,
 					  &stream->xmit.headers_frame_length);
