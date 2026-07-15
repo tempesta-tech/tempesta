@@ -210,7 +210,10 @@ do {									\
 				 * sending an RST_STREAM frame, but do not
 				 * remove the stream from the scheduling queue.
 				 */					\
-				return tfw_h2_send_rst_stream(ctx, id, err); \
+				int r = tfw_h2_send_rst_stream(ctx, id, err); \
+									\
+				ctx->cur_stream = NULL;			\
+				return r;				\
 			}						\
 		}							\
 		return T_OK;						\
