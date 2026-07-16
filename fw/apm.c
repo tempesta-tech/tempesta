@@ -1223,6 +1223,7 @@ tfw_apm_free_ubuf(TfwApmData *data)
 
 	for_each_online_cpu(icpu) {
 		TfwApmUBuf *ubuf = per_cpu_ptr(data->ubuf, icpu);
+		TRASH(ubuf->ubent[0]);
 		kfree(ubuf->ubent[0]);
 	}
 	free_percpu(data->ubuf);
@@ -1232,6 +1233,7 @@ static void
 tfw_apm_ref_destroy(TfwApmRef *ref)
 {
 	tfw_apm_free_ubuf(&ref->data);
+	TRASH(ref);
 	kfree(ref);
 }
 
@@ -1354,6 +1356,7 @@ static void
 tfw_apm_data_destroy(TfwApmData *data)
 {
 	tfw_apm_free_ubuf(data);
+	TRASH(data);
 	kfree(data);
 }
 
@@ -1780,6 +1783,7 @@ __tfw_cfgop_cleanup_apm_hm(void)
 		kfree(hm->url);
 		kfree(hm->codes);
 		list_del(&hm->list);
+		TRASH(hm);
 		kfree(hm);
 	}
 	INIT_LIST_HEAD(&tfw_hm_list);
@@ -1895,6 +1899,7 @@ tfw_cfgop_apm_cleanup_server_failover(TfwCfgSpec *cs)
 
 	list_for_each_entry_safe(ent, tmp, &tfw_hm_codes_list, list) {
 		list_del_init(&ent->list);
+		TRASH(ent);
 		kfree(ent);
 	}
 	INIT_LIST_HEAD(&tfw_hm_codes_list);

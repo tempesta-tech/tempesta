@@ -1000,6 +1000,7 @@ tfw_srv_conn_free(TfwSrvConn *srv_conn)
 	BUG_ON(!list_empty(&srv_conn->nip_queue));
 	BUG_ON(READ_ONCE(srv_conn->qsize));
 
+	TRASH(srv_conn);
 	kmem_cache_free(tfw_srv_conn_cache, srv_conn);
 }
 
