@@ -24,6 +24,7 @@
 #include <linux/module.h>
 #include <linux/string.h>
 #include <net/net_namespace.h> /* for sysctl */
+#include <linux/kernel.h>
 
 #include "tempesta_fw.h"
 #include "cfg.h"
@@ -71,6 +72,68 @@ static DEFINE_PER_CPU(int, main_stop_1);
 static DEFINE_PER_CPU(int, main_stop_2);
 static DEFINE_PER_CPU(int, main_clean_1);
 static DEFINE_PER_CPU(int, main_clean_2);
+
+#define NAMED_ARRAY_INDEX(x)	[x] = __stringify(x)
+
+static const char * const resident_page_types[] = {
+	NAMED_ARRAY_INDEX(MM_FILEPAGES),
+	NAMED_ARRAY_INDEX(MM_ANONPAGES),
+	NAMED_ARRAY_INDEX(MM_SWAPENTS),
+	NAMED_ARRAY_INDEX(MM_SHMEMPAGES),
+};
+
+static inline bool
+tfw_check_mm(struct mm_struct *mm)
+{
+	bool rc = true;
+	int i;
+
+	for (i = 0; i < NR_MM_COUNTERS; i++) {
+		long x = percpu_counter_sum(&mm->rss_stat[i]);
+
+		if (unlikely(x < 0)) {
+			printk(KERN_ALERT "BUG: Bad rss-counter state mm:%p type:%s val:%ld\n",
+				 mm, resident_page_types[i], x);
+			rc = false;
+		}
+
+		if (unlikely(x > 1000000)) {
+			printk(KERN_ALERT "BUG: Bad rss-counter state mm:%p type:%s val:%ld\n",
+				 mm, resident_page_types[i], x);
+			rc = false;
+		}
+	}
+
+	return rc;
+}
+
+static inline void
+tfw_check_all_mm(const char *prefix)
+{
+	struct task_struct *task;
+
+	rcu_read_lock();
+
+	for_each_process(task) {
+		struct mm_struct *mm;
+
+		mm = get_task_mm(task);
+		if (!mm)
+			continue; /* kernel thread */
+
+		
+		if (!tfw_check_mm(mm))
+			printk(KERN_ALERT "%s: FAILED TO CHECK MEM %s",
+				prefix, task->comm);
+		/*
+		 * тут нужна проверка mm
+		 */
+
+		mmput(mm);
+	}
+
+	rcu_read_unlock();
+}
 
 void
 tfw_on_stall_impl(void)
@@ -172,14 +235,19 @@ tfw_cleanup(void)
 	*clean_1 = *clean_2 = 1;
 
 	(*clean_1)++;
+	tfw_check_all_mm("tfw_cleanup START");
 	tfw_cfg_cleanup(&tfw_mods);
 	(*clean_1)++;
 
 	if (!tfw_runstate_is_reconfig()) {
+		tfw_check_all_mm("tfw_cleanup 111");
 		(*clean_2)++;
 		tfw_sg_wait_release();
 		(*clean_2)++;
 	}
+
+	tfw_check_all_mm("tfw_cleanup FINISH");
+
 	(*clean_1)++;
 	T_DBG("New configuration is cleaned.\n");
 }
@@ -189,6 +257,8 @@ tfw_mods_stop(void)
 {
 	TfwMod *mod;
 	bool ss_synced = false;
+
+	tfw_check_all_mm("tfw_mods_stop START");
 
 	ss_stop();
 
@@ -200,6 +270,8 @@ tfw_mods_stop(void)
 
 		mod->stop();
 		mod->started = 0;
+
+		tfw_check_all_mm(mod->name);
 
 		tfw_ss_users -= mod->sock_user;
 
@@ -223,6 +295,8 @@ tfw_mods_stop(void)
 		ss_synced = true;
 	}
 	BUG_ON(tfw_ss_users);
+
+	tfw_check_all_mm("tfw_mods_stop FINISH");
 
 	T_LOG("modules are stopped\n");
 }
