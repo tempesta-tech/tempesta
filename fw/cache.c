@@ -401,9 +401,11 @@ tfw_release_node_cpus(void)
 		return;
 
 	for_each_node_with_cpus(node) {
-		if(c_nodes[node].cpu)
+		if(c_nodes[node].cpu) {
 			kfree(c_nodes[node].cpu);
+		}
 	}
+	TRASH(c_nodes);
 	kfree(c_nodes);
 }
 

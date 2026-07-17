@@ -27,6 +27,7 @@
 #include <linux/error-injection.h>
 
 #include "work_queue.h"
+#include "tempesta_fw.h"
 #include "lib/fault_injection_alloc.h"
 
 int
@@ -66,6 +67,7 @@ tfw_wq_destroy(TfwRBQueue *q)
 
 	kvfree(q->array);
 	free_percpu(q->heads);
+	TRASH(q);
 }
 
 /**
