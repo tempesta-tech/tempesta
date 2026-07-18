@@ -818,15 +818,26 @@ index 457151f9f..e98331b6f 100644
  DECLARE_PER_CPU(struct task_struct *, ksoftirqd);
  
 diff --git a/include/linux/kernel.h b/include/linux/kernel.h
-index be2e8c0a1..46181071c 100644
+index be2e8c0a1..705b71324 100644
 --- a/include/linux/kernel.h
 +++ b/include/linux/kernel.h
-@@ -56,6 +56,15 @@
+@@ -56,6 +56,26 @@
  
  struct completion;
  struct user;
 +struct mm_struct;
++struct task_struct;
 +
++typedef struct mm_cid_dbg_t {
++	int stage1;
++	int stage2;
++	int stage3;
++	int stage4;
++	int stage5;
++	struct mm_struct *mm;
++	struct task_struct *t1;
++	struct task_struct *t2;
++} MmCidDbg;
 +
 +extern bool check_mm(struct mm_struct *mm);
 +
@@ -1520,6 +1531,176 @@ index 2f4fb336d..a65f9370e 100644
  
  bool irq_work_needs_cpu(void)
  {
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index d07dc8778..382f1cba6 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -10541,6 +10541,8 @@ void sched_mm_cid_after_execve(struct task_struct *t)
+ 	preempt_disable();
+ 	rq = this_rq();
+ 	scoped_guard (rq_lock_irqsave, rq) {
++		MmCidDbg *m;
++
+ 		preempt_enable_no_resched();	/* holding spinlock */
+ 		WRITE_ONCE(t->mm_cid_active, 1);
+ 		/*
+@@ -10548,7 +10550,14 @@ void sched_mm_cid_after_execve(struct task_struct *t)
+ 		 * Matches barrier in sched_mm_cid_remote_clear_old().
+ 		 */
+ 		smp_mb();
++
++		m = this_cpu_ptr(&mm_cid_dbg);
++		memset(m, 0, sizeof(*m));
++		m->t1 = t;
++
+ 		t->last_mm_cid = t->mm_cid = mm_cid_get(rq, mm);
++
++		memset(m, 0, sizeof(*m));
+ 	}
+ 	rseq_set_notify_resume(t);
+ }
+diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
+index f2ef52051..7fbd12a9b 100644
+--- a/kernel/sched/sched.h
++++ b/kernel/sched/sched.h
+@@ -69,6 +69,8 @@
+ #include <linux/wait_bit.h>
+ #include <linux/workqueue_api.h>
+ #include <linux/delayacct.h>
++#include <linux/kernel.h>
++#include <linux/percpu.h>
+ 
+ #include <trace/events/power.h>
+ #include <trace/events/sched.h>
+@@ -3639,10 +3641,15 @@ static inline void mm_cid_put(struct mm_struct *mm)
+ 	__mm_cid_put(mm, mm_cid_clear_lazy_put(cid));
+ }
+ 
+-static inline int __mm_cid_try_get(struct mm_struct *mm)
++DECLARE_PER_CPU(struct mm_cid_dbg_t, mm_cid_dbg);
++
++static inline int __mm_cid_try_get(struct mm_struct *mm, int start)
+ {
+ 	struct cpumask *cpumask;
+ 	int cid;
++	MmCidDbg *m = this_cpu_ptr(&mm_cid_dbg);
++
++	m->stage4 = start;
+ 
+ 	cpumask = mm_cidmask(mm);
+ 	/*
+@@ -3650,12 +3657,16 @@ static inline int __mm_cid_try_get(struct mm_struct *mm)
+ 	 * filled. This only happens during concurrent remote-clear
+ 	 * which owns a cid without holding a rq lock.
+ 	 */
++	m->stage5 = 1;
+ 	for (;;) {
++		m->stage5++;
+ 		cid = cpumask_first_zero(cpumask);
+ 		if (cid < nr_cpu_ids)
+ 			break;
+ 		cpu_relax();
+ 	}
++	m->stage4 = start + 1;
++
+ 	if (cpumask_test_and_set_cpu(cid, cpumask))
+ 		return -1;
+ 
+@@ -3677,23 +3688,26 @@ static inline void mm_cid_snapshot_time(struct rq *rq, struct mm_struct *mm)
+ static inline int __mm_cid_get(struct rq *rq, struct mm_struct *mm)
+ {
+ 	int cid;
++	MmCidDbg *m = this_cpu_ptr(&mm_cid_dbg);
+ 
++	m->stage2 = 1;
+ 	/*
+ 	 * All allocations (even those using the cid_lock) are lock-free. If
+ 	 * use_cid_lock is set, hold the cid_lock to perform cid allocation to
+ 	 * guarantee forward progress.
+ 	 */
+ 	if (!READ_ONCE(use_cid_lock)) {
+-		cid = __mm_cid_try_get(mm);
++		cid = __mm_cid_try_get(mm, 100);
+ 		if (cid >= 0)
+ 			goto end;
+ 		raw_spin_lock(&cid_lock);
+ 	} else {
+ 		raw_spin_lock(&cid_lock);
+-		cid = __mm_cid_try_get(mm);
++		cid = __mm_cid_try_get(mm, 1000);
+ 		if (cid >= 0)
+ 			goto unlock;
+ 	}
++	m->stage2 = 2;
+ 
+ 	/*
+ 	 * cid concurrently allocated. Retry while forcing following
+@@ -3709,10 +3723,14 @@ static inline int __mm_cid_get(struct rq *rq, struct mm_struct *mm)
+ 	 * Retry until it succeeds. It is guaranteed to eventually succeed once
+ 	 * all newcoming allocations observe the use_cid_lock flag set.
+ 	 */
++	m->stage3 = 1;
+ 	do {
+-		cid = __mm_cid_try_get(mm);
++		m->stage3++;
++		cid = __mm_cid_try_get(mm, 10000);
+ 		cpu_relax();
+ 	} while (cid < 0);
++
++	m->stage2 = 3;
+ 	/*
+ 	 * Allocate before clearing use_cid_lock. Only care about
+ 	 * program order because this is for forward progress.
+@@ -3732,20 +3750,32 @@ static inline int mm_cid_get(struct rq *rq, struct mm_struct *mm)
+ 	struct mm_cid __percpu *pcpu_cid = mm->pcpu_cid;
+ 	struct cpumask *cpumask;
+ 	int cid;
++	MmCidDbg *m = this_cpu_ptr(&mm_cid_dbg);
++
++	m->mm = mm;
++	m->stage1 = 1;
+ 
+ 	lockdep_assert_rq_held(rq);
++	m->stage1  = 2;
+ 	cpumask = mm_cidmask(mm);
++	m->stage1  = 3;
+ 	cid = __this_cpu_read(pcpu_cid->cid);
++	m->stage1  = 4;
+ 	if (mm_cid_is_valid(cid)) {
++		m->stage1  = 5;
+ 		mm_cid_snapshot_time(rq, mm);
++		m->stage1  = 6;
+ 		return cid;
+ 	}
+ 	if (mm_cid_is_lazy_put(cid)) {
+ 		if (try_cmpxchg(&this_cpu_ptr(pcpu_cid)->cid, &cid, MM_CID_UNSET))
+ 			__mm_cid_put(mm, mm_cid_clear_lazy_put(cid));
+ 	}
++	m->stage1  = 7;
+ 	cid = __mm_cid_get(rq, mm);
++	m->stage1  = 8;
+ 	__this_cpu_write(pcpu_cid->cid, cid);
++	m->stage1  = 9;
+ 
+ 	return cid;
+ }
+@@ -3797,8 +3827,15 @@ static inline void switch_mm_cid(struct rq *rq,
+ 		mm_cid_put_lazy(prev);
+ 		prev->mm_cid = -1;
+ 	}
+-	if (next->mm_cid_active)
++	if (next->mm_cid_active) {
++		MmCidDbg *m = this_cpu_ptr(&mm_cid_dbg);
++
++		memset(m, 0, sizeof(*m));
++		m->t1 = prev;
++		m->t2 = next;
+ 		next->last_mm_cid = next->mm_cid = mm_cid_get(rq, next->mm);
++		memset(m, 0, sizeof(*m));
++	}
+ }
+ 
+ #else /* !CONFIG_SCHED_MM_CID: */
 diff --git a/kernel/softirq.c b/kernel/softirq.c
 index 8c4524ce6..f211e6b13 100644
 --- a/kernel/softirq.c
@@ -1571,21 +1752,37 @@ index 8c4524ce6..f211e6b13 100644
  void __raise_softirq_irqoff(unsigned int nr)
  {
 diff --git a/lib/nmi_backtrace.c b/lib/nmi_backtrace.c
-index 33c154264..7f86d0d3c 100644
+index 33c154264..6d2c72883 100644
 --- a/lib/nmi_backtrace.c
 +++ b/lib/nmi_backtrace.c
-@@ -19,6 +19,10 @@
+@@ -19,6 +19,26 @@
  #include <linux/nmi.h>
  #include <linux/cpu.h>
  #include <linux/sched/debug.h>
 +#include <linux/kernel.h>
++#include <linux/sched.h>
++
++DEFINE_PER_CPU(MmCidDbg, mm_cid_dbg);
++EXPORT_SYMBOL(mm_cid_dbg);
++
++static inline void
++kernel_mm_cid_on_stall(int cpu)
++{
++	MmCidDbg *m = per_cpu_ptr(&mm_cid_dbg, cpu);
++
++	printk(KERN_ALERT "stage %d %d %d %d %d %px %s %s\n",
++		m->stage1, m->stage2, m->stage3, m->stage4,
++		m->stage5, m->mm,
++		m->t1 ? m->t1->comm : "NULL",
++		m->t2 ? m->t2->comm : "NULL");
++}
 +
 +tfw_on_stall TFW_ON_STALL;
 +EXPORT_SYMBOL(TFW_ON_STALL);
  
  #ifdef arch_trigger_cpumask_backtrace
  /* For reliability, we're prepared to waste bits here. */
-@@ -107,6 +111,10 @@ bool nmi_cpu_backtrace(struct pt_regs *regs)
+@@ -107,6 +127,12 @@ bool nmi_cpu_backtrace(struct pt_regs *regs)
  				cpu, (void *)instruction_pointer(regs));
  		} else {
  			pr_warn("NMI backtrace for cpu %d\n", cpu);
@@ -1593,6 +1790,8 @@ index 33c154264..7f86d0d3c 100644
 +				TFW_ON_STALL();
 +			else
 +				printk(KERN_ALERT "NO TFW_ON_STALL !!!!!!!!!!\n");
++			kernel_mm_cid_on_stall(cpu);
++
  			if (regs)
  				show_regs(regs);
  			else
