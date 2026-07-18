@@ -540,8 +540,8 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 			return r;
 		}
 
-		ss_skb_tcp_entail(sk, skb, mark, tls_type);
 		*snd_wnd = (*snd_wnd > skb->len ? *snd_wnd - skb->len : 0);
+		ss_skb_tcp_entail(sk, skb, mark, tls_type);
 	}
 
 	if (*skb_head && !TFW_SKB_CB(*skb_head)->is_head) {

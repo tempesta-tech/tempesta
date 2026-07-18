@@ -49,7 +49,7 @@ typedef struct {
 /*
  * Tempesta FW sk_buff private data.
  * @cli_mem 		- pointer to TfwClientMem structure for memory
- *			  accountion;
+ *			  accounting;
  * @mem			- memory used for this skb, used to account appropriate
  *			  client memory;
  * @skb_hooks		- pointer to the callbacks structure;

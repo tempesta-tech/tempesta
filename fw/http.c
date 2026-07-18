@@ -4237,9 +4237,10 @@ tfw_h2_req_set_loc_hdrs(TfwHttpReq *req, TfwHdrMods *h_mods)
 	return 0;
 }
 
-/**
+/*
  * Fuse multiple cookie headers into one.
- * Works only with TFW_STR_DUP strings. */
+ * Works only with TFW_STR_DUP strings.
+ */
 static int
 write_merged_cookie_headers(TfwStr *hdr, TfwHttpMsg *hm)
 {
