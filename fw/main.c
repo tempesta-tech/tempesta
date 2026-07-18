@@ -314,6 +314,8 @@ tfw_mods_cfgstart(void)
 	int ret;
 	TfwMod *mod;
 
+	tfw_check_all_mm("tfw_mods_cfgstart START");
+
 	T_DBG2("Prepare the configuration processing...\n");
 	MOD_FOR_EACH(mod, &tfw_mods) {
 		if (!mod->cfgstart)
@@ -327,6 +329,8 @@ tfw_mods_cfgstart(void)
 	}
 	T_DBG("Preparing for the configuration processing.\n");
 
+	tfw_check_all_mm("tfw_mods_cfgstart FINISH");
+
 	return 0;
 }
 
@@ -336,6 +340,8 @@ tfw_mods_start(void)
 	int ret;
 	TfwMod *mod;
 
+	tfw_check_all_mm("tfw_mods_start START");
+
 	T_DBG2("starting modules...\n");
 	MOD_FOR_EACH(mod, &tfw_mods) {
 		BUG_ON(mod->sock_user && (!mod->start || !mod->stop));
@@ -343,11 +349,20 @@ tfw_mods_start(void)
 		if (!mod->start)
 			continue;
 		T_DBG2("mod_start(): %s\n", mod->name);
+
+		tfw_check_all_mm(mod->name);
+
 		if ((ret = mod->start())) {
 			T_ERR_NL("Unable to start module '%s': %d\n",
 				 mod->name, ret);
-			if (mod->stop && !mod->started)
+
+			tfw_check_all_mm("BAD 1111");
+
+			if (mod->stop && !mod->started) {
+				tfw_check_all_mm("BAD 2222");
 				mod->stop();
+				tfw_check_all_mm("BAD 3333");
+			}
 			return ret;
 		}
 		mod->started = 1;
@@ -356,6 +371,8 @@ tfw_mods_start(void)
 			tfw_ss_users += mod->sock_user;
 	}
 	T_DBG("modules are started\n");
+
+	tfw_check_all_mm("tfw_mods_start FINISH");
 
 	return 0;
 }
@@ -394,8 +411,10 @@ tfw_start(void)
 		goto cleanup;
 	if ((ret = tfw_mods_cfgend()))
 		goto cleanup;
-	if ((ret = tfw_mods_start()))
+	if ((ret = tfw_mods_start())) {
+		tfw_check_all_mm("BAD 4444444");
 		goto stop_mods;
+	}
 	tfw_cfg_conclude(&tfw_mods);
 	WRITE_ONCE(tfw_state, TFW_STATE_STARTED);
 
