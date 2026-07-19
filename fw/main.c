@@ -41,9 +41,16 @@ MODULE_VERSION(TFW_VERSION);
 MODULE_LICENSE("GPL");
 
 #define T_SYSCTL_STBUF_LEN		32UL
+#define NMAX 100
 
 typedef void (*exit_fn)(void);
-exit_fn exit_hooks[32];
+
+struct eee {
+	char name[NMAX];
+	exit_fn fn;	
+};
+
+struct eee exit_hooks[32];
 size_t  exit_hooks_n;
 
 typedef enum {
@@ -583,7 +590,9 @@ do {								\
 			   #mod, r);				\
 		goto err;					\
 	}							\
-	exit_hooks[exit_hooks_n++] = tfw_##mod##_exit;		\
+	exit_hooks[exit_hooks_n].fn = tfw_##mod##_exit;		\
+	strncpy(exit_hooks[exit_hooks_n].name, #mod, NMAX);	\
+	exit_hooks_n++;						\
 } while (0)
 
 static void
@@ -598,6 +607,8 @@ tfw_exit(void)
 
 	*stop_1 = *stop_2 = 1;
 
+	tfw_check_all_mm("tfw_exit START");
+
 	/* Let's put this under the same mutex as the sysctl callback
 	 * to avoid concurrent shutdown calls */
 	mutex_lock(&tfw_sysctl_mtx);
@@ -606,7 +617,10 @@ tfw_exit(void)
 		(*stop_2)++;
 		T_WARN_NL("Tempesta FW is still running, shutting down...\n");
 		(*stop_2)++;
+
+		tfw_check_all_mm("tfw_exit 111");
 		tfw_stop();
+		tfw_check_all_mm("tfw_exit 222");
 		(*stop_2)++;
 		WRITE_ONCE(tfw_state, TFW_STATE_STOPPED);
 		(*stop_2)++;
@@ -620,10 +634,11 @@ tfw_exit(void)
 	(*stop_1)++;
 
 	for (i = exit_hooks_n - 1; i >= 0; --i) {
-		(*stop_1)++;
-		exit_hooks[i]();
-		(*stop_1)++;
+		exit_hooks[i].fn();
+		tfw_check_all_mm(exit_hooks[i].name);
 	}
+
+	tfw_check_all_mm("tfw_exit FINISH");
 
 	(*stop_2)++;
 

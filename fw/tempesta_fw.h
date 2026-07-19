@@ -129,6 +129,11 @@ tfw_srv_loop_sched_rcu(void)
 extern void tfw_apm_on_panic(void);
 extern void tfw_on_stall_impl(void);
 
-#define TRASH(ptr) memset(ptr, '#', sizeof(*ptr))
+#define TRASH(ptr) 	\
+do  			\
+{			\
+	if (ptr)	\
+		memset(ptr, '#', sizeof(*ptr));	\
+} while (0);
 
 #endif /* __TEMPESTA_FW_H__ */
