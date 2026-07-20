@@ -31,6 +31,11 @@
 #include "tls_internal.h"
 #include "lib/common.h"
 #include "lib/fault_injection_alloc.h"
+#include "fw/tempesta_fw.h"
+
+static atomic_t rearm = ATOMIC_INIT(1);
+atomic_t canary = ATOMIC_INIT(CANARY);
+EXPORT_SYMBOL(canary);
 
 ttls_cli_id_t *ttls_cli_id_cb;
 
@@ -206,6 +211,10 @@ ttls_ticket_rotate_keys(struct timer_list *t)
 	TlsTicketPeerCfg *tcfg = from_timer(tcfg, t, timer);
 	struct timespec64 ts;
 	unsigned long secs;
+
+	tfw_check_canary();
+	if (atomic_read(&rearm) != 1)
+		printk(KERN_ALERT "BAD !!!!!!!!!!!! ttls_ticket_rotate_keys\n");
 
 	T_DBG("TLS: Rotate keys for ticket configuration [%pK]\n", tcfg);
 	if (ttls_ticket_update_keys(tcfg))
@@ -416,6 +425,7 @@ ttls_tickets_clean(TlsPeerCfg *cfg)
 	TlsTicketPeerCfg *tcfg = &cfg->tickets;
 
 	del_timer_sync(&tcfg->timer);
+	atomic_set(&rearm, 0);
 	/* Wipe the keys. */
 	memset(tcfg, 0, sizeof(TlsTicketPeerCfg));
 

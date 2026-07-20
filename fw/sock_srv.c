@@ -558,6 +558,8 @@ tfw_sock_srv_connect_retry_timer_cb(struct timer_list *t)
 	LIST_HEAD(recns_list);
 	unsigned int count, max;
 
+	tfw_check_canary();
+
 	spin_lock(&srv->ctrl.recns_lock);
 
 	count = 0;
@@ -1135,6 +1137,8 @@ static void
 tfw_sock_srv_grace_shutdown_cb(struct timer_list *t)
 {
 	TfwServer *srv = from_timer(srv, t, gs_timer);
+
+	tfw_check_canary();
 
 	tfw_sock_srv_grace_stop(srv);
 }

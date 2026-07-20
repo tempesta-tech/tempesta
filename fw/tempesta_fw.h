@@ -136,4 +136,15 @@ do  			\
 		memset(ptr, '#', sizeof(*ptr));	\
 } while (0);
 
+#define CANARY 0xeaebeced
+extern atomic_t canary;
+
+static inline void
+tfw_check_canary(void)
+{
+	if (atomic_read(&canary) != CANARY) {
+		printk(KERN_ALERT "USE AFTER FREE BUG %s\n", __func__);
+	}
+}
+
 #endif /* __TEMPESTA_FW_H__ */

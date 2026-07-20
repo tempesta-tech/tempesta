@@ -1095,6 +1095,8 @@ tfw_apm_prcntl_tmfn(struct timer_list *t)
 	int *tmfn_cnt_3 = this_cpu_ptr(&prcntl_tmfn_cnt_3);
 	int *tmfn_cnt_4 = this_cpu_ptr(&prcntl_tmfn_cnt_4);
 
+	tfw_check_canary();
+
 	*tmfn_cnt = *tmfn_cnt_1 = *tmfn_cnt_2 = *tmfn_cnt_3 = *tmfn_cnt_4 = 1;
 	data = from_timer(data, t, timer);
 	*tmfn_cnt = (data == tfw_apm_global_data ? *tmfn_cnt + 1 : *tmfn_cnt + 10000);
@@ -1167,6 +1169,8 @@ tfw_apm_hm_timer_cb(struct timer_list *t)
 	TfwServer *srv = hmctl->srv;
 	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 	unsigned long now;
+
+	tfw_check_canary();
 
 	BUG_ON(!hm);
 	if (!atomic64_read(&hmctl->rcount))

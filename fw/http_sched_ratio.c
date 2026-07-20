@@ -682,6 +682,8 @@ tfw_sched_ratio_dynamic_tmfn(struct timer_list *t)
 {
 	TfwRatio *r = from_timer(r, t, timer);
 
+	tfw_check_canary();
+
 	tfw_sched_ratio_calc_tmfn(r, tfw_sched_ratio_calc_dynamic);
 }
 

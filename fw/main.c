@@ -646,6 +646,8 @@ tfw_exit(void)
 	TFW_ON_STALL = NULL;
 
 	unregister_net_sysctl_table(tfw_sysctl_hdr);
+
+	atomic_set(&canary, 0);
 }
 
 static int __init
