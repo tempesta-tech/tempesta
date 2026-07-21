@@ -167,19 +167,12 @@ ifndef AVX2
 endif
 	$(MAKE) -C tls/t generate_tables
 	$(MAKE) -C db
-	$(MAKE) -C logger
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) modules
-
-test: build
-	./scripts/tempesta.sh --stop
-	./fw/t/unit/run_all_tests.sh
 
 clean:
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) clean
 	$(MAKE) -C db clean
 	$(MAKE) -C tls clean
-	$(MAKE) -C tls/t clean
-	$(MAKE) -C logger clean
 	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
 		-exec rm -f {} \;
 
