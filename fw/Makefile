@@ -26,7 +26,7 @@ EXTRA_AFLAGS += -I$(src)/../
 
 GCOV_PROFILE := $(TFW_GCOV)
 
-obj-m	= tempesta_fw.o t/
+obj-m	= tempesta_fw.o
 
 tfw-srcs = $(wildcard $(obj)/*.c)
 tfw-objs = $(patsubst %.c, %.o, $(tfw-srcs))

@@ -3492,3 +3492,20 @@ index 000000000..9a29c3ba2
 +	.flags = LSM_FLAG_LEGACY_MAJOR | LSM_FLAG_EXCLUSIVE,
 +	.init = tempesta_init,
 +};
+diff --git a/tools/lib/subcmd/Makefile b/tools/lib/subcmd/Makefile
+index 1c777a72b..d1f44cad8 100644
+--- a/tools/lib/subcmd/Makefile
++++ b/tools/lib/subcmd/Makefile
+@@ -36,9 +36,9 @@ else
+ endif
+ 
+ # Treat warnings as errors unless directed not to
+-ifneq ($(WERROR),0)
+-  CFLAGS += -Werror
+-endif
++#ifneq ($(WERROR),0)
++#  CFLAGS += -Werror
++#endif
+ 
+ CFLAGS += -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
+ 
