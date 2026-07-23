@@ -42,6 +42,9 @@ endif
 ifneq (, $(findstring adx, $(PROC)))
 	CFLAGS += -DADX=1
 endif
+ifeq ($(TFW_GCOV), y)
+    CFLAGS += -fprofile-arcs -ftest-coverage
+endif
 
 TARGETS		= $(subst .c,, $(wildcard test_*.c)) benchmark
 ASM-OBJ		= bignum_x86-64.o
@@ -76,6 +79,6 @@ benchmark.o : benchmark.c
 	$(CC) $(SPEED_CFLAGS) $(CFLAGS) -c $< -o $@
 
 clean : FORCE
-	rm -f *.o *~ *.orig $(TARGETS) $(GENERATORS)
+	rm -f *.o *.gcda *.gcno *~ *.orig $(TARGETS) $(GENERATORS)
 
 FORCE :
