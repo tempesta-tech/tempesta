@@ -71,6 +71,17 @@ static int tfw_ss_users = 0;
 static LIST_HEAD(tfw_mods);
 static DEFINE_RWLOCK(tfw_mods_lock);
 
+static DEFINE_PER_CPU(int, main_start_1);
+static DEFINE_PER_CPU(int, main_start_2);
+static DEFINE_PER_CPU(int, main_start_3);
+static DEFINE_PER_CPU(int, main_start_4);
+static DEFINE_PER_CPU(int, main_stop_1);
+static DEFINE_PER_CPU(int, main_stop_2);
+static DEFINE_PER_CPU(int, main_clean_1);
+static DEFINE_PER_CPU(int, main_clean_2);
+
+
+
 static inline bool
 tfw_check_mm(struct mm_struct *mm)
 {
