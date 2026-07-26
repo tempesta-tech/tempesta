@@ -71,24 +71,6 @@ static int tfw_ss_users = 0;
 static LIST_HEAD(tfw_mods);
 static DEFINE_RWLOCK(tfw_mods_lock);
 
-static DEFINE_PER_CPU(int, main_start_1);
-static DEFINE_PER_CPU(int, main_start_2);
-static DEFINE_PER_CPU(int, main_start_3);
-static DEFINE_PER_CPU(int, main_start_4);
-static DEFINE_PER_CPU(int, main_stop_1);
-static DEFINE_PER_CPU(int, main_stop_2);
-static DEFINE_PER_CPU(int, main_clean_1);
-static DEFINE_PER_CPU(int, main_clean_2);
-
-#define NAMED_ARRAY_INDEX(x)	[x] = __stringify(x)
-
-static const char * const resident_page_types[] = {
-	NAMED_ARRAY_INDEX(MM_FILEPAGES),
-	NAMED_ARRAY_INDEX(MM_ANONPAGES),
-	NAMED_ARRAY_INDEX(MM_SWAPENTS),
-	NAMED_ARRAY_INDEX(MM_SHMEMPAGES),
-};
-
 static inline bool
 tfw_check_mm(struct mm_struct *mm)
 {
@@ -96,19 +78,8 @@ tfw_check_mm(struct mm_struct *mm)
 	int i;
 
 	for (i = 0; i < NR_MM_COUNTERS; i++) {
-		long x = percpu_counter_sum(&mm->rss_stat[i]);
-
-		if (unlikely(x < 0)) {
-			printk(KERN_ALERT "BUG: Bad rss-counter state mm:%p type:%s val:%ld\n",
-				 mm, resident_page_types[i], x);
+		if (!tfw_mm_check_rss_member(mm, i))
 			rc = false;
-		}
-
-		if (unlikely(x > 1000000)) {
-			printk(KERN_ALERT "BUG: Bad rss-counter state mm:%p type:%s val:%ld\n",
-				 mm, resident_page_types[i], x);
-			rc = false;
-		}
 	}
 
 	return rc;

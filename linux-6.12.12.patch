@@ -643,6 +643,19 @@ index ceed7f33a..dfe883df9 100644
  struct crypto_sync_skcipher *crypto_alloc_sync_skcipher(
  				const char *alg_name, u32 type, u32 mask)
  {
+diff --git a/drivers/firmware/efi/efi.c b/drivers/firmware/efi/efi.c
+index 70490bf26..040c4924b 100644
+--- a/drivers/firmware/efi/efi.c
++++ b/drivers/firmware/efi/efi.c
+@@ -72,6 +72,8 @@ struct mm_struct efi_mm = {
+ 	MMAP_LOCK_INITIALIZER(efi_mm)
+ 	.page_table_lock	= __SPIN_LOCK_UNLOCKED(efi_mm.page_table_lock),
+ 	.mmlist			= LIST_HEAD_INIT(efi_mm.mmlist),
++	.canary1		= TFW_MM_CANARY,
++	.canary2		= TFW_MM_CANARY,
+ 	.cpu_bitmap		= { [BITS_TO_LONGS(NR_CPUS)] = 0},
+ };
+ 
 diff --git a/drivers/net/ethernet/chelsio/inline_crypto/ch_ktls/chcr_ktls.c b/drivers/net/ethernet/chelsio/inline_crypto/ch_ktls/chcr_ktls.c
 index e8e460a92..8c4d902f3 100644
 --- a/drivers/net/ethernet/chelsio/inline_crypto/ch_ktls/chcr_ktls.c
@@ -874,6 +887,124 @@ index 16eb49761..9c222f5ee 100644
 +		TEMPESTA_ENABLED)
  
  #else
+ 
+diff --git a/include/linux/mm.h b/include/linux/mm.h
+index 8617adc6b..4a1a58e63 100644
+--- a/include/linux/mm.h
++++ b/include/linux/mm.h
+@@ -2584,11 +2584,63 @@ static inline bool get_user_page_fast_only(unsigned long addr,
+ {
+ 	return get_user_pages_fast_only(addr, 1, gup_flags, pagep) == 1;
+ }
++
++static inline void
++tfw_mm_check_canary(struct mm_struct *mm, const char *prefix)
++{
++	if (unlikely(READ_ONCE(mm->canary1) !=
++		     TFW_MM_CANARY))
++		printk(KERN_ALERT "%s BAD CANARY1 %px %u\n",
++			prefix, mm, mm->canary1);
++
++	if (READ_ONCE(mm->canary2) !=
++		     TFW_MM_CANARY)
++		printk(KERN_ALERT "%s BAD CANARY2 %px %u\n",
++			prefix, mm, mm->canary2);
++}
++
++static inline bool
++tfw_mm_check_rss_member(struct mm_struct *mm, int member)
++{
++	long x = percpu_counter_sum(&mm->rss_stat[member]);
++	bool rc = true;
++	#define NAMED_ARRAY_INDEX(x)	[x] = __stringify(x)
++	enum {
++		MM_FILEPAGES,	/* Resident file mapping pages */
++		MM_ANONPAGES,	/* Resident anonymous pages */
++		MM_SWAPENTS,	/* Anonymous swap entries */
++		MM_SHMEMPAGES,	/* Resident shared memory pages */
++		NR_MM_COUNTERS
++	};
++	static const char * const resident_page_types[] = {
++		NAMED_ARRAY_INDEX(MM_FILEPAGES),
++		NAMED_ARRAY_INDEX(MM_ANONPAGES),
++		NAMED_ARRAY_INDEX(MM_SWAPENTS),
++		NAMED_ARRAY_INDEX(MM_SHMEMPAGES),
++	};
++	#undef NAMED_ARRAY_INDEX
++
++	if (unlikely(x < 0)) {
++		printk(KERN_ALERT "BUG: Bad rss-counter state mm:%p type:%s val:%ld\n",
++			 mm, resident_page_types[member], x);
++		rc = false;
++	}
++
++	if (unlikely(x > 1000000)) {
++		printk(KERN_ALERT "BUG: Bad rss-counter state mm:%p type:%s val:%ld\n",
++			 mm, resident_page_types[member], x);
++		rc = false;
++	}
++
++	return rc;
++}
++
+ /*
+  * per-process(per-mm_struct) statistics.
+  */
+ static inline unsigned long get_mm_counter(struct mm_struct *mm, int member)
+ {
++	tfw_mm_check_canary(mm, __func__);
+ 	return percpu_counter_read_positive(&mm->rss_stat[member]);
+ }
+ 
+@@ -2596,6 +2648,8 @@ void mm_trace_rss_stat(struct mm_struct *mm, int member);
+ 
+ static inline void add_mm_counter(struct mm_struct *mm, int member, long value)
+ {
++	tfw_mm_check_canary(mm, __func__);
++
+ 	percpu_counter_add(&mm->rss_stat[member], value);
+ 
+ 	mm_trace_rss_stat(mm, member);
+@@ -2603,6 +2657,8 @@ static inline void add_mm_counter(struct mm_struct *mm, int member, long value)
+ 
+ static inline void inc_mm_counter(struct mm_struct *mm, int member)
+ {
++	tfw_mm_check_canary(mm, __func__);
++
+ 	percpu_counter_inc(&mm->rss_stat[member]);
+ 
+ 	mm_trace_rss_stat(mm, member);
+@@ -2610,6 +2666,8 @@ static inline void inc_mm_counter(struct mm_struct *mm, int member)
+ 
+ static inline void dec_mm_counter(struct mm_struct *mm, int member)
+ {
++	tfw_mm_check_canary(mm, __func__);
++
+ 	percpu_counter_dec(&mm->rss_stat[member]);
+ 
+ 	mm_trace_rss_stat(mm, member);
+diff --git a/include/linux/mm_types.h b/include/linux/mm_types.h
+index 6894de506..ea6d7f4a8 100644
+--- a/include/linux/mm_types.h
++++ b/include/linux/mm_types.h
+@@ -32,6 +32,8 @@
+ struct address_space;
+ struct mem_cgroup;
+ 
++#define TFW_MM_CANARY 0xdeadbeef
++
+ /*
+  * Each physical page in the system has a struct page associated with
+  * it to keep track of whatever it is we are using the page for at the
+@@ -955,7 +957,9 @@ struct mm_struct {
+ 
+ 		unsigned long saved_auxv[AT_VECTOR_SIZE]; /* for /proc/PID/auxv */
+ 
++		unsigned int canary1;
+ 		struct percpu_counter rss_stat[NR_MM_COUNTERS];
++		unsigned int canary2;
+ 
+ 		struct linux_binfmt *binfmt;
  
 diff --git a/include/linux/net.h b/include/linux/net.h
 index b75bc534c..2936283de 100644
@@ -1476,10 +1607,10 @@ index c4778edae..a19958362 100644
  	tick_init();
  	rcu_init_nohz();
 diff --git a/kernel/fork.c b/kernel/fork.c
-index e192bdbc9..5cbc464e9 100644
+index e192bdbc9..695ea1fb0 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
-@@ -816,8 +816,9 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
+@@ -816,29 +816,39 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
  #define mm_free_pgd(mm)
  #endif /* CONFIG_MMU */
  
@@ -1490,7 +1621,10 @@ index e192bdbc9..5cbc464e9 100644
  	int i;
  
  	BUILD_BUG_ON_MSG(ARRAY_SIZE(resident_page_types) != NR_MM_COUNTERS,
-@@ -826,19 +827,26 @@ static void check_mm(struct mm_struct *mm)
+ 			 "Please make sure 'struct resident_page_types[]' is updated as well");
+ 
++	tfw_mm_check_canary(mm, __func__);
++
  	for (i = 0; i < NR_MM_COUNTERS; i++) {
  		long x = percpu_counter_sum(&mm->rss_stat[i]);
  
@@ -1519,6 +1653,14 @@ index e192bdbc9..5cbc464e9 100644
  
  #define allocate_mm()	(kmem_cache_alloc(mm_cachep, GFP_KERNEL))
  #define free_mm(mm)	(kmem_cache_free(mm_cachep, (mm)))
+@@ -1269,6 +1279,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
+ 	mm_pgtables_bytes_init(mm);
+ 	mm->map_count = 0;
+ 	mm->locked_vm = 0;
++	mm->canary1 = mm->canary2 = TFW_MM_CANARY;
+ 	atomic64_set(&mm->pinned_vm, 0);
+ 	memset(&mm->rss_stat, 0, sizeof(mm->rss_stat));
+ 	spin_lock_init(&mm->page_table_lock);
 diff --git a/kernel/irq_work.c b/kernel/irq_work.c
 index 2f4fb336d..a65f9370e 100644
 --- a/kernel/irq_work.c
@@ -1807,6 +1949,19 @@ index d5639b036..6b555f82a 100644
  obj-$(CONFIG_IO_MAPPING) += io-mapping.o
  obj-$(CONFIG_HAVE_BOOTMEM_INFO_NODE) += bootmem_info.o
  obj-$(CONFIG_GENERIC_IOREMAP) += ioremap.o
+diff --git a/mm/init-mm.c b/mm/init-mm.c
+index 24c809379..67d0efaf0 100644
+--- a/mm/init-mm.c
++++ b/mm/init-mm.c
+@@ -42,6 +42,8 @@ struct mm_struct init_mm = {
+ #ifdef CONFIG_PER_VMA_LOCK
+ 	.mm_lock_seq	= 0,
+ #endif
++	.canary1	= TFW_MM_CANARY,
++	.canary2	= TFW_MM_CANARY,
+ 	.user_ns	= &init_user_ns,
+ 	.cpu_bitmap	= CPU_BITS_NONE,
+ 	INIT_MM_CONTEXT(init_mm)
 diff --git a/mm/mm_init.c b/mm/mm_init.c
 index 4ba5607aa..2fdd596c6 100644
 --- a/mm/mm_init.c
