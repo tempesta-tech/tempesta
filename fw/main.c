@@ -25,6 +25,21 @@
 #include <linux/string.h>
 #include <net/net_namespace.h> /* for sysctl */
 #include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/mm_types.h>
+#include <linux/sched.h>
+#include <linux/sched/task.h>
+#include <linux/sched/mm.h>
+#include <linux/fs.h>
+#include <linux/path.h>
+#include <linux/dcache.h>
+#include <linux/rcupdate.h>
+#include <linux/atomic.h>
+#include <linux/printk.h>
+#include <linux/cred.h>
+#include <linux/cpumask.h>
+#include <linux/maple_tree.h>
+#include <linux/stacktrace.h>
 
 #include "tempesta_fw.h"
 #include "cfg.h"
@@ -80,7 +95,327 @@ static DEFINE_PER_CPU(int, main_stop_2);
 static DEFINE_PER_CPU(int, main_clean_1);
 static DEFINE_PER_CPU(int, main_clean_2);
 
+#define MM_DEBUG_MAX_VMAS	32
+#define MM_DEBUG_HEXDUMP_SIZE	128
 
+static const char *mm_counter_name(int idx)
+{
+	switch (idx) {
+	case MM_FILEPAGES:
+		return "MM_FILEPAGES";
+	case MM_ANONPAGES:
+		return "MM_ANONPAGES";
+	case MM_SWAPENTS:
+		return "MM_SWAPENTS";
+	case MM_SHMEMPAGES:
+		return "MM_SHMEMPAGES";
+#ifdef MM_HUGETLB
+	case MM_HUGETLB:
+		return "MM_HUGETLB";
+#endif
+	default:
+		return "UNKNOWN";
+	}
+}
+
+static void debug_dump_mm_owner(struct mm_struct *mm)
+{
+	struct task_struct *owner;
+
+	/*
+	 * mm->owner существует при CONFIG_MEMCG.
+	 * Доступ к нему должен быть защищён RCU.
+	 */
+#ifdef CONFIG_MEMCG
+	rcu_read_lock();
+
+	owner = rcu_dereference(mm->owner);
+	if (owner) {
+		pr_err("  owner=%px comm=%s pid=%d tgid=%d "
+		       "state=0x%x flags=0x%x\n",
+		       owner,
+		       owner->comm,
+		       task_pid_nr(owner),
+		       task_tgid_nr(owner),
+		       READ_ONCE(owner->__state),
+		       READ_ONCE(owner->flags));
+
+		pr_err("  owner.task.mm=%px owner.task.active_mm=%px\n",
+		       READ_ONCE(owner->mm),
+		       READ_ONCE(owner->active_mm));
+	} else {
+		pr_err("  owner=NULL\n");
+	}
+
+	rcu_read_unlock();
+#else
+	pr_err("  owner unavailable: CONFIG_MEMCG is disabled\n");
+#endif
+}
+
+static void debug_dump_mm_exe_file(struct mm_struct *mm)
+{
+	struct file *exe_file;
+	char buf[256];
+	char *path;
+
+	rcu_read_lock();
+
+	exe_file = get_file_rcu(&mm->exe_file);
+	if (!exe_file) {
+		rcu_read_unlock();
+		pr_err("  exe_file=NULL\n");
+		return;
+	}
+
+	rcu_read_unlock();
+
+	path = d_path(&exe_file->f_path, buf, sizeof(buf));
+	if (IS_ERR(path))
+		pr_err("  exe_file=%px path=<error:%ld>\n",
+		       exe_file, PTR_ERR(path));
+	else
+		pr_err("  exe_file=%px path=%s inode=%lu\n",
+		       exe_file,
+		       path,
+		       file_inode(exe_file)->i_ino);
+
+	fput(exe_file);
+}
+
+static void
+debug_dump_mm_rss(struct mm_struct *mm)
+{
+	int i;
+
+	pr_err("  rss_stat=%px NR_MM_COUNTERS=%d\n",
+	       mm->rss_stat, NR_MM_COUNTERS);
+
+	for (i = 0; i < NR_MM_COUNTERS; i++) {
+		long value = get_mm_counter(mm, i);
+
+		pr_err("  rss[%d] %-16s counter=%px value=%ld "
+		       "pages bytes=%llu\n",
+		       i,
+		       mm_counter_name(i),
+		       &mm->rss_stat[i],
+		       value,
+		       value > 0
+			       ? (unsigned long long)value << PAGE_SHIFT
+			       : 0ULL);
+	}
+
+	pr_err("  rss total_vm=%lu pages=%llu bytes\n",
+	       READ_ONCE(mm->total_vm),
+	       (unsigned long long)READ_ONCE(mm->total_vm) << PAGE_SHIFT);
+
+	pr_err("  rss hiwater_rss=%lu pages=%llu bytes\n",
+	       READ_ONCE(mm->hiwater_rss),
+	       (unsigned long long)READ_ONCE(mm->hiwater_rss) << PAGE_SHIFT);
+
+	pr_err("  rss hiwater_vm=%lu pages=%llu bytes\n",
+	       READ_ONCE(mm->hiwater_vm),
+	       (unsigned long long)READ_ONCE(mm->hiwater_vm) << PAGE_SHIFT);
+}
+
+static void debug_dump_mm_vmas_locked(struct mm_struct *mm)
+{
+	struct vm_area_struct *vma;
+	VMA_ITERATOR(vmi, mm, 0);
+	unsigned int nr = 0;
+	unsigned long total_pages = 0;
+
+	pr_err("  VMA list, maximum %u entries:\n", MM_DEBUG_MAX_VMAS);
+
+	for_each_vma(vmi, vma) {
+		unsigned long pages;
+		struct file *file;
+
+		pages = (vma->vm_end - vma->vm_start) >> PAGE_SHIFT;
+		total_pages += pages;
+		file = vma->vm_file;
+
+		pr_err("    vma[%u]=%px [%016lx-%016lx] "
+		       "pages=%lu flags=%#lx pgoff=%#lx "
+		       "file=%px anon_vma=%px vm_ops=%px\n",
+		       nr,
+		       vma,
+		       vma->vm_start,
+		       vma->vm_end,
+		       pages,
+		       vma->vm_flags,
+		       vma->vm_pgoff,
+		       file,
+		       vma->anon_vma,
+		       vma->vm_ops);
+
+		if (file) {
+			char buf[192];
+			char *path;
+
+			path = d_path(&file->f_path, buf, sizeof(buf));
+			if (!IS_ERR(path))
+				pr_err("      file=%s inode=%lu mapping=%px\n",
+				       path,
+				       file_inode(file)->i_ino,
+				       file->f_mapping);
+			else
+				pr_err("      file path error=%ld inode=%lu "
+				       "mapping=%px\n",
+				       PTR_ERR(path),
+				       file_inode(file)->i_ino,
+				       file->f_mapping);
+		}
+
+		nr++;
+		if (nr >= MM_DEBUG_MAX_VMAS) {
+			pr_err("    VMA output truncated after %u entries\n",
+			       nr);
+			break;
+		}
+	}
+
+	pr_err("  iterated_vmas=%u iterated_pages=%lu\n",
+	       nr, total_pages);
+}
+
+/*
+ * Вызывать только для mm, на который уже удерживается корректная ссылка:
+ *
+ *     mm = get_task_mm(task);
+ *     if (mm) {
+ *             debug_dump_mm(mm, "before module unload");
+ *             mmput(mm);
+ *     }
+ *
+ * Если mm получен не через get_task_mm(), вызывающая сторона обязана
+ * гарантировать, что struct mm_struct не будет освобождён во время dump.
+ */
+static void
+debug_dump_mm(struct mm_struct *mm, const char *reason)
+{
+	bool mmap_locked;
+
+	if (!mm) {
+		pr_err("MM DEBUG: mm=NULL reason=%s current=%s[%d]\n",
+		       reason ?: "<none>",
+		       current->comm,
+		       current->pid);
+		return;
+	}
+
+	pr_err("============================================================\n");
+	pr_err("MM DEBUG BEGIN: reason=%s\n", reason ?: "<none>");
+
+	pr_err("  current=%px comm=%s pid=%d tgid=%d cpu=%d\n",
+	       current,
+	       current->comm,
+	       current->pid,
+	       current->tgid,
+	       raw_smp_processor_id());
+
+	pr_err("  mm=%px mm_users=%d mm_count=%d\n",
+	       mm,
+	       atomic_read(&mm->mm_users),
+	       atomic_read(&mm->mm_count));
+
+	pr_err("  sizeof(mm_struct)=%zu rss_stat offset=%zu addr=%px\n",
+	       sizeof(*mm),
+	       offsetof(struct mm_struct, rss_stat),
+	       &mm->rss_stat);
+
+	pr_err("  pgd=%px task_size=%#lx flags=%#lx\n",
+	       READ_ONCE(mm->pgd),
+	       READ_ONCE(mm->task_size),
+	       READ_ONCE(mm->flags));
+
+	pr_err("  map_count=%d locked_vm=%lu pinned_vm=%llu "
+	       "data_vm=%lu exec_vm=%lu stack_vm=%lu\n",
+	       READ_ONCE(mm->map_count),
+	       READ_ONCE(mm->locked_vm),
+	       (unsigned long long)atomic64_read(&mm->pinned_vm),
+	       READ_ONCE(mm->data_vm),
+	       READ_ONCE(mm->exec_vm),
+	       READ_ONCE(mm->stack_vm));
+
+	pr_err("  start_code=%#lx end_code=%#lx "
+	       "start_data=%#lx end_data=%#lx\n",
+	       READ_ONCE(mm->start_code),
+	       READ_ONCE(mm->end_code),
+	       READ_ONCE(mm->start_data),
+	       READ_ONCE(mm->end_data));
+
+	pr_err("  start_brk=%#lx brk=%#lx start_stack=%#lx\n",
+	       READ_ONCE(mm->start_brk),
+	       READ_ONCE(mm->brk),
+	       READ_ONCE(mm->start_stack));
+
+	pr_err("  arg_start=%#lx arg_end=%#lx "
+	       "env_start=%#lx env_end=%#lx\n",
+	       READ_ONCE(mm->arg_start),
+	       READ_ONCE(mm->arg_end),
+	       READ_ONCE(mm->env_start),
+	       READ_ONCE(mm->env_end));
+
+	pr_err("  mmap_base=%#lx mmap_legacy_base=%#lx\n",
+	       READ_ONCE(mm->mmap_base),
+	       READ_ONCE(mm->mmap_legacy_base));
+
+	pr_err("  page_table_lock=%px mmap_lock=%px "
+	       "mm_mt=%px\n",
+	       &mm->page_table_lock,
+	       &mm->mmap_lock,
+	       &mm->mm_mt);
+
+#ifdef CONFIG_MMU
+	pr_err("  pgtables_bytes=%lu\n",
+	       atomic_long_read(&mm->pgtables_bytes));
+#endif
+
+#ifdef CONFIG_MMU_NOTIFIER
+	pr_err("  notifier_subscriptions=%px\n",
+	       READ_ONCE(mm->notifier_subscriptions));
+#endif
+
+#ifdef CONFIG_NUMA_BALANCING
+	pr_err("  numa_next_scan=%lu numa_scan_offset=%lu "
+	       "numa_scan_seq=%d\n",
+	       READ_ONCE(mm->numa_next_scan),
+	       READ_ONCE(mm->numa_scan_offset),
+	       READ_ONCE(mm->numa_scan_seq));
+#endif
+
+	pr_err("  cpumask=%*pbl\n",
+	       cpumask_pr_args(mm_cpumask(mm)));
+
+	debug_dump_mm_owner(mm);
+	debug_dump_mm_exe_file(mm);
+	debug_dump_mm_rss(mm);
+
+	
+
+	pr_err("CANARY %u %u", mm->canary1, mm->canary2);
+;
+
+	/*
+	 * Не блокируемся бесконечно: при повреждённом mm mmap_lock тоже
+	 * может быть испорчен или уже удерживаться текущим путём.
+	 */
+	mmap_locked = mmap_read_trylock(mm);
+	if (mmap_locked) {
+		debug_dump_mm_vmas_locked(mm);
+		mmap_read_unlock(mm);
+	} else {
+		pr_err("  mmap_read_trylock() failed; VMA dump skipped\n");
+	}
+
+	pr_err("  current stack:\n");
+	dump_stack();
+
+	pr_err("MM DEBUG END: mm=%px reason=%s\n",
+	       mm, reason ?: "<none>");
+	pr_err("============================================================\n");
+}
 
 static inline bool
 tfw_check_mm(struct mm_struct *mm)
@@ -99,7 +434,9 @@ tfw_check_mm(struct mm_struct *mm)
 static inline void
 tfw_check_all_mm(const char *prefix)
 {
+	struct mm_struct *mmA = NULL;
 	struct task_struct *task;
+	bool rc = true;
 
 	rcu_read_lock();
 
@@ -111,17 +448,28 @@ tfw_check_all_mm(const char *prefix)
 			continue; /* kernel thread */
 
 		
-		if (!tfw_check_mm(mm))
+		rc = tfw_check_mm(mm);
+		if (!rc) {
 			printk(KERN_ALERT "%s: FAILED TO CHECK MEM %s",
 				prefix, task->comm);
+			mmA = mm;
+			break;
+		}
 		/*
-		 * тут нужна проверка mm
+		 * Обычный mmput() здесь нельзя вызывать: мы под RCU.
+		 * mmput_async() откладывает потенциально блокирующее
+		 * освобождение mm в workqueue.
 		 */
-
-		mmput(mm);
+		mmput_async(mm);
 	}
 
 	rcu_read_unlock();
+
+	if (!mmA)
+		return;
+
+	debug_dump_mm(mmA, "QQQ");
+	mmput(mmA);
 }
 
 void
