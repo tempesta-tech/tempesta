@@ -188,21 +188,27 @@ debug_dump_mm_rss(struct mm_struct *mm)
 {
 	int i;
 
+	
 	pr_err("  rss_stat=%px NR_MM_COUNTERS=%d\n",
 	       mm->rss_stat, NR_MM_COUNTERS);
 
 	for (i = 0; i < NR_MM_COUNTERS; i++) {
-		long value = get_mm_counter(mm, i);
+		s64 approx;
+		s64 exact;
+		unsigned long counter;
 
-		pr_err("  rss[%d] %-16s counter=%px value=%ld "
-		       "pages bytes=%llu\n",
+		approx = percpu_counter_read(&mm->rss_stat[i]);
+		exact = percpu_counter_sum(&mm->rss_stat[i]);
+		counter = get_mm_counter(mm, i);
+
+		pr_err("  rss[%d] %-16s counter=%px "
+		       "global=%lld exact=%lld counter %lu\n",
 		       i,
 		       mm_counter_name(i),
 		       &mm->rss_stat[i],
-		       value,
-		       value > 0
-			       ? (unsigned long long)value << PAGE_SHIFT
-			       : 0ULL);
+		       approx,
+		       exact,
+		       counter);
 	}
 
 	pr_err("  rss total_vm=%lu pages=%llu bytes\n",
@@ -424,8 +430,10 @@ tfw_check_mm(struct mm_struct *mm)
 	int i;
 
 	for (i = 0; i < NR_MM_COUNTERS; i++) {
-		if (!tfw_mm_check_rss_member(mm, i))
+		if (!tfw_mm_check_rss_member(mm, i)) {
 			rc = false;
+			//mm->error_was_found = true;
+		}
 	}
 
 	return rc;
