@@ -78,6 +78,7 @@ DEFINE_MUTEX(tfw_sysctl_mtx);
 static TfwState tfw_state = TFW_STATE_STOPPED;
 static bool tfw_reconfig = false;
 static int tfw_ss_users = 0;
+static atomic_t found = ATOMIC_INIT(0);
 
 /*
  * The global list of all registered modules
@@ -479,7 +480,12 @@ tfw_check_mm(struct mm_struct *mm)
 	for (i = 0; i < NR_MM_COUNTERS; i++) {
 		if (!tfw_mm_check_rss_member(mm, i)) {
 			rc = false;
-			//mm->error_was_found = true;
+			mm->error_was_found = true;
+			if (!atomic_cmpxchg(&found, 0, 1)) {
+				int ret = install_rss_watchpoint(mm, i);
+				if (ret)
+					atomic_set(&found, 0);
+			}
 		}
 	}
 
@@ -492,6 +498,9 @@ tfw_check_all_mm(const char *prefix)
 	struct mm_struct *mmA = NULL;
 	struct task_struct *task;
 	bool rc = true;
+
+	if (atomic_read(&found))
+		return;
 
 	rcu_read_lock();
 
