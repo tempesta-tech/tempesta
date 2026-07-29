@@ -184,6 +184,51 @@ static void debug_dump_mm_exe_file(struct mm_struct *mm)
 }
 
 static void
+debug_dump_percpu_counter(struct percpu_counter *fbc)
+{
+	s64 online_sum;
+	s64 possible_sum;
+	int cpu;
+
+	online_sum = READ_ONCE(fbc->count);
+	possible_sum = READ_ONCE(fbc->count);
+
+	pr_err("    base=%lld counters=%px "
+	       "possible_cpus=%u online_cpus=%u\n",
+	       (long long)READ_ONCE(fbc->count),
+	       fbc->counters,
+	       num_possible_cpus(),
+	       num_online_cpus());
+
+	for_each_possible_cpu(cpu) {
+		s32 *ptr;
+		s32 value;
+
+		ptr = per_cpu_ptr(fbc->counters, cpu);
+		value = READ_ONCE(*ptr);
+
+		possible_sum += (s64)value;
+
+		if (cpu_online(cpu))
+			online_sum += (s64)value;
+
+		pr_err("      cpu=%d online=%d ptr=%px "
+		       "value=%d hex=%#010x\n",
+		       cpu,
+		       cpu_online(cpu),
+		       ptr,
+		       value,
+		       (u32)value);
+	}
+
+	pr_err("    online_sum=%lld possible_sum=%lld "
+	       "helper_sum=%lld\n",
+	       (long long)online_sum,
+	       (long long)possible_sum,
+	       (long long)percpu_counter_sum(fbc));
+}
+
+static void
 debug_dump_mm_rss(struct mm_struct *mm)
 {
 	int i;
@@ -209,6 +254,8 @@ debug_dump_mm_rss(struct mm_struct *mm)
 		       approx,
 		       exact,
 		       counter);
+
+		debug_dump_percpu_counter(&mm->rss_stat[i]);
 	}
 
 	pr_err("  rss total_vm=%lu pages=%llu bytes\n",

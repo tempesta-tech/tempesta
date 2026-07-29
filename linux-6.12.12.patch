@@ -1608,10 +1608,10 @@ index c4778edae..a19958362 100644
  	tick_init();
  	rcu_init_nohz();
 diff --git a/kernel/fork.c b/kernel/fork.c
-index e192bdbc9..375e8dd44 100644
+index e192bdbc9..1be4d976f 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
-@@ -816,29 +816,42 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
+@@ -816,29 +816,43 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
  #define mm_free_pgd(mm)
  #endif /* CONFIG_MMU */
  
@@ -1630,9 +1630,12 @@ index e192bdbc9..375e8dd44 100644
  		long x = percpu_counter_sum(&mm->rss_stat[i]);
  
 -		if (unlikely(x))
+-			pr_alert("BUG: Bad rss-counter state mm:%p type:%s val:%ld\n",
+-				 mm, resident_page_types[i], x);
 +		if (unlikely(x)) {
- 			pr_alert("BUG: Bad rss-counter state mm:%p type:%s val:%ld\n",
- 				 mm, resident_page_types[i], x);
++			pr_alert("BUG: Bad rss-counter state mm:%p type:%s val:%ld | error_was_found %d\n",
++				 mm, resident_page_types[i], x,
++				 mm->error_was_found);
 +			rc = false;
 +		} else if (unlikely(mm->error_was_found)) {
 +			printk(KERN_ALERT "CHECK MM IN error_was_found %px %s %ld\n",
@@ -1657,7 +1660,7 @@ index e192bdbc9..375e8dd44 100644
  
  #define allocate_mm()	(kmem_cache_alloc(mm_cachep, GFP_KERNEL))
  #define free_mm(mm)	(kmem_cache_free(mm_cachep, (mm)))
-@@ -1269,6 +1282,8 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
+@@ -1269,6 +1283,8 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
  	mm_pgtables_bytes_init(mm);
  	mm->map_count = 0;
  	mm->locked_vm = 0;
