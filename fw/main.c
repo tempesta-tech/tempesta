@@ -509,12 +509,14 @@ tfw_check_all_mm(const char *prefix)
 		if (!mm)
 			continue; /* kernel thread */
 
-		
+
+		fail = -1;
 		rc = tfw_check_mm(mm, &fail);
 		if (!rc) {
 			printk(KERN_ALERT "%s: FAILED TO CHECK MEM %s",
 				prefix, task->comm);
 			mmA = mm;
+			BUG_ON(fail == -1);
 			break;
 		}
 		/*
