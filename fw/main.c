@@ -472,7 +472,7 @@ debug_dump_mm(struct mm_struct *mm, const char *reason)
 }
 
 static inline bool
-tfw_check_mm(struct mm_struct *mm)
+tfw_check_mm(struct mm_struct *mm, int *fail)
 {
 	bool rc = true;
 	int i;
@@ -481,11 +481,8 @@ tfw_check_mm(struct mm_struct *mm)
 		if (!tfw_mm_check_rss_member(mm, i)) {
 			rc = false;
 			mm->error_was_found = true;
-			if (!atomic_cmpxchg(&found, 0, 1)) {
-				int ret = install_rss_watchpoint(mm, i);
-				if (ret)
-					atomic_set(&found, 0);
-			}
+			*fail = i;
+			break;
 		}
 	}
 
@@ -498,6 +495,7 @@ tfw_check_all_mm(const char *prefix)
 	struct mm_struct *mmA = NULL;
 	struct task_struct *task;
 	bool rc = true;
+	int fail;
 
 	if (atomic_read(&found))
 		return;
@@ -512,7 +510,7 @@ tfw_check_all_mm(const char *prefix)
 			continue; /* kernel thread */
 
 		
-		rc = tfw_check_mm(mm);
+		rc = tfw_check_mm(mm, &fail);
 		if (!rc) {
 			printk(KERN_ALERT "%s: FAILED TO CHECK MEM %s",
 				prefix, task->comm);
@@ -533,6 +531,12 @@ tfw_check_all_mm(const char *prefix)
 		return;
 
 	debug_dump_mm(mmA, "QQQ");
+	if (!atomic_cmpxchg(&found, 0, 1)) {
+		int ret = install_rss_watchpoint(mmA, fail);
+		if (ret)
+			atomic_set(&found, 0);
+	}
+
 	mmput(mmA);
 }
 
