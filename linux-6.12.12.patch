@@ -889,10 +889,10 @@ index 16eb49761..9c222f5ee 100644
  #else
  
 diff --git a/include/linux/mm.h b/include/linux/mm.h
-index 8617adc6b..a1181285e 100644
+index 8617adc6b..d7d830b32 100644
 --- a/include/linux/mm.h
 +++ b/include/linux/mm.h
-@@ -2584,11 +2584,63 @@ static inline bool get_user_page_fast_only(unsigned long addr,
+@@ -2584,11 +2584,68 @@ static inline bool get_user_page_fast_only(unsigned long addr,
  {
  	return get_user_pages_fast_only(addr, 1, gup_flags, pagep) == 1;
  }
@@ -909,6 +909,11 @@ index 8617adc6b..a1181285e 100644
 +		     TFW_MM_CANARY)
 +		printk(KERN_ALERT "%s BAD CANARY2 %px %u\n",
 +			prefix, mm, mm->canary2);
++
++	if (READ_ONCE(mm->canary3) !=
++		     TFW_MM_CANARY)
++		printk(KERN_ALERT "%s BAD CANARY3 %px %u\n",
++			prefix, mm, mm->canary3);
 +}
 +
 +static inline bool
@@ -956,7 +961,7 @@ index 8617adc6b..a1181285e 100644
  	return percpu_counter_read_positive(&mm->rss_stat[member]);
  }
  
-@@ -2596,13 +2648,22 @@ void mm_trace_rss_stat(struct mm_struct *mm, int member);
+@@ -2596,13 +2653,22 @@ void mm_trace_rss_stat(struct mm_struct *mm, int member);
  
  static inline void add_mm_counter(struct mm_struct *mm, int member, long value)
  {
@@ -979,7 +984,7 @@ index 8617adc6b..a1181285e 100644
  	percpu_counter_inc(&mm->rss_stat[member]);
  
  	mm_trace_rss_stat(mm, member);
-@@ -2610,6 +2671,8 @@ static inline void inc_mm_counter(struct mm_struct *mm, int member)
+@@ -2610,6 +2676,8 @@ static inline void inc_mm_counter(struct mm_struct *mm, int member)
  
  static inline void dec_mm_counter(struct mm_struct *mm, int member)
  {
@@ -989,7 +994,7 @@ index 8617adc6b..a1181285e 100644
  
  	mm_trace_rss_stat(mm, member);
 diff --git a/include/linux/mm_types.h b/include/linux/mm_types.h
-index 6894de506..a265ac1d7 100644
+index 6894de506..4412dbbb3 100644
 --- a/include/linux/mm_types.h
 +++ b/include/linux/mm_types.h
 @@ -32,6 +32,8 @@
@@ -1001,11 +1006,12 @@ index 6894de506..a265ac1d7 100644
  /*
   * Each physical page in the system has a struct page associated with
   * it to keep track of whatever it is we are using the page for at the
-@@ -955,7 +957,11 @@ struct mm_struct {
+@@ -955,7 +957,12 @@ struct mm_struct {
  
  		unsigned long saved_auxv[AT_VECTOR_SIZE]; /* for /proc/PID/auxv */
  
 +		unsigned int canary1;
++		s32 __percpu *rss_counters_original;
  		struct percpu_counter rss_stat[NR_MM_COUNTERS];
 +		unsigned int canary2;
 +		unsigned int canary3;
@@ -1013,6 +1019,45 @@ index 6894de506..a265ac1d7 100644
  
  		struct linux_binfmt *binfmt;
  
+@@ -1073,6 +1080,38 @@ struct mm_struct {
+ 			 MT_FLAGS_USE_RCU)
+ extern struct mm_struct init_mm;
+ 
++static inline bool
++debug_check_rss_counter_ptrs(struct mm_struct *mm)
++{
++	s32 __percpu *base;
++	bool valid = true;
++	int i;
++
++	base = READ_ONCE(mm->rss_counters_original);
++
++	for (i = 0; i < NR_MM_COUNTERS; i++) {
++		s32 __percpu *expected;
++		s32 __percpu *actual;
++
++		expected = (void __percpu *)base +
++			   i * ALIGN(sizeof(*base), __alignof__(*base));
++
++		actual = READ_ONCE(mm->rss_stat[i].counters);
++
++		if (likely(actual == expected))
++			continue;
++
++		pr_emerg("RSS COUNTER POINTER CHANGED: "
++			 "mm=%px member=%d base=%px "
++			 "expected=%px actual=%px\n",
++			 mm, i, base, expected, actual);
++
++		valid = false;
++	}
++
++	return valid;
++}
++
+ /* Pointer magic because the dynamic array size confuses some compilers. */
+ static inline void mm_init_cpumask(struct mm_struct *mm)
+ {
 diff --git a/include/linux/net.h b/include/linux/net.h
 index b75bc534c..2936283de 100644
 --- a/include/linux/net.h
@@ -1055,6 +1100,20 @@ index 8896705cc..29e0d0428 100644
  #endif
  
  /*
+diff --git a/include/linux/percpu.h b/include/linux/percpu.h
+index 52b5ea663..846cc07cc 100644
+--- a/include/linux/percpu.h
++++ b/include/linux/percpu.h
+@@ -13,6 +13,9 @@
+ 
+ #include <asm/percpu.h>
+ 
++void
++debug_dump_pcpu_history(void __percpu *target);
++
+ /* enough to cover all DEFINE_PER_CPUs in modules */
+ #ifdef CONFIG_MODULES
+ #ifdef CONFIG_MEM_ALLOC_PROFILING
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
 index 39f1d16f3..db9523d1f 100644
 --- a/include/linux/skbuff.h
@@ -1614,7 +1673,7 @@ index c4778edae..a19958362 100644
  	tick_init();
  	rcu_init_nohz();
 diff --git a/kernel/fork.c b/kernel/fork.c
-index e192bdbc9..c4a09191b 100644
+index e192bdbc9..70f843599 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
 @@ -113,6 +113,13 @@
@@ -1709,7 +1768,7 @@ index e192bdbc9..c4a09191b 100644
  __cacheline_aligned DEFINE_RWLOCK(tasklist_lock);  /* outer */
  
  #ifdef CONFIG_PROVE_RCU
-@@ -816,29 +894,43 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
+@@ -816,29 +894,46 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
  #define mm_free_pgd(mm)
  #endif /* CONFIG_MMU */
  
@@ -1723,6 +1782,9 @@ index e192bdbc9..c4a09191b 100644
  			 "Please make sure 'struct resident_page_types[]' is updated as well");
  
 +	tfw_mm_check_canary(mm, __func__);
++	
++	if (!debug_check_rss_counter_ptrs(mm))
++		printk(KERN_ALERT "INVALID COUNTERS %px\n", mm);
 +
  	for (i = 0; i < NR_MM_COUNTERS; i++) {
  		long x = percpu_counter_sum(&mm->rss_stat[i]);
@@ -1731,7 +1793,7 @@ index e192bdbc9..c4a09191b 100644
 -			pr_alert("BUG: Bad rss-counter state mm:%p type:%s val:%ld\n",
 -				 mm, resident_page_types[i], x);
 +		if (unlikely(x)) {
-+			pr_alert("BUG: Bad rss-counter state mm:%p type:%s val:%ld | error_was_found %d\n",
++			pr_alert("BUG: Bad rss-counter state mm:%px type:%s val:%ld | error_was_found %d\n",
 +				 mm, resident_page_types[i], x,
 +				 mm->error_was_found);
 +			rc = false;
@@ -1758,7 +1820,7 @@ index e192bdbc9..c4a09191b 100644
  
  #define allocate_mm()	(kmem_cache_alloc(mm_cachep, GFP_KERNEL))
  #define free_mm(mm)	(kmem_cache_free(mm_cachep, (mm)))
-@@ -914,6 +1006,8 @@ void __mmdrop(struct mm_struct *mm)
+@@ -914,6 +1009,8 @@ void __mmdrop(struct mm_struct *mm)
  	BUG_ON(mm == &init_mm);
  	WARN_ON_ONCE(mm == current->mm);
  
@@ -1767,7 +1829,7 @@ index e192bdbc9..c4a09191b 100644
  	/* Ensure no CPUs are using this as their lazy tlb mm */
  	cleanup_lazy_tlbs(mm);
  
-@@ -927,6 +1021,7 @@ void __mmdrop(struct mm_struct *mm)
+@@ -927,6 +1024,7 @@ void __mmdrop(struct mm_struct *mm)
  	mm_destroy_cid(mm);
  	percpu_counter_destroy_many(mm->rss_stat, NR_MM_COUNTERS);
  
@@ -1775,15 +1837,24 @@ index e192bdbc9..c4a09191b 100644
  	free_mm(mm);
  }
  EXPORT_SYMBOL_GPL(__mmdrop);
-@@ -1269,6 +1364,8 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
+@@ -1269,6 +1367,9 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
  	mm_pgtables_bytes_init(mm);
  	mm->map_count = 0;
  	mm->locked_vm = 0;
++	mm->rss_counters_original = NULL;
 +	mm->canary1 = mm->canary2 = mm->canary3 = TFW_MM_CANARY;
 +	mm->error_was_found = false;
  	atomic64_set(&mm->pinned_vm, 0);
  	memset(&mm->rss_stat, 0, sizeof(mm->rss_stat));
  	spin_lock_init(&mm->page_table_lock);
+@@ -1307,6 +1408,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
+ 				     NR_MM_COUNTERS))
+ 		goto fail_pcpu;
+ 
++	mm->rss_counters_original = READ_ONCE(mm->rss_stat[0].counters);
+ 	mm->user_ns = get_user_ns(user_ns);
+ 	lru_gen_init_mm(mm);
+ 	return mm;
 diff --git a/kernel/irq_work.c b/kernel/irq_work.c
 index 2f4fb336d..a65f9370e 100644
 --- a/kernel/irq_work.c
@@ -2126,6 +2197,192 @@ index 4ba5607aa..2fdd596c6 100644
  	kmsan_init_runtime();
  	mm_cache_init();
  	execmem_init();
+diff --git a/mm/percpu.c b/mm/percpu.c
+index da21680ff..66cbf51df 100644
+--- a/mm/percpu.c
++++ b/mm/percpu.c
+@@ -109,6 +109,44 @@
+ #define PCPU_EMPTY_POP_PAGES_LOW	2
+ #define PCPU_EMPTY_POP_PAGES_HIGH	4
+ 
++
++
++#define PCPU_OWNER_HISTORY_SIZE	20000
++#define PCPU_OWNER_STACK_DEPTH	12
++
++enum pcpu_owner_action {
++	PCPU_OWNER_ALLOC,
++	PCPU_OWNER_FREE,
++};
++
++struct pcpu_owner_event {
++	enum pcpu_owner_action	action;
++
++	void __percpu		*ptr;
++	void			*cpu0_begin;
++	void			*cpu0_end;
++	size_t			size;
++	size_t			align;
++
++	pid_t			pid;
++	char			comm[TASK_COMM_LEN];
++	int			cpu;
++
++	u64			timestamp_ns;
++	unsigned long		caller;
++
++	unsigned int		nr_entries;
++	unsigned long		stack[PCPU_OWNER_STACK_DEPTH];
++};
++
++static struct pcpu_owner_event pcpu_owner_history[PCPU_OWNER_HISTORY_SIZE];
++static unsigned int pcpu_owner_head;
++static DEFINE_SPINLOCK(pcpu_owner_lock);
++
++
++
++
++
+ #ifdef CONFIG_SMP
+ /* default addr <-> pcpu_ptr mapping, override in asm/percpu.h if necessary */
+ #ifndef __addr_to_pcpu_ptr
+@@ -1725,6 +1763,113 @@ static void pcpu_alloc_tag_free_hook(struct pcpu_chunk *chunk, int off, size_t s
+ }
+ #endif
+ 
++static void
++debug_record_pcpu_event(enum pcpu_owner_action action,
++			void __percpu *ptr,
++			size_t size,
++			size_t align,
++			unsigned long caller)
++{
++	struct pcpu_owner_event local = {};
++	unsigned long flags;
++	unsigned int index;
++	char *cpu0;
++
++	if (!ptr)
++		return;
++
++	cpu0 = per_cpu_ptr(ptr, 0);
++
++	local.action = action;
++	local.ptr = ptr;
++	local.cpu0_begin = cpu0;
++	local.cpu0_end = cpu0 + size;
++	local.size = size;
++	local.align = align;
++
++	local.pid = READ_ONCE(current->pid);
++
++	/*
++	 * Do not use get_task_comm() here. free_percpu() may run from
++	 * softirq/RCU callback context, where taking task_lock(current)
++	 * may deadlock if the interrupted task already holds it.
++	 */
++	memcpy(local.comm, current->comm, TASK_COMM_LEN);
++	local.comm[TASK_COMM_LEN - 1] = '\0';
++
++	local.cpu = raw_smp_processor_id();
++	local.timestamp_ns = ktime_get_mono_fast_ns();
++	local.caller = caller;
++
++	local.nr_entries = stack_trace_save(local.stack,
++					    ARRAY_SIZE(local.stack),
++					    1);
++
++	spin_lock_irqsave(&pcpu_owner_lock, flags);
++
++	index = pcpu_owner_head++ % PCPU_OWNER_HISTORY_SIZE;
++	pcpu_owner_history[index] = local;
++
++	spin_unlock_irqrestore(&pcpu_owner_lock, flags);
++}
++
++void
++debug_dump_pcpu_history(void __percpu *target)
++{
++	struct pcpu_owner_event event;
++	unsigned long flags;
++	unsigned int head;
++	unsigned int count;
++	unsigned int n;
++
++	spin_lock_irqsave(&pcpu_owner_lock, flags);
++	head = pcpu_owner_head;
++	count = min_t(unsigned int, head, PCPU_OWNER_HISTORY_SIZE);
++	spin_unlock_irqrestore(&pcpu_owner_lock, flags);
++
++	pr_emerg("PCPU HISTORY FOR ptr=%px head=%u count=%u\n",
++		 target, head, count);
++
++	for (n = 0; n < count; n++) {
++		unsigned int index;
++		bool matched = false;
++
++		index = (head - count + n) % PCPU_OWNER_HISTORY_SIZE;
++
++		spin_lock_irqsave(&pcpu_owner_lock, flags);
++
++		if (pcpu_owner_history[index].ptr == target) {
++			event = pcpu_owner_history[index];
++			matched = true;
++		}
++
++		spin_unlock_irqrestore(&pcpu_owner_lock, flags);
++
++		if (!matched)
++			continue;
++
++		pr_emerg("  %s ptr=%px cpu0=[%px-%px) "
++			 "size=%zu align=%zu task=%s/%d cpu=%d "
++			 "time=%llu caller=%pS\n",
++			 event.action == PCPU_OWNER_ALLOC
++				? "ALLOC" : "FREE",
++			 event.ptr,
++			 event.cpu0_begin,
++			 event.cpu0_end,
++			 event.size,
++			 event.align,
++			 event.comm,
++			 event.pid,
++			 event.cpu,
++			 event.timestamp_ns,
++			 (void *)event.caller);
++
++		stack_trace_print(event.stack,
++				  event.nr_entries, 0);
++	}
++}
++EXPORT_SYMBOL(debug_dump_pcpu_history);
++
+ /**
+  * pcpu_alloc - the percpu allocator
+  * @size: size of area to allocate in bytes
+@@ -1909,6 +2054,11 @@ void __percpu *pcpu_alloc_noprof(size_t size, size_t align, bool reserved,
+ 
+ 	pcpu_alloc_tag_alloc_hook(chunk, off, size);
+ 
++	if (ptr)
++		debug_record_pcpu_event(PCPU_OWNER_ALLOC,
++				ptr, size, align,
++				(unsigned long)_RET_IP_);
++
+ 	return ptr;
+ 
+ fail_unlock:
+@@ -2271,6 +2421,10 @@ void free_percpu(void __percpu *ptr)
+ 
+ 	spin_unlock_irqrestore(&pcpu_lock, flags);
+ 
++	debug_record_pcpu_event(PCPU_OWNER_FREE,
++			ptr, size, 0,
++			(unsigned long)_RET_IP_);
++
+ 	if (need_balance)
+ 		pcpu_schedule_balance_work();
+ }
 diff --git a/mm/slab_common.c b/mm/slab_common.c
 index 477fa471d..aed1382ba 100644
 --- a/mm/slab_common.c

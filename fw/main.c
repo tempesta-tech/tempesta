@@ -537,6 +537,14 @@ tfw_check_all_mm(const char *prefix)
 		int ret = install_rss_watchpoint(mmA, fail);
 		if (ret)
 			atomic_set(&found, 0);
+
+		pr_emerg("RSS pointers: original=%px current=%px\n",
+        		mmA->rss_counters_original,
+       			mmA->rss_stat[0].counters);
+
+		debug_dump_pcpu_history(mmA->rss_stat[0].counters);
+		if (mmA->rss_counters_original != mmA->rss_stat[0].counters)
+        		debug_dump_pcpu_history(mmA->rss_counters_original);
 	}
 
 	mmput(mmA);
