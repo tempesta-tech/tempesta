@@ -121,6 +121,9 @@ enum {
 	 */
 	TFW_HTTP_B_REQ_HEAD_TO_GET,
 
+	/* Flag indicates, that request was already sent to server. */
+	TFW_HTTP_B_REQ_SENT,
+
 	/* Request contains `Expect: 100-continue`. */
 	TFW_HTTP_B_EXPECT_CONTINUE,
 	/* 100-continue response has been queued. */

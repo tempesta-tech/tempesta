@@ -1464,6 +1464,8 @@ tfw_http_on_tcp_entail_req(void *conn, struct sk_buff *skb)
 		return -EINVAL;
 	}
 
+	set_bit(TFW_HTTP_B_REQ_SENT, req->flags);
+
 	return 0;
 }
 
@@ -2932,6 +2934,14 @@ tfw_http_resp_pair(TfwHttpMsg *hmresp)
 		goto end;
 
 	list_for_each_entry(req, &srv_conn->fwd_queue, fwd_list) {
+		/*
+		 * Responses may only be paired with requests that have
+		 * already been queued for transmission. Receiving a
+		 * response before that is a backend protocol violation.
+		 */
+		if (!test_bit(TFW_HTTP_B_HMONITOR, req->flags)
+		    && !test_bit(TFW_HTTP_B_REQ_SENT, req->flags))
+			break;
 		if (!req->pair) {
 			tfw_http_msg_pair((TfwHttpResp *)hmresp, req);
 			spin_unlock(&srv_conn->fwd_qlock);
