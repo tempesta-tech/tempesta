@@ -94,7 +94,7 @@ irqbalance_ban_irqs()
 # This function prepares cpu mask for RSS and RPS.
 # It takes into account that we can't calculate
 # value, which is greater when (1 << 63) and can't
-# wtite in the rps_cpus/smp_affinity value, which
+# write in the rps_cpus/smp_affinity value, which
 # is greater then (1 << 32) -1 (we need to write it
 # using comma).
 make_cpu_mask()
@@ -149,7 +149,7 @@ make_cpu_rps_mask()
 	# enable all CPUs, which is less than (1 << delta) - 1
 	mask32="ffffffff"
 	# used to calculate (1 << delta) - $val to
-	# implement only one common functionfor RPS and RSS
+	# implement only one common function for RPS and RSS
 	val=1
 	cond=1
 
@@ -189,15 +189,18 @@ distribute_queues()
 	# for device (not assigned to any of the queues).
 	irqs=(${irqs[@]:1})
 	irq0=${irqs[0]}
-	for i in ${irqs[@]}; do
-		# Wrap around CPU mask if number of queues is
-		# larger than CPUS_N.
-		if [[ $(calc "$i - $irq0") -gt $CPUS_N ]]; then
-			irq0=$i;
+	cpu=0
+
+	for irq in "${irqs[@]}"; do
+        	mask=$(make_cpu_rss_mask "$cpu")
+		if ! echo "$mask" > "/proc/irq/$irq/smp_affinity"; then
+			log "Error: cannot bind IRQ $irq to CPU $cpu, mask=$mask"
 		fi
-		delta=$(( i - irq0 ))
-		mask=`make_cpu_rss_mask $delta`
-		echo "$mask" > "/proc/irq/$i/smp_affinity"
+
+        	cpu=$((cpu + 1))
+        	if [[ $cpu -ge $CPUS_N ]]; then
+        	        cpu=0
+        	fi
 	done
 
 	IRQS_GLOB_LIST=(${irqs[@]})
