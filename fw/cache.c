@@ -3717,8 +3717,12 @@ tfw_cache_wq_clear(int cpu)
 {
 	TfwWorkTasklet *ct = &per_cpu(cache_wq, cpu);
 
-	tasklet_kill(&ct->tasklet);
+
+	if (!ct->wq.heads && !ct->wq.array)
+		return;
+
 	irq_work_sync(&ct->ipi_work);
+	tasklet_kill(&ct->tasklet);
 	tfw_wq_destroy(&ct->wq);
 }
 
