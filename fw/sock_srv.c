@@ -685,6 +685,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 		return r;
 	}
 
+	conn->incoming_cpu = sk->sk_incoming_cpu;
 	/* Let schedulers use the connection hereafter. */
 	tfw_sock_srv_connection_revive(conn);
 
@@ -746,9 +747,10 @@ end:
 }
 
 static const SsHooks tfw_sock_srv_ss_hooks = {
-	.connection_new		= tfw_sock_srv_connect_complete,
-	.connection_drop	= tfw_sock_srv_connect_drop,
-	.connection_recv	= tfw_connection_recv,
+	.connection_new			= tfw_sock_srv_connect_complete,
+	.connection_drop		= tfw_sock_srv_connect_drop,
+	.connection_recv		= tfw_connection_recv,
+	.connection_get_incoming_cpu	= tfw_connection_get_incoming_cpu,
 };
 
 static int

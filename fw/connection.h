@@ -108,6 +108,7 @@ typedef struct tfw_conn_t TfwConn;
 #define TFW_CONN_COMMON					\
 	SsProto			proto;			\
 	TfwGState		state;			\
+	int			incoming_cpu;		\
 	struct list_head	list;			\
 	atomic_t		refcnt;			\
 	TfwStream		stream;			\
@@ -613,6 +614,12 @@ tfw_peer_for_each_conn(TfwPeer *p, int (*cb)(TfwConn *))
 	spin_unlock_bh(&(p)->conn_lock);
 
 	return r;
+}
+
+static inline int
+tfw_connection_get_incoming_cpu(TfwConn *conn)
+{
+	return conn->incoming_cpu;
 }
 
 extern unsigned int tfw_cli_max_concurrent_streams;
