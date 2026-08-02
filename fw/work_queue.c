@@ -52,6 +52,7 @@ tfw_wq_init(TfwRBQueue *q, size_t qsize, int node)
 	q->array = tfw_kvmalloc_node(qsize * WQ_ITEM_SZ, GFP_KERNEL, node);
 	if (!q->array) {
 		free_percpu(q->heads);
+		q->heads = NULL;
 		return -ENOMEM;
 	}
 
