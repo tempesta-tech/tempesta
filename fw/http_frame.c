@@ -2127,6 +2127,22 @@ __total_frame_length(unsigned int frame_length)
 	return frame_length + FRAME_HEADER_SIZE;
 }
 
+static inline void
+__free_skb_head_if_empty(TfwHttpXmit *xmit)
+{
+	struct sk_buff *skb = xmit->skb_head;
+
+	/*
+	 * Very unlikely case, when skb_head and one or more next skbs
+	 * are empty because of transformation during making HEADERS.
+	 */
+	while (skb && unlikely(!skb->len)) {
+		ss_skb_unlink(&xmit->skb_head, skb);
+		ss_kfree_skb(skb);
+		skb = xmit->skb_head;
+	}
+}
+
 static inline int
 tfw_h2_insert_frame_header(TfwStream *stream, TfwFrameType type,
 			   unsigned int frame_length, unsigned char flags)
@@ -2135,20 +2151,7 @@ tfw_h2_insert_frame_header(TfwStream *stream, TfwFrameType type,
 	char *data;
 	int r = 0;
 
-	/*
-	 * Very unlikely case, when skb_head and one or more next skbs
-	 * are empty because of transformation during making HEADERS.
-	 */
-	if (type == HTTP2_CONTINUATION || type == HTTP2_DATA
-	    || !stream->xmit.h_len) {
-		struct sk_buff *skb = stream->xmit.skb_head;
-
-		while (skb && unlikely(!skb->len)) {
-			ss_skb_unlink(&stream->xmit.skb_head, skb);
-			ss_kfree_skb(skb);
-			skb = stream->xmit.skb_head;
-		}
-	}
+	__free_skb_head_if_empty(&stream->xmit);
 
 	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
 					 stream->xmit.bytes_to_send);
