@@ -2098,7 +2098,7 @@ out:
 static inline unsigned int
 __tfw_h2_snd_wnd_limit(unsigned long snd_wnd)
 {
-	return min(TLS_MAX_PAYLOAD_SIZE, snd_wnd - TLS_MAX_OVERHEAD);
+	return snd_wnd - TLS_MAX_OVERHEAD;
 }
 
 /**
@@ -2465,14 +2465,13 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		}
 
 		/*
-		 * Stream still has remaining framed headers, so it returns to
-		 * the beginning of the state to check available send window. It
-		 * also returns to the beginning of the state when both the
-		 * send window and headers are greater then TLS_MAX_PAYLOAD_SIZE,
-		 * in order to prepare another chunk of TLS_MAX_PAYLOAD_SIZE.
+		 * Stream still has remaining framed headers, so exit and wait
+		 * for available window.
 		 */
-		if (has_prepared_headers)
-			T_FSM_JMP(HTTP2_SEND_HEADERS_FRAME);
+		if (has_prepared_headers) {
+			*stop = true;
+			T_FSM_EXIT();
+		}
 
 		if (stream->xmit.h_len)
 			T_FSM_JMP(HTTP2_MAKE_CONTINUATION_FRAMES);
