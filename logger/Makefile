@@ -21,7 +21,7 @@ $(error "pkgconf not found in $(PATH)")
 endif
 
 # We don't need to build clickhouse - it would be build by access_log_plugin as .a
-SUBDIRS := access_log_plugin
+SUBDIRS := access_log_plugin log_format
 
 CXX := g++
 LDFLAGS := -lfmt -lboost_program_options -lboost_filesystem
@@ -46,7 +46,7 @@ else
 endif
 
 all:
-	@for dir in $(SUBDIRS); do	\
+	@set -e; for dir in $(SUBDIRS); do	\
 		$(MAKE) -C $$dir;	\
 	done
 	$(MAKE) $(TARGET)
@@ -58,7 +58,7 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	@for dir in $(SUBDIRS); do	\
+	@set -e; for dir in $(SUBDIRS); do	\
 		$(MAKE) -C $$dir clean;	\
 	done
 	rm -f $(OBJS) $(TARGET)
