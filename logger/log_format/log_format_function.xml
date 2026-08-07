@@ -1,0 +1,17 @@
+<functions>
+    <function>
+        <type>executable</type>
+        <name>eventlog_format</name>
+        <return_type>String</return_type>
+	<argument>
+            <type>UInt16</type>
+	    <name>event_type</name>
+        </argument>
+        <argument>
+            <type>String</type>
+	    <name>event_body</name>
+        </argument>
+        <format>RowBinary</format>
+	<command>./eventlog_format</command>
+    </function>
+</functions>
