@@ -274,9 +274,21 @@ tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream)
 
 	if (hmreq) {
 		/*
- 		 * Once hmreq->stream is cleared, the request may be freed
-		 * on another CPU by `tfw_http_on_tcp_entail_req`. Cache the
-		 * flag value before breaking the request-to-stream association.
+		 * Once hmreq->stream is cleared, `tfw_http_on_tcp_entail_req`
+		 * running on another CPU may observe the request as detached
+		 * from the stream and eventually free hmreq. Therefore, hmreq
+		 * must not be dereferenced after breaking the request-to-stream
+		 * association.
+		 *
+		 * Cache TFW_HTTP_B_FULLY_PARSED before clearing hmreq->stream,
+		 * while hmreq is still guaranteed to be valid. The value is used
+		 * below to decide whether this path has to free an incomplete
+		 * request itself.
+		 * The flag load must happen before the store which clears
+		 * `hmreq->stream`. On x86-64, TSO preserves Load->Store ordering,
+		 * so the CPU cannot make the hmreq->stream store visible before
+		 * the preceding flag load. Therefore, no explicit memory barrier
+		 * is required here.
 		 */		
 		bool req_is_fully_parsed =
 			test_bit(TFW_HTTP_B_FULLY_PARSED, hmreq->flags);
