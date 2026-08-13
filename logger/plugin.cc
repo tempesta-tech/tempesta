@@ -1,7 +1,7 @@
 /**
 *		Tempesta FW
 *
-* Copyright (C) 2025 Tempesta Technologies, Inc.
+* Copyright (C) 2025-2026 Tempesta Technologies, Inc.
 *
 * This program is free software; you can redistribute it and/or modify it
 * under the terms of the GNU General Public License as published by
@@ -131,8 +131,8 @@ Plugin::Plugin(const std::string &plugin_path, const PluginConfig &config,
 	, plugin_config_api_(make_plugin_config_api(plugin_config_))
 {
 	//TODO: split to several minor functions: load_library, get_plugin_api, init_plugin
-	void * handle = dlopen(plugin_path.c_str(),
-			 RTLD_LAZY | RTLD_LOCAL | RTLD_DEEPBIND);
+	void * handle = dlopen(plugin_path.c_str(), RTLD_LAZY | RTLD_LOCAL);
+
 	if (!handle) {
 		std::string tilde_message;
 		if (plugin_path.find('~') != std::string::npos) {
