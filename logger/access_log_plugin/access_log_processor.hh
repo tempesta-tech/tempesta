@@ -39,8 +39,10 @@ class AccessLogProcessor final: public IPluginProcessor
 {
 public:
 	explicit AccessLogProcessor(std::shared_ptr<IClickhouse> writer,
-				    unsigned cpu_id,
-				    int device_fd,
+				    unsigned cpu_id, int device_fd,
+				    std::string_view access_log_table_name,
+				    std::string_view dos_log_table_name,
+				    std::string_view web_attack_log_table_name,
 				    size_t max_events);
 	~AccessLogProcessor() override;
 

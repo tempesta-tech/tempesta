@@ -40,6 +40,8 @@ make_plugin_config_api(const PluginConfig &cfg)
 
 	c_cfg.max_events = cfg.max_events;
 
+	c_cfg.json_str = cfg.json_str.c_str();
+
 	return c_cfg;
 }
 

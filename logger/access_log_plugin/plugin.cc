@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@
 #include "../clickhouse/lazy_init_clickhouse.hh"
 
 #include "access_log_processor.hh"
+#include "access_log_config.hh"
 
 namespace {
 
@@ -110,13 +111,15 @@ mmap_create_processor(const PluginConfigApi *config, unsigned cpu_id)
 	try {
 		spdlog::debug("Creating access log processor for CPU: {}",
 			      cpu_id);
+		AccessLogConfig cfg;
+		cfg.parse_json(config->json_str);
 
 		ch::ClientOptions options;
-		options.SetHost(config->host)
-		       .SetPort(config->port)
-		       .SetDefaultDatabase(config->db_name)
-		       .SetUser(config->user)
-		       .SetPassword(config->password);
+		options.SetHost(cfg.host)
+		       .SetPort(cfg.port)
+		       .SetDefaultDatabase(cfg.db_name)
+		       .SetUser(*cfg.user)
+		       .SetPassword(*cfg.password);
 
 		auto factory = [opts = std::move(options)]() -> LazyInitClickhouse::Ptr {
 			return std::make_unique<ClickhouseWithReconnection>(opts);
@@ -129,7 +132,9 @@ mmap_create_processor(const PluginConfigApi *config, unsigned cpu_id)
 		auto writer = std::make_shared<LazyInitClickhouse>(factory);
 
 		auto processor = std::make_unique<AccessLogProcessor>(writer,
-			cpu_id, dev_fd, config->max_events);
+			cpu_id, dev_fd, cfg.access_log_table_name,
+			cfg.dos_log_table_name, cfg.web_attack_log_table_name,
+			cfg.max_events);
 
 		return processor.release();
 	} catch (const std::exception& e) {
