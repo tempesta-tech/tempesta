@@ -244,10 +244,13 @@ dbg_hexdump([[maybe_unused]] std::span<const char> data)
 
 AccessLogProcessor::AccessLogProcessor(std::shared_ptr<IClickhouse> writer,
 				       unsigned cpu_id, int device_fd,
+				       std::string_view access_log_table_name,
+				       std::string_view dos_log_table_name,
+				       std::string_view web_attack_log_table_name,
 				       size_t max_events)
-	: access_log_table_(writer, "access_log", max_events)
-	, security_dos_log_table_(writer, "security_dos_log", max_events)
-	, web_attack_log_table_(writer, "security_web_attack_log", max_events)
+	: access_log_table_(writer, access_log_table_name, max_events)
+	, security_dos_log_table_(writer, dos_log_table_name, max_events)
+	, web_attack_log_table_(writer, web_attack_log_table_name, max_events)
 	, device_fd_(device_fd)
 {
 	spdlog::debug("Creating AccessLogProcessor with device: {}", device_fd_);

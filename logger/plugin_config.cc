@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -23,27 +23,9 @@
 #include <stdexcept>
 
 #include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
 
-namespace {
-
-void
-validate_table_name(const std::string &table_name)
-{
-	// Check length limit (ClickHouse uses filesystem, 128 should be enough)
-	if (table_name.length() > 128)
-		throw std::runtime_error(
-				"Table name is too long (max 128 characters): "
-				+ table_name);
-
-	// Check for allowed characters only: A-Z, a-z, 0-9, _
-	static const std::regex valid_name_regex("^[A-Za-z0-9_]+$");
-	if (!std::regex_match(table_name, valid_name_regex))
-		throw std::runtime_error("Table name contains invalid characters. "
-					 "Only A-Z, a-z, 0-9, and _ are allowed: "
-					 + table_name);
-}
-
-} // anonymous namespace
+#include "config_utils.hh"
 
 void
 PluginConfig::validate() const
@@ -65,7 +47,7 @@ PluginConfig::validate() const
 	if (max_events == 0)
 		throw std::runtime_error("max_events must be greater than 0");
 
-	validate_table_name(table_name);
+	cfg_utils::validate_table_name(table_name);
 }
 
 void
@@ -82,4 +64,10 @@ PluginConfig::parse_from_ptree(const boost::property_tree::ptree &tree)
 
 	if (const auto val = tree.get_optional<std::string>("password"))
 		password = *val;
+
+	std::ostringstream out;
+
+	boost::property_tree::write_json(out, tree, false);
+
+	json_str = out.str();
 }
