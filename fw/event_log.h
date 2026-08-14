@@ -313,8 +313,8 @@ format:
 
 #ifdef __KERNEL__
 
-int tfw_access_log_init(void);
-void tfw_access_log_exit(void);
+int tfw_event_log_init(void);
+void tfw_event_log_exit(void);
 void do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length);
 void do_access_log(TfwHttpResp *resp);
 static inline bool

@@ -770,7 +770,7 @@ do_access_log_req_dmesg(TfwHttpReq *req, int resp_status,
 
 	/* Undefine all locally defined macros.
 	 * You can use following oneliner to regenerate this list
-	 * sed -nre '/^do_access_log_req/,/^\}/{s@^#[[:space:]]*define[[:space:]]*([^([:space:]]+).*@#undef \1@p}' fw/access_log.c | tac
+	 * sed -nre '/^do_access_log_req/,/^\}/{s@^#[[:space:]]*define[[:space:]]*([^([:space:]]+).*@#undef \1@p}' fw/event_log.c | tac
 	 */
 #undef DO_PR_INFO
 #undef ARG_TRUNCATABLE
@@ -854,7 +854,7 @@ cfg_access_log_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_access_log_start(void)
+tfw_event_log_start(void)
 {
 	int cpu;
 
@@ -873,7 +873,7 @@ tfw_access_log_start(void)
 }
 
 static void
-tfw_access_log_stop(void)
+tfw_event_log_stop(void)
 {
 	tfw_mmap_buffer_free(mmap_buffer);
 	mmap_buffer = NULL;
@@ -901,11 +901,11 @@ static TfwCfgSpec tfw_http_specs[] = {
 	{ 0 }
 };
 
-TfwMod tfw_access_log_mod  = {
-	.name	= "access_log",
+TfwMod tfw_event_log_mod  = {
+	.name	= "event_log",
 	.specs	= tfw_http_specs,
-	.start	= tfw_access_log_start,
-	.stop	= tfw_access_log_stop,
+	.start	= tfw_event_log_start,
+	.stop	= tfw_event_log_stop,
 };
 
 /*
@@ -915,14 +915,14 @@ TfwMod tfw_access_log_mod  = {
  */
 
 int __init
-tfw_access_log_init(void)
+tfw_event_log_init(void)
 {
-	tfw_mod_register(&tfw_access_log_mod);
+	tfw_mod_register(&tfw_event_log_mod);
 	return 0;
 }
 
 void
-tfw_access_log_exit(void)
+tfw_event_log_exit(void)
 {
-	tfw_mod_unregister(&tfw_access_log_mod);
+	tfw_mod_unregister(&tfw_event_log_mod);
 }

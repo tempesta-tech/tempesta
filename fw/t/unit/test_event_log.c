@@ -19,7 +19,7 @@
  */
 
 #include "test.h"
-#include "access_log.c"
+#include "event_log.c"
 
 struct event_bin_data {
 	long		_long;
