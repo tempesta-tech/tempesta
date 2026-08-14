@@ -504,7 +504,7 @@ tfw_init(void)
 	DO_INIT(pool);
 	DO_INIT(cfg);
 	DO_INIT(regex);
-	DO_INIT(access_log);
+	DO_INIT(event_log);
 	DO_INIT(apm);
 	DO_INIT(vhost);
 
