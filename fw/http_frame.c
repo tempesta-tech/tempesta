@@ -2269,6 +2269,8 @@ __tfw_h2_make_headers_frame(TfwH2Ctx *ctx, TfwStream *stream)
 	unsigned int max_payload_size = ctx->rsettings.max_frame_sz;
 	unsigned char flags = 0;
 
+	stream->xmit.rem_max_frame_sz = max_payload_size;
+
 	if (unlikely(ctx->hpack.enc_tbl.wnd_changed)) {
 		r = tfw_h2_insert_enc_tbl_sz(&ctx->hpack.enc_tbl,
 					     stream->xmit.skb_head,
@@ -2306,7 +2308,7 @@ static __always_inline int
 __tfw_h2_make_continuation_frame(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	TfwFrameType type = HTTP2_CONTINUATION;
-	unsigned int max_payload_size = ctx->rsettings.max_frame_sz;
+	unsigned int max_payload_size = stream->xmit.rem_max_frame_sz;
 	unsigned char flags = 0;
 	unsigned int frame_length = min(max_payload_size, stream->xmit.h_len);
 

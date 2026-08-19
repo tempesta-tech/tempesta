@@ -133,6 +133,9 @@ typedef enum {
  * @is_trailer_cont	 - need to send trailer CONTINUATION frames;
  * @headers_frame_length - length of the current framed HEADERS/CONTINUATION
  *			   frame;
+ * @rem_max_frame_sz	 - remote peer's max frame size. Used ONLY during
+ *			   sending headers to not use a new value that has been
+ *			   set but not acked;
  */
 typedef struct {
 	TfwHttpResp 		*resp;
@@ -145,6 +148,7 @@ typedef struct {
 	u64			state : 4;
 	unsigned int		t_len;
 	unsigned int		headers_frame_length;
+	unsigned int		rem_max_frame_sz;
 } TfwHttpXmit;
 
 /**
