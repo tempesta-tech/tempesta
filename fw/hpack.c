@@ -804,7 +804,7 @@ tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
 	}
 
 	T_DBG3("%s: entry created, d_hdr->nchunks=%u, d_hdr->len=%lu,"
-	       " d_hdr->flags=%hu, it->nm_len=%lu, it->nm_num=%u, it->tag=%u\n",
+	       " d_hdr->flags=%hu, it->nm_len=%u, it->nm_num=%u, it->tag=%u\n",
 	       __func__, d_hdr->nchunks, d_hdr->len, d_hdr->flags, it->nm_len,
 	       it->nm_num, it->tag);
 
@@ -1176,6 +1176,7 @@ tfw_hpack_init(TfwHPack *__restrict hp, TfwClientMem *owner,
 		goto err_dt;
 
 	et->window = htbl_sz;
+	et->min_window = HPACK_ENC_TABLE_MAX_SIZE;
 	et->rb_size = HPACK_ENC_TABLE_MAX_SIZE;
 	if (!(et->pool = __tfw_pool_new(HPACK_ENC_TABLE_MAX_SIZE, owner)))
 		goto err_et;
@@ -3718,71 +3719,49 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
  * into the HTTP/2 HPACK format.
  */
 int
-tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr)
+tfw_hpack_transform(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
+		    bool dyn_indexing)
 {
-	return __tfw_hpack_encode(resp, hdr, true, true, true);
+	return __tfw_hpack_encode(resp, hdr, true, dyn_indexing, true);
 }
 
 void
-tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
+tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
+			unsigned int requested_size)
 {
-	if (new_size > HPACK_ENC_TABLE_MAX_SIZE) {
-		T_WARN("Client requests hpack table size (%hu), which is "
-			"greater than HPACK_ENC_TABLE_MAX_SIZE.", new_size);
-		new_size = HPACK_ENC_TABLE_MAX_SIZE;
-	}
-
 	T_DBG3("%s: tbl->rb_len=%hu, tbl->size=%hu, tbl->window=%hu,"
-	       " new_size=%hu\n", __func__, tbl->rb_len, tbl->size,
-	       tbl->window, new_size);
+	       " requested_size=%u\n", __func__, tbl->rb_len, tbl->size,
+	       tbl->window, requested_size);
 
-	/*
+	if (requested_size == tbl->window)
+		return;
+
+	unsigned short new_size = min_t(unsigned int, requested_size,
+					HPACK_ENC_TABLE_MAX_SIZE);
+	BUILD_BUG_ON(HPACK_ENC_TABLE_MAX_SIZE > USHRT_MAX ||
+		     sizeof(new_size) != sizeof(tbl->window));
+
+	/**
 	 * RFC7541#section-4.2:
-	 * Multiple updates to the maximum table size can occur between the
-	 * transmission of two header blocks. In the case that this size is
-	 * changed more than once in this interval, the smallest maximum table
-	 * size that occurs in that interval MUST be signaled in a dynamic
-	 * table size update.
+	 *
+	 * The smallest maximum table size that occurs in that interval MUST be
+	 * signaled in a dynamic table size update.  The final maximum size is
+	 * always signaled, resulting in at most two dynamic table size updates.
+	 * This ensures that the decoder is able to perform eviction based on
+	 * reductions in dynamic table size.
 	 */
-	if (tbl->window != new_size && (likely(!tbl->wnd_changed)
-	    || unlikely(!tbl->window) || new_size < tbl->window))
-	{
-		if (tbl->size > new_size)
-			tfw_hpack_rbuf_calc(tbl, new_size, NULL,
-					    (TfwHPackETblIter *)tbl);
-		WARN_ON_ONCE(tbl->rb_len > tbl->size);
+	if (new_size < tbl->min_window)
+		tbl->min_window = new_size;
 
-		tbl->window = new_size;
-		tbl->wnd_changed = true;
-	}
-}
+	if (tbl->size > new_size)
+		tfw_hpack_rbuf_calc(tbl, new_size, NULL,
+				    (TfwHPackETblIter *)tbl);
 
-int
-tfw_hpack_enc_tbl_write_sz(TfwHPackETbl *__restrict tbl, TfwStream *stream)
-{
-	TfwHPackInt tmp = {};
-	TfwStr dst = {};
-	char *data;
-	unsigned int _;
-	int r = 0;
+	tbl->window = new_size;
+	tbl->wnd_changed = true;
+	WARN_ON_ONCE(tbl->rb_len > tbl->size);
 
-	WARN_ON_ONCE(!tbl->wnd_changed);
-	write_int(tbl->window, 0x1F, 0x20, &tmp);
-
-	data = ss_skb_data_ptr_by_offset(stream->xmit.skb_head,
-					 FRAME_HEADER_SIZE);
-	BUG_ON(!data);
-
-	r = ss_skb_get_room_w_frag(stream->xmit.skb_head,
-				   stream->xmit.skb_head,
-				   data, tmp.sz, &dst, &_);
-	if (unlikely(r))
-		return r;
-
-	memcpy_fast(dst.data, tmp.buf, tmp.sz);
-	stream->xmit.h_len += tmp.sz;
-	tbl->wnd_changed = false;
-
-	return 0;
+	T_DBG3("%s: New hpack encoder table size has been changed min=%u "
+	       "new=%u\n", __func__, tbl->min_window, tbl->window);
 }
 
