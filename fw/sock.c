@@ -640,7 +640,11 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	if (unlikely(!*skb_head))
 		return 0;
 
-	cpu = sk->sk_incoming_cpu;
+	cpu = SS_CALL(connection_get_incoming_cpu, sk->sk_user_data);
+	if (cpu != sk->sk_incoming_cpu) {
+		T_DBG("Socket incoming cpu was changed from %d to %d",
+		      cpu, sk->sk_incoming_cpu);
+	}
 
 	T_DBG3("[%d]: %s: sk=%p (cpu=%d) state=%s\n",
 	       smp_processor_id(), __func__, sk, cpu,
@@ -912,8 +916,11 @@ ss_close(struct sock *sk, int flags)
 	if (unlikely(!sk))
 		return T_OK;
 
-	ss_sk_incoming_cpu_update(sk);
-	cpu = sk->sk_incoming_cpu;
+	cpu = SS_CALL(connection_get_incoming_cpu, sk->sk_user_data);
+	if (cpu != sk->sk_incoming_cpu) {
+		T_DBG("Socket incoming cpu was changed from %d to %d",
+		      cpu, sk->sk_incoming_cpu);
+	}
 
 	sock_hold(sk);
 	ticket = ss_wq_push(&sw, cpu);

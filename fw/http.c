@@ -1464,6 +1464,8 @@ tfw_http_on_tcp_entail_req(void *conn, struct sk_buff *skb)
 		return -EINVAL;
 	}
 
+	set_bit(TFW_HTTP_B_REQ_SENT, req->flags);
+
 	return 0;
 }
 
@@ -1474,6 +1476,26 @@ tfw_http_req_init_for_send(TfwSrvConn *srv_conn, TfwHttpReq *req)
 	if (unlikely(test_bit(TFW_HTTP_B_HMONITOR, req->flags)))
 		return;
 
+	/*
+	 * TFW_HTTP_B_REQ_SENT may still be set when a request is rescheduled
+	 * after the server connection has been closed. The bit is set from
+	 * `tfw_http_on_tcp_entail_req` callback, and we don't walk the whole
+	 * request queue and clear it on server connection disconnect.
+	 *
+	 * Clear it here instead, when the request is being initialized for a
+	 * new send attempt and its sending state is being rebuilt anyway.
+	 *
+	 * There are two independent safeguards against accepting a response
+	 * for a request which has not actually been sent on the current server
+	 * connection. The primary one is `srv_conn->curr_msg_sent`, which is
+	 * reset when the server connection is re-established; a response
+	 * received while it is NULL is treated as a response-splitting attack.
+	 *
+	 * TFW_HTTP_B_REQ_SENT is an additional per-request safeguard used by
+	 * `tfw_http_on_tcp_entail_req`. Resetting it here makes this protection
+	 * valid again for requests rescheduled after a server disconnect.
+	 */
+	clear_bit(TFW_HTTP_B_REQ_SENT, req->flags);
 	TFW_SKB_CB(req->msg.skb_head)->skb_hooks = &tfw_http_req_skb_hooks;
 	TFW_SKB_CB(req->msg.skb_head)->data = req;
 }
@@ -2932,6 +2954,14 @@ tfw_http_resp_pair(TfwHttpMsg *hmresp)
 		goto end;
 
 	list_for_each_entry(req, &srv_conn->fwd_queue, fwd_list) {
+		/*
+		 * Responses may only be paired with requests that have
+		 * already been queued for transmission. Receiving a
+		 * response before that is a backend protocol violation.
+		 */
+		if (!test_bit(TFW_HTTP_B_HMONITOR, req->flags)
+		    && !test_bit(TFW_HTTP_B_REQ_SENT, req->flags))
+			break;
 		if (!req->pair) {
 			tfw_http_msg_pair((TfwHttpResp *)hmresp, req);
 			spin_unlock(&srv_conn->fwd_qlock);

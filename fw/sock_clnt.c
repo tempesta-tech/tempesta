@@ -263,6 +263,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		sk->sk_write_xmit = tfw_tls_encrypt;
 	}
 	sk->sk_fill_write_queue = tfw_sock_clnt_fill_write_queue;
+	conn->incoming_cpu = sk->sk_incoming_cpu;
 
 	/* Activate keepalive timer. */
 	mod_timer(&((TfwCliConn *)conn)->timer,
@@ -356,19 +357,21 @@ tfw_cli_conn_on_shutdown(TfwConn *conn)
 }
 
 static const SsHooks tfw_sock_http_clnt_ss_hooks = {
-	.connection_new		= tfw_sock_clnt_new,
-	.connection_drop	= tfw_sock_clnt_drop,
-	.connection_recv	= tfw_connection_recv,
-	.connection_recv_finish = tfw_connection_recv_finish,
-	.connection_on_shutdown	= tfw_cli_conn_on_shutdown,
+	.connection_new			= tfw_sock_clnt_new,
+	.connection_drop		= tfw_sock_clnt_drop,
+	.connection_recv		= tfw_connection_recv,
+	.connection_recv_finish 	= tfw_connection_recv_finish,
+	.connection_on_shutdown		= tfw_cli_conn_on_shutdown,
+	.connection_get_incoming_cpu	= tfw_connection_get_incoming_cpu,
 };
 
 static const SsHooks tfw_sock_tls_clnt_ss_hooks = {
-	.connection_new		= tfw_sock_clnt_new,
-	.connection_drop	= tfw_sock_clnt_drop,
-	.connection_recv	= tfw_tls_connection_recv,
-	.connection_recv_finish = tfw_connection_recv_finish,
-	.connection_on_shutdown	= tfw_cli_conn_on_shutdown,
+	.connection_new			= tfw_sock_clnt_new,
+	.connection_drop		= tfw_sock_clnt_drop,
+	.connection_recv		= tfw_tls_connection_recv,
+	.connection_recv_finish 	= tfw_connection_recv_finish,
+	.connection_on_shutdown		= tfw_cli_conn_on_shutdown,
+	.connection_get_incoming_cpu	= tfw_connection_get_incoming_cpu,
 };
 
 /*

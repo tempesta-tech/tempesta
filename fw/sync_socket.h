@@ -95,6 +95,12 @@ typedef struct ss_hooks {
 
 	/* Callback to make some job on connection shutdown. */
 	void (*connection_on_shutdown)(TfwConn *conn);
+
+	/*
+	 * Callback to get connection `incoming_cpu`, which
+	 * was set during connection establishing.
+	 */
+	int (*connection_get_incoming_cpu)(TfwConn *conn);
 } SsHooks;
 
 /**

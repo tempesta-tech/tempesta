@@ -273,8 +273,29 @@ tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream)
 	tfw_h2_stream_del_from_queue_nolock(stream);
 
 	if (hmreq) {
+		/*
+		 * Once hmreq->stream is cleared, `tfw_http_on_tcp_entail_req`
+		 * running on another CPU may observe the request as detached
+		 * from the stream and eventually free hmreq. Therefore, hmreq
+		 * must not be dereferenced after breaking the request-to-stream
+		 * association.
+		 *
+		 * Cache TFW_HTTP_B_FULLY_PARSED before clearing hmreq->stream,
+		 * while hmreq is still guaranteed to be valid. The value is used
+		 * below to decide whether this path has to free an incomplete
+		 * request itself.
+		 * The flag load must happen before the store which clears
+		 * `hmreq->stream`. On x86-64, TSO preserves Load->Store ordering,
+		 * so the CPU cannot make the hmreq->stream store visible before
+		 * the preceding flag load. Therefore, no explicit memory barrier
+		 * is required here.
+		 */		
+		bool req_is_fully_parsed =
+			test_bit(TFW_HTTP_B_FULLY_PARSED, hmreq->flags);
+
 		hmreq->stream = NULL;
 		stream->msg = NULL;
+
 		/*
 		 * If the request is linked with a stream, but not complete yet,
 		 * it must be deleted right here to avoid leakage, because in
@@ -284,7 +305,7 @@ tfw_h2_stream_unlink_nolock(TfwH2Ctx *ctx, TfwStream *stream)
 		 * cases controlled by server connection side (after adding to
 		 * @fwd_queue): successful response sending, eviction etc.
 		 */
-		if (!test_bit(TFW_HTTP_B_FULLY_PARSED, hmreq->flags))
+		if (!req_is_fully_parsed)
 			tfw_http_conn_msg_free(hmreq);
 	}
 }

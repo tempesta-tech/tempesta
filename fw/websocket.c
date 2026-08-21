@@ -67,9 +67,10 @@ tfw_ws_srv_ss_hook_drop(struct sock *sk)
  * Client connections use inherited hooks from sock_clnt.c.
  */
 static const SsHooks tfw_ws_srv_ss_hooks = {
-	.connection_new		= NULL,
-	.connection_drop	= tfw_ws_srv_ss_hook_drop,
-	.connection_recv	= tfw_connection_recv,
+	.connection_new			= NULL,
+	.connection_drop		= tfw_ws_srv_ss_hook_drop,
+	.connection_recv		= tfw_connection_recv,
+	.connection_get_incoming_cpu	= tfw_connection_get_incoming_cpu,
 };
 
 /**
@@ -143,6 +144,12 @@ tfw_ws_srv_new_steal_sk(TfwSrvConn *srv_conn)
 	conn->peer = (TfwPeer *)srv;
 	conn->sk = srv_conn->sk;
 	conn->destructor = tfw_ws_conn_release;
+	/*
+	 * Hook `connection_new()` is never called, because ws connection
+	 * can only be bootstraped from http connection, so initialized
+	 * `conn->incoming_cpu` here.
+	 */
+	conn->incoming_cpu = srv_conn->sk->sk_incoming_cpu;
 	tfw_connection_revive(conn);
 	/*
 	 * Now conn becomes visible for the socket layer and
