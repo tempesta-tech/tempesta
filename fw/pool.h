@@ -25,7 +25,7 @@
 
 #include <linux/cache.h>
 #include <asm/page.h>
-#include "log.h"
+#include "system_log.h"
 
 #define TFW_POOL_ZERO	0x1
 

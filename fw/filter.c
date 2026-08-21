@@ -45,7 +45,7 @@
 #include "tempesta_fw.h"
 #include "http_limits.h"
 #include "filter.h"
-#include "log.h"
+#include "system_log.h"
 
 enum {
 	TFW_F_DROP,

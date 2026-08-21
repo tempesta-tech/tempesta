@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@
 #include <linux/interrupt.h>
 #include <linux/irq_work.h>
 
-#include "log.h"
+#include "system_log.h"
 
 #define TFW_DFLT_QSZ	2048
 

@@ -45,11 +45,9 @@ namespace po = boost::program_options;
 
 namespace {
 
-constexpr char dev_path[] = "/dev/tempesta_mmap_log";
 constexpr char pid_file_path[] = "/var/run/tfw_logger.pid";
 constexpr char default_config_path[] = "/etc/tempesta/tfw_logger.json";
 constexpr char default_log_path[] = "/var/log/tempesta/tfw_logger.log";
-constexpr std::chrono::seconds wait_for_dev{1};
 
 std::atomic<bool> stop_flag{false};
 TfwLoggerConfig config;

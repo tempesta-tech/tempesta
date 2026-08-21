@@ -23,7 +23,7 @@
 #include "db/core/tdb.h"
 #include "lib/str.h"
 #include "lib/tf.h"
-#include "log.h"
+#include "system_log.h"
 
 
 #define TF_FILTER_TIME_SLOTS_POW	3

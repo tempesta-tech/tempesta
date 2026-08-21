@@ -60,6 +60,7 @@
 #include "addr.h"
 #include "cfg.h"
 #include "client.h"
+#include "event_log.h"
 #include "hash.h"
 #include "http_msg.h"
 #include "http_match.h"
@@ -389,9 +390,20 @@ err:
 	return r;
 }
 
-#define sess_warn(check, addr, fmt, ...)				\
-	T_WARN_MOD_ADDR(http_sess, check, addr, TFW_NO_PORT, fmt,	\
-	                  ##__VA_ARGS__)
+#define sess_warn(event_type, sk, check, fmt, ...)			\
+do {								\
+	TfwAddr addr;							\
+								\
+	if (access_log_mmap_enabled() || access_log_dmesg_enabled())	\
+		ss_getpeername(sk, &addr);				\
+	if (access_log_mmap_enabled())					\
+		log_web_attack_event(event_type, &addr,			\
+			inet_sk(sk)->inet_sport, false,			\
+			##__VA_ARGS__);					\
+	if (access_log_dmesg_enabled())					\
+		T_WARN_MOD_ADDR(http_sess, check, &addr, TFW_NO_PORT,	\
+				fmt, ##__VA_ARGS__);			\
+} while (0)
 
 /* The set of macros for parsing hex strings of following format:
  *
@@ -426,7 +438,7 @@ end_##f:								\
 	;								\
 })
 
-#define HEX_STR_TO_BIN_HMAC(hmac, ts, addr)				\
+#define HEX_STR_TO_BIN_HMAC(hmac, ts, sk)				\
 ({									\
 	unsigned char b;						\
 	int i = 0, hi = 1, r = TFW_HTTP_SESS_SUCCESS;			\
@@ -440,8 +452,9 @@ end_##f:								\
 			if (b != *tr) {					\
 				char buf[sizeof(hmac) * 2];		\
 				bin2hex(buf, hmac, sizeof(hmac));	\
-				sess_warn("bad received HMAC value",	\
-					  addr, " %c(pos=%d),"		\
+				sess_warn(TFW_LOG_EVENT_BAD_STICKY_COOKIE_HMAC, \
+					  sk, "bad received HMAC value",	\
+					  " %c(pos=%d),"			\
 					  " ts=%#lx orig_hmac=[%.*s]\n", \
 					  *tr, i, ts,			\
 					  (int)sizeof(hmac) * 2, buf);	\
@@ -496,7 +509,6 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 {
 	int r;
 	unsigned char *tr;
-	TfwAddr *addr = &req->conn->peer->addr;
 	TfwStr *c, *end;
 	TfwStickyCookie *sticky = req->vhost->cookie;
 
@@ -514,7 +526,8 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 		return TFW_HTTP_SESS_SUCCESS;
 
 	if (value->len != sizeof(StickyVal) * 2) {
-		sess_warn("bad sticky cookie length", addr, " %lu(%lu)\n",
+		sess_warn(TFW_LOG_EVENT_BAD_STICKY_COOKIE_LENGTH,
+			  req->conn->sk, "bad sticky cookie length", " %lu(%lu)\n",
 			  value->len, sizeof(StickyVal) * 2);
 		tfw_http_sticky_calc(req, sv);
 		return TFW_HTTP_SESS_BAD_COOKIE;
@@ -524,16 +537,18 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 	HEX_STR_TO_BIN_GET(sv, ts);
 
 	if (__sticky_calc(req, sv)) {
-		sess_warn("cannot compute sticky cookie value", addr, "\n");
+		sess_warn(TFW_LOG_EVENT_STICKY_COOKIE_CALC_FAILED,
+			  req->conn->sk, "cannot compute sticky cookie value", "\n");
 		return TFW_HTTP_SESS_FAILURE;
 	}
 
-	if ((r = HEX_STR_TO_BIN_HMAC(sv->hmac, sv->ts, addr)))
+	if ((r = HEX_STR_TO_BIN_HMAC(sv->hmac, sv->ts, req->conn->sk)))
 		return r;
 
 	/* The cookie is valid but already expired, reject it. */
 	if (jiffies > sv->ts + (unsigned long)sticky->sess_lifetime * HZ) {
-		sess_warn("sticky cookie value expired", addr,
+		sess_warn(TFW_LOG_EVENT_STICKY_COOKIE_EXPIRED, req->conn->sk,
+			  "sticky cookie value expired",
 			  " (issued=%lu lifetime=%lu now=%lu)\n", sv->ts,
 			  (unsigned long)sticky->sess_lifetime * HZ, jiffies);
 		return TFW_HTTP_SESS_BAD_COOKIE;
@@ -683,8 +698,9 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 	if (time_after_eq(req->jrxtstamp, min_time))
 		return 0;
 
-	sess_warn("jsch redirect received too early",
-		  &req->conn->peer->addr, " (%lu is not after %lu)\n",
+	sess_warn(TFW_LOG_EVENT_JSCH_EARLY_REDIRECT, req->conn->sk,
+		  "jsch redirect received too early",
+		  " (%lu is not after %lu)\n",
 		  req->jrxtstamp, min_time);
 
 	return TFW_HTTP_SESS_JS_DOES_NOT_PASS;

@@ -31,8 +31,8 @@
 #include "lib/hash.h"
 #include "apm.h"
 #include "client.h"
-#include "log.h"
 #include "server.h"
+#include "system_log.h"
 #include "lib/fault_injection_alloc.h"
 
 /*
