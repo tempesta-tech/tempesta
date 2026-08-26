@@ -1,4 +1,4 @@
-# xFW Agent Guidelines
+# Agent Guidelines
 
 Follow Tempesta FW [coding style](https://github.com/tempesta-tech/tempesta/blob/master/doc/CodingStyle)
 for C and C++ code. For Python code, follow the Black and isort configuration in
@@ -27,7 +27,7 @@ run and clearly identify anything that was not tested.
 
 ## Code Review
 
-During code review, check:
+Perform the review as independent passes.
 
 1. Compliance with the coding style above and the
    [development guidelines](https://tempesta-tech.com/knowledge-base/Development-guidelines/).
@@ -35,11 +35,12 @@ During code review, check:
 3. Unnecessary architecture changes, single-use abstractions, dependency-graph
    regressions from new `#include` directives, excessive function size, and tangled
    control flow.
-4. Security vulnerabilities, especially in code processing untrusted network input.
+4. Analyze locking and synchronization.
+5. Security vulnerabilities, especially in code processing untrusted network input.
    The project runs at the Internet edge.
-5. Performance regressions and work amplification that could create denial-of-service
+6. Performance regressions and work amplification that could create denial-of-service
    vectors.
-6. Whether tests exercise observable behavior and failure paths, not only successful
+7. Whether tests exercise observable behavior and failure paths, not only successful
    execution.
 
 When model selection is under the operator's control, use the most capable available
