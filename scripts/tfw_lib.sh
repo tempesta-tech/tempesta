@@ -1,6 +1,6 @@
 # Common utilities for Tempesta scripts
 #
-# Copyright (C) 2016-2025 Tempesta Technologies, Inc.
+# Copyright (C) 2016-2026 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -198,19 +198,37 @@ distribute_queues()
 	# Skip the first IRQ since this is general async interrupt
 	# for device (not assigned to any of the queues).
 	irqs=(${irqs[@]:1})
-	irq0=${irqs[0]}
 	cpu=0
+	declare -a changed_irqs=()
+	declare -A old_masks=()
 
 	for irq in "${irqs[@]}"; do
-        	mask=$(make_cpu_rss_mask "$cpu")
+		if ! old_masks[$irq]=$(<"/proc/irq/$irq/smp_affinity"); then
+			log "Error: cannot read current IRQ $irq affinity"
+			return
+		fi
+	done
+
+	for irq in "${irqs[@]}"; do
+		mask=$(make_cpu_rss_mask "$cpu")
+
 		if ! echo "$mask" > "/proc/irq/$irq/smp_affinity"; then
 			log "Error: cannot bind IRQ $irq to CPU $cpu, mask=$mask"
+
+			for changed_irq in "${changed_irqs[@]}"; do
+				if ! echo "${old_masks[$changed_irq]}" > "/proc/irq/$changed_irq/smp_affinity"; then
+					log "Error: cannot restore IRQ $changed_irq affinity, mask=${old_masks[$changed_irq]}"
+				fi
+			done
+
+			return
 		fi
 
-        	cpu=$((cpu + 1))
-        	if [[ $cpu -ge $CPUS_N ]]; then
-        	        cpu=0
-        	fi
+		changed_irqs+=("$irq")
+		cpu=$((cpu + 1))
+		if [[ $cpu -ge $CPUS_N ]]; then
+			cpu=0
+		fi
 	done
 
 	IRQS_GLOB_LIST=(${irqs[@]})
