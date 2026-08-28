@@ -350,36 +350,6 @@ tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type,
 	TfwStreamFsmRes res = STREAM_FSM_RES_OK;
 	TfwStreamState new_state;
 
-/*
- * The next two macros checks RFC 9113 4.3:
- * Each field block is processed as a discrete unit. Field blocks MUST be
- * transmitted as a contiguous sequence of frames, with no interleaved
- * frames of any other type or from any other stream. The last frame in a
- * sequence of HEADERS or CONTINUATION frames has the END_HEADERS flag set.
- * The last frame in a sequence of PUSH_PROMISE or CONTINUATION frames has
- * the END_HEADERS flag set. This allows a field block to be logically
- * equivalent to a single frame.
- */
-#define TFW_H2_FSM_STREAM_CHECK(ctx, stream, op)			\
-do {									\
-	if (ctx->cur_##op##_headers					\
-	    && stream != ctx->cur_##op##_headers) { 			\
-		*err = HTTP2_ECODE_PROTO;				\
-		res = STREAM_FSM_RES_TERM_CONN;				\
-		goto finish;						\
-	}								\
-} while(0)
-
-#define TFW_H2_FSM_TYPE_CHECK(ctx, stream, op, type)			\
-do {									\
-	if ((ctx->cur_##op##_headers && type != HTTP2_CONTINUATION)	\
-	    || (!ctx->cur_##op##_headers && type == HTTP2_CONTINUATION)) { \
-		*err = HTTP2_ECODE_PROTO;				\
-		res = STREAM_FSM_RES_TERM_CONN;				\
-		goto finish;						\
-	}								\
-} while(0)
-
 /* Helper macro to fit in 80 characters. */
 #define SET_STATE(state)	tfw_h2_set_stream_state(stream, state)
 
@@ -393,38 +363,30 @@ do {									\
 	       tfw_h2_get_stream_state(stream), __h2_strm_st_n(stream),
 	       stream->id, type, __h2_frm_type_n(type), flags);
 
-	if (send) {
-		TFW_H2_FSM_STREAM_CHECK(ctx, stream, send);
-		TFW_H2_FSM_TYPE_CHECK(ctx, stream, send, type);
-		/*
-		 * Usually we would send HEADERS/CONTINUATION or DATA frames
-		 * to the client when HTTP2_STREAM_REM_HALF_CLOSED state
-		 * is passed, e.g. we have received END_STREAM flag from peer.
-		 * However there might be the case when we can send a reply
-		 * right away, not waiting for an entire request reception
-		 * (RFC 9113 8.1).
-		 * Consider this case:
-		 *	     clnt			    srv
-		 *	     ----			    ---
-		 *	  [OPEN]
-		 * SEND HEADERS (-END_STREAM) ->
-		 * SEND DATA    (+END_STREAM) ->
-		 *	  [HALF_CLOSED LOC]		  [OPEN]
-		 *				>-   RECV HEADERS (-END_STREAM)
-		 *					    |
-		 *					    V
-		 *				req is blocked by FRANG settings
-		 *					    |
-		 *					    V
-		 *				<- SEND HEADERS (+END_STREAM)
-		 *				   + close the stream/terminate
-		 *				     connection
-		 */
-	} else {
-		TFW_H2_FSM_STREAM_CHECK(ctx, stream, recv);
-		TFW_H2_FSM_TYPE_CHECK(ctx, stream, recv, type);
-	}
-
+	/*
+	 * Usually we would send HEADERS/CONTINUATION or DATA frames
+	 * to the client when HTTP2_STREAM_REM_HALF_CLOSED state
+	 * is passed, e.g. we have received END_STREAM flag from peer.
+	 * However there might be the case when we can send a reply
+	 * right away, not waiting for an entire request reception
+	 * (RFC 9113 8.1).
+	 * Consider this case:
+	 *	     clnt			    srv
+	 *	     ----			    ---
+	 *	  [OPEN]
+	 * SEND HEADERS (-END_STREAM) ->
+	 * SEND DATA    (+END_STREAM) ->
+	 *	  [HALF_CLOSED LOC]		  [OPEN]
+	 *				>-   RECV HEADERS (-END_STREAM)
+	 *					    |
+	 *					    V
+	 *				req is blocked by FRANG settings
+	 *					    |
+	 *					    V
+	 *				<- SEND HEADERS (+END_STREAM)
+	 *				   + close the stream/terminate
+	 *				     connection
+	 */
 	switch (tfw_h2_get_stream_state(stream)) {
 	case HTTP2_STREAM_IDLE:
 		/* We don't processed sending headers for idle streams. */
@@ -789,8 +751,6 @@ finish:
 	return res;
 
 #undef SET_STATE
-#undef TFW_H2_FSM_TYPE_CHECK
-#undef TFW_H2_FSM_STREAM_CHECK
 }
 
 TfwStream *

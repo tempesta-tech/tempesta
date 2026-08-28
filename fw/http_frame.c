@@ -843,6 +843,7 @@ fail:
 		return -EPERM;
 
 	WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
+
 	return tfw_h2_current_stream_send_rst(ctx, err_code);
 }
 
@@ -1262,12 +1263,18 @@ do {									\
 		return T_BLOCK_WITH_RST;
 
 	/*
-	 * TODO: RFC 7540 Section 6.2:
-	 * A HEADERS frame without the END_HEADERS flag set MUST be followed
-	 * by a CONTINUATION frame for the same stream. A receiver MUST treat
-	 * the receipt of any other type of frame or a frame on a different
-	 * stream as a connection error (Section 5.4.1) of type PROTOCOL_ERROR.
+	 * RFC 9113 4.3:
+	 * Each field block is processed as a discrete unit. Field blocks MUST
+	 * be transmitted as a contiguous sequence of frames, with no
+	 * interleaved frames of any other type or from any other stream. The
+	 * last frame in a sequence of HEADERS or CONTINUATION frames has the
+	 * END_HEADERS flag set. This allows a field block to be logically
+	 * equivalent to a single frame.
 	 */
+	if (ctx->cur_recv_headers && hdr_type != HTTP2_CONTINUATION) {
+		err_code = HTTP2_ECODE_PROTO;
+		goto conn_term;
+	}
 
 	switch (hdr_type) {
 	case HTTP2_DATA:
@@ -1539,10 +1546,11 @@ do {									\
 		return 0;
 
 	case HTTP2_CONTINUATION:
-		if (!hdr->stream_id) {
+		if (!hdr->stream_id || !ctx->cur_recv_headers) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
 		}
+
 		/*
 		 * CONTINUATION frames are not allowed for idle streams (see
 		 * RFC 7540 section 5.1 and section 6.4 for details).
@@ -1557,6 +1565,12 @@ do {									\
 						      true);
 		if (!ctx->cur_stream) {
 			err_code = HTTP2_ECODE_CLOSED;
+			goto conn_term;
+		}
+
+		if (ctx->cur_recv_headers &&
+		    ctx->cur_recv_headers != ctx->cur_stream) {
+			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
 		}
 
