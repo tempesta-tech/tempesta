@@ -30,9 +30,9 @@
 #include "connection.h"
 #include "http.h"
 #include "http_limits.h"
-#include "log.h"
 #include "procfs.h"
 #include "server.h"
+#include "system_log.h"
 #include "sync_socket.h"
 #include "tls.h"
 

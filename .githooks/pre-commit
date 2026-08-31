@@ -11,7 +11,7 @@ git diff --cached --diff-filter=ACM -- '*.c' '*.h' | \
 # check C++ code formatting
 if command -v clang-format >/dev/null 2>&1 || ls /usr/bin/clang-format-* >/dev/null 2>&1; then
 	CLANG_FORMAT=$(command -v clang-format 2>/dev/null || ls /usr/bin/clang-format-* 2>/dev/null | head -1)
-	
+
 	# Get staged C++ files content and check formatting
 	for file in $(git diff --cached --name-only --diff-filter=ACM -- '*.cc' '*.hh'); do
 		if [[ "$file" != *"clickhouse-cpp"* ]] && [ -f "$file" ]; then

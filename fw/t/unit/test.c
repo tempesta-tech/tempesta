@@ -111,6 +111,7 @@ test_run_all(void)
 	TEST_SUITE_RUN(cfg);
 	TEST_SUITE_RUN(wq);
 	TEST_SUITE_RUN(mmap_buffer);
+	TEST_SUITE_RUN(event_log);
 
 	kernel_fpu_begin();
 

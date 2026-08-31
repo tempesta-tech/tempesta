@@ -40,11 +40,12 @@
 #include "http_msg.h"
 #include "procfs.h"
 #include "vhost.h"
-#include "log.h"
+#include "system_log.h"
 #include "hash.h"
 #include "http_match.h"
 #include "http.h"
 #include "http_sess.h"
+#include "event_log.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -97,39 +98,101 @@ typedef struct {
 #define FRANG_ACC2CLI(a)	container_of((TfwClassifierPrvt *)a,	\
 					     TfwClient, class_prvt)
 
-#define frang_msg(check, addr, fmt, ...)				\
+#define frang_msg_ev_log(event_type, sk, ip_block, ...)			\
+do {									\
+	if (access_log_mmap_enabled()) {				\
+		TfwAddr addr;						\
+		unsigned short local_port = inet_sk(sk)->inet_sport;	\
+									\
+		ss_getpeername(sk, &addr);				\
+		log_web_attack_event(event_type, &addr, local_port,	\
+				     ip_block, ##__VA_ARGS__);		\
+	}								\
+} while (0)
+
+#define __frang_msg(check, addr, fmt, ...)				\
 	T_WARN_MOD_ADDR(frang, check, addr, TFW_NO_PORT, fmt, ##__VA_ARGS__)
+
+#define frang_msg(check, addr, fmt, ...)				\
+do {									\
+	if (access_log_dmesg_enabled())					\
+		T_WARN_MOD_ADDR(frang, check, addr, TFW_NO_PORT, fmt,	\
+				##__VA_ARGS__);				\
+} while (0)
 
 #define frang_msg_lock(lock, check, addr, fmt, ...)			\
 do {									\
-	spin_lock(lock);						\
-	frang_msg(check, addr, fmt, ##__VA_ARGS__);			\
-	spin_unlock(lock);						\
+	if (access_log_dmesg_enabled()) {				\
+		spin_lock(lock);					\
+		__frang_msg(check, addr, fmt, ##__VA_ARGS__);		\
+		spin_unlock(lock);					\
+	}								\
 } while(0)
+
+/*
+ * Client actions has triggered a security event. Log into mmap event log.
+ */
+#define frang_limmsg_ev_log(event_type, sk, ip_block, curr_val, lim)	\
+do {									\
+	if (access_log_mmap_enabled()) {				\
+		TfwAddr addr;						\
+		unsigned short local_port = inet_sk(sk)->inet_sport;	\
+									\
+		ss_getpeername(sk, &addr);				\
+		log_dos_event(event_type, &addr, local_port, ip_block,	\
+			      (long)curr_val, (long)lim);		\
+	}								\
+} while (0)
+
+#define __frang_limmsg(lim_name, curr_val, lim, addr)			\
+	frang_msg(lim_name " exceeded", (addr), ": %ld (lim=%ld)\n",	\
+		  (long)curr_val, (long)lim)
 
 /*
  * Client actions has triggered a security event. Log the client addr and
  * Frang limit name.
  */
 #define frang_limmsg(lim_name, curr_val, lim, addr)			\
-	frang_msg(lim_name " exceeded", (addr), ": %ld (lim=%ld)\n",	\
-		  (long)curr_val, (long)lim)
+do {									\
+	if (access_log_dmesg_enabled())					\
+		__frang_limmsg(lim_name, curr_val, lim, addr);		\
+} while (0)
 
 #define frang_limmsg_lock(lock, lim_name, curr_val, lim, addr)		\
 do {									\
-	spin_lock(lock);						\
-	frang_limmsg(lim_name, curr_val, lim, addr);			\
-	spin_unlock(lock);						\
-} while(0)
+	if (access_log_dmesg_enabled()) {				\
+		spin_lock(lock);					\
+		__frang_limmsg(lim_name, curr_val, lim, addr);		\
+		spin_unlock(lock);					\
+	}								\
+} while (0)
 
 /*
  * Local subsystem has triggered a security event, mostly it's a
  * misconfiguration issue. Log the event and subsystem name.
  */
 #define frang_limmsg_local(lim_name, curr_val, lim, system)		\
-	T_WARN("frang: " lim_name " exceeded for '%s' subsystem: "	\
-	       "%ld (lim=%ld)\n",					\
-	       system, (long)curr_val, (long)lim)
+do {									\
+	if (access_log_dmesg_enabled())					\
+		T_WARN("frang: " lim_name " exceeded for '%s' subsystem: " \
+		       "%ld (lim=%ld)\n", system, (long)curr_val,	\
+		       (long)lim);					\
+} while (0)
+
+/*
+ * Local subsystem has triggered a security event, mostly it's a
+ * misconfiguration issue.
+ */
+#define frang_limmsg_ev_log_local(event_type, ip_block, curr_val, lim)	\
+do {									\
+	if (access_log_mmap_enabled()) {				\
+		TfwAddr addr = {};					\
+		unsigned short local_port = 0;				\
+									\
+		log_dos_event(event_type, &addr, local_port, ip_block,	\
+			      (long)curr_val, (long)lim);		\
+	}								\
+} while (0)
 
 #ifdef DEBUG
 #define frang_dbg_lock(lock, fmt_msg, addr, ...)			\
@@ -213,7 +276,8 @@ frang_time_quantum(unsigned short tframe)
 }
 
 static int
-frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
+frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, TfwAddr *addr,
+		 struct sock *sk)
 {
 	const unsigned long ts = frang_time_quantum(conf->conn_rate_tf);
 	const int i = ts % FRANG_FREQ;
@@ -223,8 +287,17 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	frang_acc_history_init(ra, ts);
 
 	if (conf->conn_max && unlikely(ra->conn_curr > conf->conn_max)) {
+		frang_limmsg_ev_log(TFW_LOG_EVENT_MAX_CONN_EXCEEDED,
+				    sk, conf->ip_block,
+				    ra->conn_curr, conf->conn_max);
+
+		/*
+		 * TODO: Write documentation about getting rid of the second
+		 * logging call, when we will ready to update tests.
+		 */
 		frang_limmsg("connections max num.", ra->conn_curr,
 			     conf->conn_max, &FRANG_ACC2CLI(ra)->addr);
+
 		spin_unlock(&ra->lock);
 		return T_BLOCK;
 	}
@@ -232,8 +305,12 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	if (conf->conn_burst
 	    && unlikely(ra->history[i].conn_new > conf->conn_burst))
 	{
-		frang_limmsg("new connections burst", ra->history[i].conn_new,
-			     conf->conn_burst, &FRANG_ACC2CLI(ra)->addr);
+		frang_limmsg_ev_log(TFW_LOG_EVENT_CONN_BURST_EXCEEDED,
+				    sk, conf->ip_block, ra->history[i].conn_new,
+				    conf->conn_burst);
+
+		frang_limmsg("new connections burst",
+			     ra->history[i].conn_new, conf->conn_burst, addr);
 		spin_unlock(&ra->lock);
 		return T_BLOCK;
 	}
@@ -247,9 +324,12 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 				csum += ra->history[j].conn_new;
 
 		if (unlikely(csum > conf->conn_rate)) {
-			frang_limmsg("new connections rate",
-				     csum, conf->conn_rate,
-				     &FRANG_ACC2CLI(ra)->addr);
+			frang_limmsg_ev_log(TFW_LOG_EVENT_CONN_RATE_EXCEEDED,
+					    sk, conf->ip_block,
+					    csum, conf->conn_rate);
+
+			frang_limmsg("new connections rate", csum,
+				     conf->conn_rate, addr);
 			spin_unlock(&ra->lock);
 			return T_BLOCK;
 		}
@@ -339,7 +419,7 @@ frang_conn_new(struct sock *sk, struct sk_buff *skb)
 	 * and to configure it, while making some of the limits to be global
 	 * for a single client is absolutely straight-forward.
 	 */
-	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
+	r = frang_conn_limit(ra, dflt_vh->frang_gconf, &addr, sk);
 	if (unlikely(r == T_BLOCK) && dflt_vh->frang_gconf->ip_block)
 		tfw_filter_block_ip(cli,
 				    dflt_vh->frang_gconf->ip_block_duration);
@@ -380,13 +460,12 @@ tfw_classify_conn_close(struct sock *sk)
 }
 
 static int
-frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate,
-		unsigned short tf)
+frang_req_limit(FrangAcc *ra, FrangGlobCfg *fg_cfg, struct sock *sk)
 {
-	const unsigned int ts = frang_time_quantum(tf);
+	const unsigned int ts = frang_time_quantum(fg_cfg->req_rate_tf);
 	const int i = ts % FRANG_FREQ;
 
-	if (!req_burst && !req_rate)
+	if (!fg_cfg->req_burst && !fg_cfg->req_rate)
 		return T_OK;
 
 	spin_lock(&ra->lock);
@@ -397,22 +476,31 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate,
 	}
 	ra->history[i].req++;
 
-	if (req_burst && unlikely(ra->history[i].req > req_burst)) {
+	if (fg_cfg->req_burst
+	    && unlikely(ra->history[i].req > fg_cfg->req_burst)) {
+		frang_limmsg_ev_log(TFW_LOG_EVENT_REQ_BURST_EXCEEDED,
+				    sk, fg_cfg->ip_block,
+				    ra->history[i].req, fg_cfg->req_burst);
+
 		frang_limmsg("requests burst", ra->history[i].req,
-			     req_burst, &FRANG_ACC2CLI(ra)->addr);
+			     fg_cfg->req_burst, &FRANG_ACC2CLI(ra)->addr);
 		spin_unlock(&ra->lock);
 		return T_BLOCK;
 	}
 
-	if (req_rate) {
+	if (fg_cfg->req_rate) {
 		unsigned int rsum = 0;
 
 		/* Collect current request sum. */
 		for (int j = 0; j < FRANG_FREQ; j++)
 			if (frang_time_in_frame(ts, ra->history[j].ts))
 				rsum += ra->history[j].req;
-		if (unlikely(rsum > req_rate)) {
-			frang_limmsg("request rate", rsum, req_rate,
+		if (unlikely(rsum > fg_cfg->req_rate)) {
+			frang_limmsg_ev_log(TFW_LOG_EVENT_REQ_RATE_EXCEEDED,
+					    sk, fg_cfg->ip_block,
+					    rsum, fg_cfg->req_rate);
+
+			frang_limmsg("request rate", rsum, fg_cfg->req_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
 			spin_unlock(&ra->lock);
 			return T_BLOCK;
@@ -425,9 +513,14 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate,
 }
 
 static int
-frang_http_uri_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int uri_len)
+frang_http_uri_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int uri_len,
+		   struct sock *sk, bool ip_block)
 {
 	if (unlikely(req->uri_path.len > uri_len)) {
+		frang_limmsg_ev_log(TFW_LOG_EVENT_URI_LEN_EXCEEDED, sk,
+				    ip_block, req->uri_path.len,
+				    uri_len);
+
 		frang_limmsg_lock(&ra->lock, "HTTP URI length",
 				  req->uri_path.len, uri_len,
 				  &FRANG_ACC2CLI(ra)->addr);
@@ -438,14 +531,18 @@ frang_http_uri_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int uri_len)
 }
 
 static int
-frang_http_methods(const TfwHttpReq *req, FrangAcc *ra, unsigned long m_mask)
+frang_http_methods(const TfwHttpReq *req, FrangAcc *ra, unsigned long m_mask,
+		   bool ip_block)
 {
 	unsigned long mbit = (1UL << req->method);
 
 	if (unlikely(!(m_mask & mbit))) {
+		frang_msg_ev_log(TFW_LOG_EVENT_RESTRICTED_HTTP_METHOD,
+				 req->conn->sk, ip_block, req->method, mbit);
+
 		frang_msg_lock(&ra->lock, "restricted HTTP method",
-			       &FRANG_ACC2CLI(ra)->addr,
-			       ": %u (%#lxu)\n", req->method, mbit);
+			       &FRANG_ACC2CLI(ra)->addr, ": %u (%#lxu)\n",
+			       req->method, mbit);
 		return T_BLOCK;
 	}
 
@@ -454,7 +551,7 @@ frang_http_methods(const TfwHttpReq *req, FrangAcc *ra, unsigned long m_mask)
 
 static int
 frang_http_methods_override(const TfwHttpReq *req, FrangAcc *ra,
-			    FrangVhostCfg *f_cfg)
+			 FrangVhostCfg *f_cfg, bool ip_block)
 {
 	unsigned long mbit = (1UL << req->method_override);
 
@@ -464,6 +561,10 @@ frang_http_methods_override(const TfwHttpReq *req, FrangAcc *ra,
 	    || (f_cfg->http_methods_mask &&
 		unlikely(!(f_cfg->http_methods_mask & mbit))))
 	{
+		frang_msg_ev_log(TFW_LOG_EVENT_RESTRICTED_OVERR_HTTP_METHOD,
+				 req->conn->sk, ip_block,
+				 req->method_override, mbit);
+
 		frang_msg_lock(&ra->lock, "restricted overridden HTTP method",
 			       &FRANG_ACC2CLI(ra)->addr, ": %u (%#lxu)\n",
 			       req->method_override, mbit);
@@ -475,7 +576,7 @@ frang_http_methods_override(const TfwHttpReq *req, FrangAcc *ra,
 
 static int
 frang_http_upgrade_websocket(const TfwHttpReq *req, FrangAcc *ra,
-			     FrangVhostCfg *f_cfg)
+			     FrangVhostCfg *f_cfg, bool ip_block)
 {
 	BUG_ON(!req);
 
@@ -497,6 +598,9 @@ frang_http_upgrade_websocket(const TfwHttpReq *req, FrangAcc *ra,
 		if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)
 		    && !test_bit(TFW_HTTP_B_CONN_UPGRADE, req->flags))
 		{
+			frang_msg_ev_log(TFW_LOG_EVENT_UPGRADE_NO_CONN_OPTION,
+					 req->conn->sk, ip_block);
+
 			frang_msg_lock(&ra->lock, "upgrade request without"
 				       " connection option",
 				       &FRANG_ACC2CLI(ra)->addr,
@@ -517,7 +621,8 @@ frang_http_upgrade_websocket(const TfwHttpReq *req, FrangAcc *ra,
 }
 
 static int
-frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
+frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals,
+		    bool ip_block)
 {
 	TfwStr field, *s;
 	FrangCtVal *curr;
@@ -526,6 +631,9 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 		return T_OK;
 
 	if (TFW_STR_EMPTY(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE])) {
+		frang_msg_ev_log(TFW_LOG_EVENT_MISSED_CT_HDR, req->conn->sk,
+				 ip_block);
+
 		frang_msg_lock(&ra->lock, "Content-Type header field",
 			       &FRANG_ACC2CLI(ra)->addr, " is missed\n");
 		return T_BLOCK;
@@ -571,10 +679,16 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 	/* Take first chunk only for logging. */
 	s = TFW_STR_CHUNK(&field, 0);
 	if (s) {
+		frang_msg_ev_log(TFW_LOG_EVENT_RESTRICTED_CT_HDR,
+				 req->conn->sk, ip_block, PR_TFW_STR(s));
+
 		frang_msg_lock(&ra->lock, "restricted Content-Type",
 			       &FRANG_ACC2CLI(ra)->addr,
 			       ": %.*s\n", PR_TFW_STR(s));
 	} else {
+		frang_msg_ev_log(TFW_LOG_EVENT_EMPTY_CT_HDR, req->conn->sk,
+				 ip_block);
+
 		frang_msg_lock(&ra->lock, "restricted empty Content-Type",
 			       &FRANG_ACC2CLI(ra)->addr, "\n");
 	}
@@ -683,7 +797,8 @@ __lookup_vhost_by_authority(TfwPool *pool, const TfwStr *authority)
 }
 
 static int
-frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
+frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra,
+				bool ip_block)
 {
 	TlsCtx *tctx;
 	TfwVhost *tls_vhost;
@@ -714,6 +829,10 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
 		tls_name = tctx->vhost ? ((TfwVhost *)tctx->vhost)->name
 				       : null_name;
 		req_name = req->vhost ? req->vhost->name : null_name;
+		frang_msg_ev_log(TFW_LOG_EVENT_VHOST_SNI_NOT_MATCH_AUTH,
+				 req->conn->sk, ip_block, PR_TFW_STR(&tls_name),
+				 PR_TFW_STR(&req_name));
+
 		frang_msg_lock(&ra->lock, "vhost by SNI doesn't match"
 			       " vhost by authority", &FRANG_ACC2CLI(ra)->addr,
 			       " ('%.*s' vs '%.*s')\n",
@@ -732,7 +851,7 @@ frang_http_domain_fronting_check(const TfwHttpReq *req, FrangAcc *ra)
  * but just print warning for older HTTP.
  */
 static int
-frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
+frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra, bool ip_block)
 {
 	TfwAddr addr;
 	unsigned short host_port;
@@ -767,6 +886,9 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		 */
 		if (!TFW_STR_EMPTY(&authority) && !TFW_STR_EMPTY(&host)
                     && tfw_strcmp(&authority, &host) != 0) {
+			frang_msg_ev_log(TFW_LOG_EVENT_REQ_AUTH_DIFF_HOST,
+					 req->conn->sk, ip_block);
+
 			frang_msg_lock(&ra->lock, "Request :authority differs"
 				       " from Host", &FRANG_ACC2CLI(ra)->addr,
 				       "\n");
@@ -787,6 +909,10 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 
 			/* Check that ports are the same. */
 			if (unlikely(uri_port != host_port)) {
+				frang_msg_ev_log(TFW_LOG_EVENT_PORT_HOST_DIFF,
+						 req->conn->sk, ip_block,
+						 host_port, uri_port);
+
 				frang_msg_lock(&ra->lock, "port from host header doesn't"
 					       " match port from uri",
 					       &FRANG_ACC2CLI(ra)->addr,
@@ -796,6 +922,9 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 			}
 
 			if (tfw_stricmpspn(&req->host, &host, ':') != 0) {
+				frang_msg_ev_log(TFW_LOG_EVENT_REQ_HOST_DIFF_URI,
+						 req->conn->sk, ip_block);
+
 				frang_msg_lock(&ra->lock, "Request host from"
 					       " absolute URI differs from Host"
 					       " header",
@@ -818,6 +947,10 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 				      &prim_trim, &prim_name);
 		if (TFW_STR_EMPTY(&req->host) && TFW_STR_EMPTY(&prim_trim))
 			return T_OK;
+
+		frang_msg_ev_log(TFW_LOG_EVENT_HOST_HDR_IN_OLD_PROTO,
+				 req->conn->sk, ip_block);
+
 		frang_msg_lock(&ra->lock, "Host header field in protocol prior"
 			       " to HTTP/1.1", &FRANG_ACC2CLI(ra)->addr, "\n");
 		return T_BLOCK;
@@ -828,6 +961,9 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	/* Check that host header is not a IP address. */
 	if (!TFW_STR_EMPTY(&req->host)
 	    && unlikely(!tfw_addr_pton(&req->host, &addr))) {
+		frang_msg_ev_log(TFW_LOG_EVENT_IP_ADDR_IN_HOST, req->conn->sk,
+				 ip_block);
+
 		frang_msg_lock(&ra->lock, "Host header field contains"
 			       " IP address", &FRANG_ACC2CLI(ra)->addr,
 			       "\n");
@@ -840,13 +976,17 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	 */
 	real_port = be16_to_cpu(inet_sk(req->conn->sk)->inet_sport);
 	if (unlikely(host_port != real_port)) {
+		frang_msg_ev_log(TFW_LOG_EVENT_HOST_PORT_N_MATCH_REAL_PORT,
+				 req->conn->sk, ip_block, host_port,
+				 real_port);
+
 		frang_msg_lock(&ra->lock, "port from host header doesn't"
 			       " match real port", &FRANG_ACC2CLI(ra)->addr,
 			       ": %u (%u)\n", host_port, real_port);
 		return T_BLOCK;
 	}
 
-	return frang_http_domain_fronting_check(req, ra);
+	return frang_http_domain_fronting_check(req, ra, ip_block);
 }
 
 /*
@@ -897,7 +1037,7 @@ do {									\
 
 static int
 frang_http_req_incomplete_hdrs_check(FrangAcc *ra, TfwFsmData *data,
-				     FrangGlobCfg *fg_cfg)
+				     FrangGlobCfg *fg_cfg, struct sock *sk)
 {
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
 	struct sk_buff *skb = data->skb;
@@ -920,6 +1060,11 @@ frang_http_req_incomplete_hdrs_check(FrangAcc *ra, TfwFsmData *data,
 		unsigned long delta = fg_cfg->clnt_hdr_timeout;
 
 		if (time_is_before_jiffies(start + delta)) {
+			frang_limmsg_ev_log(TFW_LOG_EVENT_CL_HEADER_TIMEOUT_EXCEEDED,
+					    sk, fg_cfg->ip_block,
+					    jiffies_to_msecs(jiffies - start),
+					    jiffies_to_msecs(delta));
+
 			frang_limmsg_lock(&ra->lock, "client header timeout",
 					  jiffies_to_msecs(jiffies - start),
 					  jiffies_to_msecs(delta),
@@ -929,6 +1074,10 @@ frang_http_req_incomplete_hdrs_check(FrangAcc *ra, TfwFsmData *data,
 	}
 
 	if (hchnk_cnt && unlikely(req->chunk_cnt > hchnk_cnt)) {
+		frang_limmsg_ev_log(TFW_LOG_EVENT_CL_HEADER_CHUNK_EXCEEDED,
+				    sk, fg_cfg->ip_block,
+				    req->chunk_cnt, hchnk_cnt);
+
 		frang_limmsg_lock(&ra->lock, "HTTP header chunk count",
 				  req->chunk_cnt, hchnk_cnt,
 				  &FRANG_ACC2CLI(ra)->addr);
@@ -942,7 +1091,8 @@ block:
 
 static int
 frang_http_req_incomplete_body_check(FrangAcc *ra, TfwFsmData *data,
-				     FrangGlobCfg *fg_cfg, FrangVhostCfg *f_cfg)
+				     FrangGlobCfg *fg_cfg, FrangVhostCfg *f_cfg,
+				     struct sock *sk)
 {
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
 	unsigned long body_len = f_cfg->http_body_len;
@@ -967,6 +1117,11 @@ frang_http_req_incomplete_body_check(FrangAcc *ra, TfwFsmData *data,
 		unsigned long delta = body_timeout;
 
 		if (unlikely(time_is_before_jiffies(start + delta))) {
+			frang_limmsg_ev_log(TFW_LOG_EVENT_CL_BODY_TIMEOUT_EXCEEDED,
+					    sk, fg_cfg->ip_block,
+					    jiffies_to_msecs(jiffies - start),
+					    jiffies_to_msecs(delta));
+
 			frang_limmsg_lock(&ra->lock, "client body timeout",
 					  jiffies_to_msecs(jiffies - start),
 					  jiffies_to_msecs(delta),
@@ -978,6 +1133,10 @@ frang_http_req_incomplete_body_check(FrangAcc *ra, TfwFsmData *data,
 
 	/* Limit number of chunks in request body */
 	if (bchunk_cnt && unlikely(req->chunk_cnt > bchunk_cnt)) {
+		frang_limmsg_ev_log(TFW_LOG_EVENT_CL_BODY_CHUNK_EXCEEDED,
+				    sk, fg_cfg->ip_block,
+				    req->chunk_cnt, bchunk_cnt);
+
 		frang_limmsg_lock(&ra->lock, "HTTP body chunk count",
 				  req->chunk_cnt, bchunk_cnt,
 				  &FRANG_ACC2CLI(ra)->addr);
@@ -985,6 +1144,10 @@ frang_http_req_incomplete_body_check(FrangAcc *ra, TfwFsmData *data,
 	}
 
 	if (body_len && unlikely(req->body.len > body_len)) {
+		frang_limmsg_ev_log(TFW_LOG_EVENT_BODY_LENGTH_EXCEEDED,
+				    sk, fg_cfg->ip_block,
+				    req->body.len, body_len);
+
 		frang_limmsg_lock(&ra->lock, "HTTP body length",
 				  req->body.len, body_len,
 				  &FRANG_ACC2CLI(ra)->addr);
@@ -1045,8 +1208,12 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 	 * Don't use special settings for the trailer part, keep on
 	 * using body limits.
 	 */
-	r = frang_http_req_incomplete_body_check(ra, data, fg_cfg, f_cfg);
+	r = frang_http_req_incomplete_body_check(ra, data, fg_cfg, f_cfg,
+						 req->conn->sk);
 	if (unlikely(test_bit(TFW_HTTP_B_FIELD_DUPENTRY, req->flags))) {
+		frang_msg_ev_log(TFW_LOG_EVENT_DUP_HDR_FIELD_IN_TRAILER,
+				 req->conn->sk, fg_cfg->ip_block);
+
 		frang_msg_lock(&ra->lock, "duplicate header field found",
 			       &FRANG_ACC2CLI(ra)->addr, "\n");
 		return T_BLOCK;
@@ -1074,6 +1241,9 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 			dups += 1;
 		}
 		if (trailers && unlikely(dups != trailers)) {
+			frang_msg_ev_log(TFW_LOG_EVENT_DUP_HDR_FIELD_IN_TRAILER_REG,
+					 req->conn->sk, fg_cfg->ip_block);
+
 			frang_msg_lock(&ra->lock, "HTTP field appear in"
 				       " header and trailer for client",
 				       &FRANG_ACC2CLI(ra)->addr, "\n");
@@ -1089,9 +1259,10 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		       TfwVhost *dvh)
 {
 	int r = T_OK;
-	TfwHttpReq *req = (TfwHttpReq *)data->req;
 	FrangVhostCfg *f_cfg = NULL;
 	FrangGlobCfg *fg_cfg = NULL;
+	TfwHttpReq *req = (TfwHttpReq *)data->req;
+
 	T_FSM_INIT(Frang_Req_0, "frang");
 
 	if (WARN_ON_ONCE(!ra))
@@ -1135,10 +1306,11 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	 * every FSM state.
 	 */
 	if (req->frang_st < Frang_Req_Hdr_NoState)
-		r = frang_http_req_incomplete_hdrs_check(ra, data, fg_cfg);
+		r = frang_http_req_incomplete_hdrs_check(ra, data, fg_cfg,
+							 conn->sk);
 	else
 		r = frang_http_req_incomplete_body_check(ra, data, fg_cfg,
-							 f_cfg);
+							 f_cfg, conn->sk);
 	if (unlikely(r))
 		return r;
 
@@ -1151,8 +1323,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	 * that run when a connection is established or destroyed.
 	 */
 	T_FSM_STATE(Frang_Req_0) {
-		r = frang_req_limit(ra, fg_cfg->req_burst, fg_cfg->req_rate,
-				    fg_cfg->req_rate_tf);
+		r = frang_req_limit(ra, fg_cfg, conn->sk);
 		/* Set the time the header started coming in. */
 		req->tm_header = jiffies;
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_Method);
@@ -1164,8 +1335,8 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		    req->method == _TFW_HTTP_METH_INCOMPLETE) {
 			T_FSM_EXIT();
 		}
-		r = frang_http_methods(req, ra,
-				       f_cfg->http_methods_mask);
+		r = frang_http_methods(req, ra, f_cfg->http_methods_mask,
+				       fg_cfg->ip_block);
 
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_UriLen);
 	}
@@ -1173,7 +1344,9 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	/* Ensure that length of URI is within limits. */
 	T_FSM_STATE(Frang_Req_Hdr_UriLen) {
 		if (f_cfg->http_uri_len) {
-			r = frang_http_uri_len(req, ra, f_cfg->http_uri_len);
+			r = frang_http_uri_len(req, ra, f_cfg->http_uri_len,
+					       conn->sk, fg_cfg->ip_block);
+
 			if (!(req->uri_path.flags & TFW_STR_COMPLETE))
 				__FRANG_FSM_JUMP_EXIT(Frang_Req_Hdr_UriLen);
 		}
@@ -1186,6 +1359,9 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	 */
 	T_FSM_STATE(Frang_Req_Hdr_Check) {
 		if (test_bit(TFW_HTTP_B_FIELD_DUPENTRY, req->flags)) {
+			frang_msg_ev_log(TFW_LOG_EVENT_DUP_HDR_FIELD, conn->sk,
+					 fg_cfg->ip_block);
+
 			frang_msg_lock(&ra->lock, "duplicate header"
 				       " field found",
 				       &FRANG_ACC2CLI(ra)->addr, "\n");
@@ -1202,12 +1378,14 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 
 		/* Ensure presence and the value of Host: header field. */
 		if (f_cfg->http_strict_host_checking
-		    && unlikely(r = frang_http_host_check(req, ra)))
+		    && unlikely(r = frang_http_host_check(req, ra,
+							  fg_cfg->ip_block)))
 		{
 			T_FSM_EXIT();
 		}
 		/* Ensure overridden HTTP method suits restrictions. */
-		r = frang_http_methods_override(req, ra, f_cfg);
+		r = frang_http_methods_override(req, ra, f_cfg,
+						fg_cfg->ip_block);
 		if (unlikely(r))
 			T_FSM_EXIT();
 		/*
@@ -1216,7 +1394,8 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		*/
 		if ((f_cfg->http_ct_required || f_cfg->http_ct_vals)
 		    && unlikely(r = frang_http_ct_check(req, ra,
-		    					f_cfg->http_ct_vals)))
+							f_cfg->http_ct_vals,
+							fg_cfg->ip_block)))
 		{
 			T_FSM_EXIT();
 		}
@@ -1224,7 +1403,8 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		/* Do checks for websocket upgrade */
 		if (test_bit(TFW_HTTP_B_UPGRADE_WEBSOCKET, req->flags)
 		    && unlikely((r = frang_http_upgrade_websocket(req, ra,
-		    						  f_cfg))))
+								  f_cfg,
+								  fg_cfg->ip_block))))
 		{
 			T_FSM_EXIT();
 		}
@@ -1240,7 +1420,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		req->chunk_cnt = 0; /* start counting body chunks now. */
 		req->tm_bchunk = jiffies;
 		r = frang_http_req_incomplete_body_check(ra, data, fg_cfg,
-							 f_cfg);
+							 f_cfg, conn->sk);
 		__FRANG_FSM_MOVE(Frang_Req_Body);
 	}
 
@@ -1281,7 +1461,9 @@ frang_http_req_handler(TfwConn *conn, TfwFsmData *data)
 	int r;
 	FrangAcc *ra;
 	TfwVhost *dvh = NULL;
+#ifdef DISABLED_934
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
+#endif
 
 	/*
 	 * TODO #1350:
@@ -1292,8 +1474,10 @@ frang_http_req_handler(TfwConn *conn, TfwFsmData *data)
 		return T_OK;
 
 	ra = frang_acc_from_sk(conn->sk);
+#ifdef DISABLED_934
 	if (req->peer)
 		ra = FRANG_CLI2ACC(req->peer);
+#endif
 
 	dvh = tfw_vhost_lookup_default();
 	if (WARN_ON_ONCE(!dvh))
@@ -1312,20 +1496,25 @@ static int
 frang_resp_process(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
+#ifdef DISABLED_934
 	TfwAddr *cli_addr = NULL;
+#else
+	TfwAddr cli_addr = {};
+#endif
 	TfwLocation *loc = req->location ? : req->vhost->loc_dflt;
 	unsigned long body_len = loc->frang_cfg->http_body_len;
 	unsigned long exceeded = 0;
 	int r = T_OK;
-
 	if (!body_len)
 		return T_OK;
 
 	if (likely(req->conn)) {
+#ifdef DISABLED_934
 		if (req->peer)
 			cli_addr = &req->peer->addr;
 		else
 			cli_addr = &req->conn->peer->addr;
+#endif
 	}
 
 	if (unlikely(resp->content_length > body_len)) {
@@ -1336,11 +1525,26 @@ frang_resp_process(TfwHttpResp *resp)
 
 	/* Ensure message body size doesn't overcome acceptable limits. */
 	if (unlikely(exceeded)) {
-		if (cli_addr) {
-			frang_limmsg("HTTP response body length",
-				     exceeded, body_len,
-				     cli_addr);
+		FrangGlobCfg *cfg = req->vhost->vhost_dflt
+				? req->vhost->vhost_dflt->frang_gconf
+				: req->vhost->frang_gconf;
+
+		if (req->conn) {
+			frang_limmsg_ev_log(TFW_LOG_EVENT_BODY_LEN_EXCEEDED,
+					    req->conn->sk, cfg->ip_block,
+					    exceeded, body_len);
+
+#ifndef DISABLED_934
+			if (access_log_dmesg_enabled())
+				ss_getpeername(req->conn->sk, &cli_addr);
+#endif
+			frang_limmsg("HTTP response body length", exceeded,
+				     body_len, &cli_addr);
 		} else {
+			frang_limmsg_ev_log_local(TFW_LOG_EVENT_BODY_LEN_EXCEEDED_HM,
+						  cfg->ip_block, exceeded,
+						  body_len);
+
 			frang_limmsg_local("HTTP response body length",
 					   exceeded, body_len,
 					   "Health Monitor");
@@ -1352,7 +1556,8 @@ frang_resp_process(TfwHttpResp *resp)
 }
 
 static int
-frang_resp_code_limit(FrangAcc *ra, FrangHttpRespCodeBlock *resp_cblk)
+frang_resp_code_limit(FrangAcc *ra, FrangHttpRespCodeBlock *resp_cblk,
+		      FrangGlobCfg *fg_cfg, struct sock *sk)
 {
 	FrangRespCodeStat *stat = ra->resp_code_stat;
 	unsigned long cnt = 0;
@@ -1371,6 +1576,10 @@ frang_resp_code_limit(FrangAcc *ra, FrangHttpRespCodeBlock *resp_cblk)
 			cnt += stat[i].cnt;
 	}
 	if (unlikely(cnt > resp_cblk->limit)) {
+		frang_limmsg_ev_log(TFW_LOG_EVENT_RESP_CODE_BLOCK_EXCEEDED,
+				    sk, fg_cfg->ip_block, cnt,
+				    resp_cblk->limit);
+
 		frang_limmsg("http_resp_code_block limit", cnt,
 			     resp_cblk->limit, &FRANG_ACC2CLI(ra)->addr);
 		return T_BLOCK;
@@ -1396,6 +1605,9 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 	FrangVhostCfg *fcfg = req->location ? req->location->frang_cfg
 					    : req->vhost->loc_dflt->frang_cfg;
 	FrangHttpRespCodeBlock *conf = fcfg->http_resp_code_block;
+	FrangGlobCfg *fg_cfg = req->vhost->vhost_dflt
+			? req->vhost->vhost_dflt->frang_gconf
+			: req->vhost->frang_gconf;
 
 	/*
 	 * Requests originated by Health Monitor are generated by Tempesta,
@@ -1427,7 +1639,7 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 	 * and wait for the results. If the attack is spotted, block the client
 	 * and wipe all their received but not processed requests ASAP.
 	 */
-	r = frang_resp_code_limit(ra, conf);
+	r = frang_resp_code_limit(ra, conf, fg_cfg, req->conn->sk);
 	spin_unlock(&ra->lock);
 
 	return r;
@@ -1461,7 +1673,8 @@ frang_resp_handler(TfwConn *conn, TfwFsmData *data)
 }
 
 static int
-frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
+frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, TfwTlsConn *conn,
+		     int hs_state)
 {
 	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
 	unsigned long sum_new = 0, sum_incomplete = 0;
@@ -1480,6 +1693,11 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 		    && unlikely(ra->history[i].tls_sess_new >
 				conf->tls_new_conn_burst))
 		{
+			frang_limmsg_ev_log(TFW_LOG_EVENT_TLS_CONN_BURST_EXCEEDED,
+					    conn->cli_conn.sk, conf->ip_block,
+					    ra->history[i].tls_sess_new,
+					    conf->tls_new_conn_burst);
+
 			frang_limmsg("new TLS connections burst",
 				     ra->history[i].tls_sess_new,
 				     conf->tls_new_conn_burst,
@@ -1509,6 +1727,10 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 		if (conf->tls_new_conn_rate
 		    && unlikely(sum_new > conf->tls_new_conn_rate))
 		{
+			frang_limmsg_ev_log(TFW_LOG_EVENT_TLS_CONN_RATE_EXCEEDED,
+					    conn->cli_conn.sk, conf->ip_block,
+					    sum_new, conf->tls_new_conn_rate);
+
 			frang_limmsg("new TLS connections rate", sum_new,
 				     conf->tls_new_conn_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
@@ -1520,6 +1742,11 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 		    && unlikely(sum_incomplete >
 		    		conf->tls_incomplete_conn_rate))
 		{
+			frang_limmsg_ev_log(TFW_LOG_EVENT_TLS_INCOMP_CONN_RATE_EXCEEDED,
+					    conn->cli_conn.sk, conf->ip_block,
+					    sum_incomplete,
+					    conf->tls_incomplete_conn_rate);
+
 			frang_limmsg("incomplete TLS connections rate",
 				     sum_incomplete,
 				     conf->tls_incomplete_conn_rate,
@@ -1549,7 +1776,7 @@ frang_tls_handler(TlsCtx *tls, int state)
 
 	spin_lock(&ra->lock);
 
-	r = frang_tls_conn_limit(ra, dflt_vh->frang_gconf, state);
+	r = frang_tls_conn_limit(ra, dflt_vh->frang_gconf, conn, state);
 
 	spin_unlock(&ra->lock);
 
@@ -1564,12 +1791,16 @@ frang_tls_handler(TlsCtx *tls, int state)
 
 static int
 __frang_http_hdr_len(FrangAcc *ra, TfwHttpReq *req, unsigned int new_hdr_len,
-		     unsigned int max_hdr_len)
+		     unsigned int max_hdr_len, FrangGlobCfg *conf)
 {
 	unsigned int cur_hdr_len;
 
 	cur_hdr_len = TFW_HTTP_MSG_HDR_OVERHEAD(req) + new_hdr_len;
 	if (unlikely(cur_hdr_len > max_hdr_len)) {
+		frang_limmsg_ev_log(TFW_LOG_EVENT_HTTP_HDR_LEN_EXCEEDED,
+				    req->conn->sk, conf->ip_block,
+				    cur_hdr_len, max_hdr_len);
+
 		frang_limmsg_lock(&ra->lock, "HTTP header length", cur_hdr_len,
 				  max_hdr_len, &FRANG_ACC2CLI(ra)->addr);
 		return T_BLOCK;
@@ -1579,9 +1810,14 @@ __frang_http_hdr_len(FrangAcc *ra, TfwHttpReq *req, unsigned int new_hdr_len,
 }
 
 static int
-__frang_http_hdr_cnt(FrangAcc *ra, TfwHttpReq *req, unsigned int hdr_cnt)
+__frang_http_hdr_cnt(FrangAcc *ra, TfwHttpReq *req, unsigned int hdr_cnt,
+		     FrangGlobCfg *conf)
 {
 	if (unlikely(req->headers_cnt + 1 > hdr_cnt)) {
+		frang_limmsg_ev_log(TFW_LOG_EVENT_HTTP_HDRS_COUNT_EXCEEDED,
+				    req->conn->sk, conf->ip_block,
+				    req->headers_cnt + 1, hdr_cnt);
+
 		frang_limmsg_lock(&ra->lock, "HTTP headers count",
 				  req->headers_cnt + 1, hdr_cnt,
 				  &FRANG_ACC2CLI(ra)->addr);
@@ -1594,7 +1830,8 @@ __frang_http_hdr_cnt(FrangAcc *ra, TfwHttpReq *req, unsigned int hdr_cnt)
 static int
 __frang_http_hdr_list_size(FrangAcc *ra, TfwHttpReq *req,
 			   unsigned int new_hdr_len,
-			   unsigned int max_hdr_list_size)
+			   unsigned int max_hdr_list_size,
+			   FrangGlobCfg *conf)
 {
 	unsigned int cur_hdr_list_size;
 
@@ -1602,6 +1839,10 @@ __frang_http_hdr_list_size(FrangAcc *ra, TfwHttpReq *req,
 		new_hdr_len + TFW_HTTP_MSG_HDR_OVERHEAD(req);
 
 	if (unlikely(cur_hdr_list_size > max_hdr_list_size)) {
+		frang_limmsg_ev_log(TFW_LOG_EVENT_HTTP_HDR_LIST_SIZE_EXCEEDED,
+				    req->conn->sk, conf->ip_block,
+				    cur_hdr_list_size, max_hdr_list_size);
+
 		frang_limmsg_lock(&ra->lock, "HTTP header list size",
 				  cur_hdr_list_size, max_hdr_list_size,
 				  &FRANG_ACC2CLI(ra)->addr);
@@ -1623,20 +1864,22 @@ __frang_http_hdr_limit(FrangAcc *ra, TfwHttpReq *req, TfwVhost *dvh,
 
 	if (f_cfg->http_hdr_len &&
 	    unlikely((r = __frang_http_hdr_len(ra, req, new_hdr_len,
-					       f_cfg->http_hdr_len))))
+					       f_cfg->http_hdr_len, f_cfg))))
 	{
 		return r;
 	}
 
 	if (f_cfg->http_hdr_cnt &&
-	    unlikely((r = __frang_http_hdr_cnt(ra, req, f_cfg->http_hdr_cnt))))
+	    unlikely((r = __frang_http_hdr_cnt(ra, req, f_cfg->http_hdr_cnt,
+					       f_cfg))))
 	{
 		return r;
 	}
 
 	if (max_header_list_size &&
 	    unlikely((r = __frang_http_hdr_list_size(ra, req, new_hdr_len,
-						     max_header_list_size))))
+						     max_header_list_size,
+						     f_cfg))))
 	{
 		return r;
 	}
@@ -1701,7 +1944,7 @@ frang_client_mem_limit(TfwCliConn *conn, bool block_if_exceeded)
 
 static int
 frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn,
-			  unsigned int max_misses)
+			  unsigned int max_misses, bool ip_block)
 {
 	unsigned long ts = jiffies * FRANG_FREQ / HZ;
 	int i = ts % FRANG_FREQ;
@@ -1725,6 +1968,10 @@ frang_sticky_cookie_limit(FrangAcc *ra, TfwCliConn *conn,
 	}
 
 	if (unlikely(msum > max_misses)) {
+		frang_limmsg_ev_log(TFW_LOG_EVENT_STICKY_MAX_MISSES_EXCEEDED,
+				    conn->sk, ip_block,
+				    msum, max_misses);
+
 		frang_limmsg_lock(&ra->lock, "max rmisses", msum, max_misses,
 				  &FRANG_ACC2CLI(ra)->addr);
 		return T_BLOCK;
@@ -1738,6 +1985,7 @@ frang_sticky_cookie_handler(TfwHttpReq *req)
 {
 	TfwConn *conn = req->conn;
 	FrangAcc *ra;
+	FrangGlobCfg *fg_cfg;
 	TfwStickyCookie *sticky;
 
 	if (WARN_ON_ONCE(!req->vhost || !conn || !conn->sk))
@@ -1748,6 +1996,9 @@ frang_sticky_cookie_handler(TfwHttpReq *req)
 		ra = FRANG_CLI2ACC(req->peer);
 
 	sticky = req->vhost->cookie;
+	fg_cfg = req->vhost->vhost_dflt
+		 ? req->vhost->vhost_dflt->frang_gconf
+		 : req->vhost->frang_gconf;
 	/*
 	 * All whitelisted requests should not execute JS
 	 * challenge. Also this function is called only for
@@ -1758,7 +2009,7 @@ frang_sticky_cookie_handler(TfwHttpReq *req)
 	BUG_ON(!(TFW_CONN_TYPE(conn) & Conn_Clnt));
 
 	return frang_sticky_cookie_limit(ra, (TfwCliConn *)conn,
-					 sticky->max_misses);
+					 sticky->max_misses, fg_cfg->ip_block);
 }
 
 /*

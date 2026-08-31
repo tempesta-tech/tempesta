@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,8 +18,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_LOG_H__
-#define __TFW_LOG_H__
+#ifndef __TFW_FW_LOG_H__
+#define __TFW_FW_LOG_H__
 
 #include <linux/kernel.h>
 
@@ -68,4 +68,4 @@ do {									\
 	T_WARN(#mod ": %s for %s" fmt, check, abuf, ##__VA_ARGS__);	\
 } while (0)
 
-#endif /* __TFW_LOG_H__ */
+#endif /* __TFW_FW_LOG_H__ */

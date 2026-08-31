@@ -25,6 +25,7 @@
 #define DEBUG DBG_HTTP_PARSER
 #endif
 
+#include "event_log.h"
 #include "gfsm.h"
 #include "http_msg.h"
 #include "htype.h"
@@ -1627,18 +1628,29 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	__FSM_MOVE_nofixup_n(RGen_EoL, __fsm_sz);			\
 }
 
-#define WARN_BODY_ATTACK(msg_type, attack_type) 			\
-	T_WARN("Transfer-Encoding chunked and Content-Length in same"   \
-	       " %s considered as attempt to %s attack.\n", msg_type,   \
-		attack_type)
+#define WARN_BODY_ATTACK(sk, msg_type, attack_type)				\
+do {										\
+	if (access_log_mmap_enabled()) {					\
+		TfwAddr addr;							\
+		unsigned short local_port = inet_sk(sk)->inet_sport;		\
+										\
+		ss_getpeername(sk, &addr);					\
+		log_web_attack_event(TFW_LOG_EVENT_BODY_ATTACK, &addr,		\
+				     local_port, false, msg_type, attack_type); \
+	}									\
+	if (access_log_dmesg_enabled())						\
+		T_WARN("Transfer-Encoding chunked and Content-Length in same"   \
+		       " %s considered as attempt to %s attack.\n", msg_type,   \
+			attack_type);						\
+} while (0)
 
-#define DROP_REQUEST_SMUGGLING() {					\
-	WARN_BODY_ATTACK("request", "Request smuggling");		\
+#define DROP_REQUEST_SMUGGLING(sk) {					\
+	WARN_BODY_ATTACK(sk, "request", "Request smuggling");		\
 	FSM_EXIT(T_DROP);						\
 }
 
-#define DROP_RESPONSE_SPLITTING() {					\
-	WARN_BODY_ATTACK("reponse", "Response splitting");		\
+#define DROP_RESPONSE_SPLITTING(sk) {					\
+	WARN_BODY_ATTACK(sk, "response", "Response splitting");		\
 	FSM_EXIT(T_DROP); 						\
 }
 
@@ -1660,7 +1672,7 @@ __FSM_STATE(RGen_BodyInit, cold) {					\
 		 * Response Splitting.					\
 		 */							\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
-			DROP_REQUEST_SMUGGLING();			\
+			DROP_REQUEST_SMUGGLING(msg->conn->sk);			\
 		if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))		\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
 		/*							\
@@ -1714,7 +1726,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 			 * to be used with content-length header.	\
 			 */						\
 			if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))	\
-				DROP_RESPONSE_SPLITTING();		\
+				DROP_RESPONSE_SPLITTING(msg->conn->sk);	\
 			if (msg->content_length == 0)			\
 				goto no_body;				\
 			parser->to_read = msg->content_length;		\

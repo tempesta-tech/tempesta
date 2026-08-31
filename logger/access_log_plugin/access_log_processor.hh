@@ -25,6 +25,8 @@
 #include "../plugin_processor_iface.hh"
 
 #include "access_log_clickhouse.hh"
+#include "dos_log_clickhouse.hh"
+#include "web_attack_log_clickhouse.hh"
 
 /**
  * Plugin processor that handles access-log events and writes them to ClickHouse.
@@ -36,10 +38,11 @@
 class AccessLogProcessor final: public IPluginProcessor
 {
 public:
-	explicit AccessLogProcessor(std::unique_ptr<IClickhouse> writer,
-				    unsigned cpu_id,
-				    int device_fd,
-				    const char* table_name,
+	explicit AccessLogProcessor(std::shared_ptr<IClickhouse> writer,
+				    unsigned cpu_id, int device_fd,
+				    std::string_view access_log_table_name,
+				    std::string_view dos_log_table_name,
+				    std::string_view web_attack_log_table_name,
 				    size_t max_events);
 	~AccessLogProcessor() override;
 
@@ -52,10 +55,17 @@ public:
 	virtual int send(bool force) noexcept override;
 
 	virtual std::string_view name() const noexcept override;
-private:
-	AccessLogClickhouseDecorator writer_;
 
-	int		device_fd_;
-	TfwMmapBuffer	*buffer_;
-	size_t		size_;
+private:
+	[[nodiscard]] tus::Error<size_t>
+	process_events(std::span<const char> data) noexcept;
+private:
+	AccessLogClickhouseDecorator access_log_table_;
+	DosLogClickhouseDecorator security_dos_log_table_;
+	WebAttackLogClickhouseDecorator web_attack_log_table_;
+
+	int				device_fd_;
+	TfwMmapBuffer			*buffer_;
+	std::shared_ptr<IClickhouse> 	client_;
+	size_t				size_;
 };

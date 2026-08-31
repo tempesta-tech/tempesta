@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -26,23 +26,27 @@
 
 #include <fmt/format.h>
 
-struct PluginConfig {
+struct AccessLogConfig {
 	std::string			host{"localhost"};
 	uint16_t			port{9000};
 	std::string			db_name{"default"};
-	std::string			table_name{"access_log"};
+	std::string			access_log_table_name{"access_log"};
+	std::string			dos_log_table_name{"security_dos_log"};
+	std::string			web_attack_log_table_name{"security_web_attack_log"};
 	std::optional<std::string>	user;
 	std::optional<std::string>	password;
 	// Events before forcing commit
 	size_t				max_events{1000};
 	std::string			json_str;
 
-	void parse_from_ptree(const boost::property_tree::ptree &tree);
+	void parse_json(std::string json);
 
+private:
+	void parse_from_ptree(const boost::property_tree::ptree &tree);
 	void validate() const;
 };
 
-template <> struct fmt::formatter<PluginConfig> {
+template <> struct fmt::formatter<AccessLogConfig> {
 	constexpr decltype(auto)
 	parse(fmt::format_parse_context &ctx)
 	{
@@ -51,20 +55,23 @@ template <> struct fmt::formatter<PluginConfig> {
 
 	template <typename FormatContext>
 	constexpr decltype(auto)
-	format(const PluginConfig &config, FormatContext &ctx)
+	format(const AccessLogConfig &config, FormatContext &ctx)
 	{
 		constexpr auto msg_template = "{{host: '{}',"
 					      " port: {},"
 					      " database: '{}',"
-					      " table: '{}',"
+					      " access_log_table_name: '{}',"
+					      " dos_log_table_name: '{}',"
+					      " web_attack_log_table_name: '{}',"
 					      " user: '{}',"
 					      " max_events: {}}}";
 		return fmt::format_to(ctx.out(),
 				      msg_template,
 				      config.host,
 				      config.port,
-				      config.db_name,
-				      config.table_name,
+				      config.access_log_table_name,
+				      config.dos_log_table_name,
+				      config.web_attack_log_table_name,
 				      config.user.value_or("<none>"),
 				      config.max_events);
 	}
