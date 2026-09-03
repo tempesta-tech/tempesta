@@ -467,17 +467,19 @@ tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
  * closed streams will be removed from the memory.
  */
 int
-tfw_h2_current_stream_send_rst(TfwH2Ctx *ctx, int err_code)
+tfw_h2_current_stream_reset(TfwH2Ctx *ctx, int err_code)
 {
 	unsigned int stream_id = ctx->cur_stream->id;
 
-	spin_lock(&ctx->lock);
+	if (ctx->cur_stream != ctx->cur_send_headers) {
+		spin_lock(&ctx->lock);
 
-	tfw_h2_stream_unlink_nolock(ctx, ctx->cur_stream);
-	tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams,
-					  ctx->cur_stream);
+		tfw_h2_stream_unlink_nolock(ctx, ctx->cur_stream);
+		tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams,
+						  ctx->cur_stream);
 
-	spin_unlock(&ctx->lock);
+		spin_unlock(&ctx->lock);
+	}
 
 	ctx->cur_stream = NULL;
 

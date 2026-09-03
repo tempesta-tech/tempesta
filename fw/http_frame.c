@@ -199,22 +199,7 @@ do {									\
 			return T_BAD;					\
 		} else if (res == STREAM_FSM_RES_TERM_STREAM) {		\
 			WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id); \
-			if (ctx->cur_stream != ctx->cur_send_headers) {  \
-				return tfw_h2_current_stream_send_rst((ctx), \
-								      err); \
-			} else {					\
-				unsigned int id = ctx->cur_stream->id;	\
-				/**
-				 * If Tempesta is already sending headers,
-				 * only update the stream state and schedule
-				 * sending an RST_STREAM frame, but do not
-				 * remove the stream from the scheduling queue.
-				 */					\
-				int r = tfw_h2_send_rst_stream(ctx, id, err); \
-									\
-				ctx->cur_stream = NULL;			\
-				return r;				\
-			}						\
+			return tfw_h2_current_stream_reset((ctx), err);	\
 		}							\
 		return T_OK;						\
 	}								\
@@ -277,7 +262,8 @@ tfw_h2_on_send_rst_stream(void *conn, struct sk_buff **skb_head)
 	 * Stream can not exist in case when we send RST stream because a
 	 * remote peer exceeded max_concurrent_streams limit.
 	 */
-	if (stream && stream->xmit.skb_head) {
+	if (stream && stream->xmit.skb_head &&
+	    tfw_h2_get_stream_state(stream) != HTTP2_STREAM_LOC_CLOSED) {
 		ss_skb_queue_splice(&stream->xmit.skb_head, skb_head);
 	} else if (ctx->cur_send_headers) {
 		ss_skb_queue_splice(&ctx->cur_send_headers->xmit.postponed,
@@ -838,13 +824,13 @@ fail:
 		return -EPIPE;
 	}
 
-	if (tfw_h2_stream_fsm_ignore_err(ctx, ctx->cur_stream,
-					 HTTP2_RST_STREAM, 0))
+	if (tfw_h2_stream_fsm_ignore_err(ctx, ctx->cur_stream, HTTP2_RST_STREAM,
+					 0))
 		return -EPERM;
 
 	WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
 
-	return tfw_h2_current_stream_send_rst(ctx, err_code);
+	return tfw_h2_current_stream_reset(ctx, err_code);
 }
 
 static inline int
@@ -2391,6 +2377,22 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	T_FSM_START(stream->xmit.state) {
 
 	T_FSM_STATE(HTTP2_ENCODE_HEADERS) {
+		TfwStreamState state = tfw_h2_get_stream_state(stream);
+
+		if (state == HTTP2_STREAM_LOC_CLOSED ||
+		    state == HTTP2_STREAM_CLOSED) {
+			TfwHttpResp *resp = stream->xmit.resp;
+
+			T_DBG2("Stream with id=%u is closed, finish sending\n",
+			       stream->id);
+
+			ss_skb_queue_purge(&stream->xmit.skb_head);
+			BUG_ON(!resp);
+			tfw_http_resp_pair_free_and_put_conn(resp);
+			stream->xmit.resp = NULL;
+			T_FSM_JMP(HTTP2_MAKE_FRAMES_FINISH);
+		}
+
 		r = tfw_h2_stream_xmit_prepare_resp(stream);
 		fallthrough;
 	}
@@ -2398,7 +2400,7 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 	T_FSM_STATE(HTTP2_RELEASE_RESPONSE) {
 		TfwHttpResp *resp = stream->xmit.resp;
 
-		BUG_ON(!resp || !resp->req || !resp->req->conn);
+		BUG_ON(!resp);
 		tfw_http_resp_pair_free_and_put_conn(resp);
 		stream->xmit.resp = NULL;
 		/* Error during headers encoding. */
