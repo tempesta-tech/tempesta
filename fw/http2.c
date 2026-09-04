@@ -99,9 +99,8 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
-		dest->hdr_tbl_sz = min_t(unsigned int,
-					 val, HPACK_ENC_TABLE_MAX_SIZE);
-		tfw_hpack_set_rbuf_size(&ctx->hpack.enc_tbl, dest->hdr_tbl_sz);
+		tfw_hpack_set_rbuf_size(&ctx->hpack.enc_tbl, val);
+		dest->hdr_tbl_sz = ctx->hpack.enc_tbl.window;
 		break;
 
 	case HTTP2_SETTINGS_ENABLE_PUSH:
@@ -468,17 +467,19 @@ tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
  * closed streams will be removed from the memory.
  */
 int
-tfw_h2_current_stream_send_rst(TfwH2Ctx *ctx, int err_code)
+tfw_h2_current_stream_reset(TfwH2Ctx *ctx, int err_code)
 {
 	unsigned int stream_id = ctx->cur_stream->id;
 
-	spin_lock(&ctx->lock);
+	if (ctx->cur_stream != ctx->cur_send_headers) {
+		spin_lock(&ctx->lock);
 
-	tfw_h2_stream_unlink_nolock(ctx, ctx->cur_stream);
-	tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams,
-					  ctx->cur_stream);
+		tfw_h2_stream_unlink_nolock(ctx, ctx->cur_stream);
+		tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams,
+						  ctx->cur_stream);
 
-	spin_unlock(&ctx->lock);
+		spin_unlock(&ctx->lock);
+	}
 
 	ctx->cur_stream = NULL;
 
@@ -627,7 +628,7 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks);
 
-		r = tfw_hpack_transform(resp, tgt);
+		r = tfw_hpack_transform(resp, tgt, false);
 		if (unlikely(r))
 			goto finish;
 	}
