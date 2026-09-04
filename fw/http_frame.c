@@ -793,30 +793,31 @@ static int
 tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 {
 	unsigned int wnd_incr;
-	TfwFrameHdr *hdr = &ctx->hdr;
 	TfwH2Err err_code = HTTP2_ECODE_PROTO;
 
 	wnd_incr = ntohl(*(unsigned int *)ctx->rbuf) & ((1U << 31) - 1);
-	if (wnd_incr) {
-		TfwH2Conn *conn = ctx->conn;
-		struct sock *sk = ((TfwConn *)conn)->sk;
-		long int *window = ctx->cur_stream ?
-			&ctx->cur_stream->rem_wnd : &ctx->rem_wnd;
-		bool was_blocked = !tfw_h2_is_ready_to_send(ctx);
-
-		if (tfw_h2_increment_wnd_sz(window, wnd_incr)) {
-			err_code = HTTP2_ECODE_FLOW;
-			goto fail;
-		}
-
-		if (ctx->cur_stream)
-			tfw_h2_stream_try_unblock(&ctx->sched, ctx->cur_stream);
-
-		if (was_blocked && tfw_h2_is_ready_to_send(ctx))
-			sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
-
-		return T_OK;
+	if (!wnd_incr) {
+		tfw_h2_conn_terminate(ctx, err_code);
+		return -EPIPE;
 	}
+
+	struct sock *sk = ((TfwConn *)ctx->conn)->sk;
+	long *window = ctx->cur_stream ?
+	     &ctx->cur_stream->rem_wnd : &ctx->rem_wnd;
+	bool was_blocked = !tfw_h2_is_ready_to_send(ctx);
+
+	if (tfw_h2_increment_wnd_sz(window, wnd_incr)) {
+		err_code = HTTP2_ECODE_FLOW;
+		goto fail;
+	}
+
+	if (ctx->cur_stream)
+		tfw_h2_stream_try_unblock(&ctx->sched, ctx->cur_stream);
+
+	if (was_blocked && tfw_h2_is_ready_to_send(ctx))
+		sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
+
+	return T_OK;
 
 fail:
 	if (!ctx->cur_stream) {
@@ -828,7 +829,7 @@ fail:
 					 0))
 		return -EPERM;
 
-	WARN_ON_ONCE(hdr->stream_id != ctx->cur_stream->id);
+	WARN_ON_ONCE(ctx->hdr.stream_id != ctx->cur_stream->id);
 
 	return tfw_h2_current_stream_reset(ctx, err_code);
 }
