@@ -1445,8 +1445,11 @@ do {									\
 			goto conn_term;
 		}
 
-		if (hdr->flags & HTTP2_F_ACK)
+		if (hdr->flags & HTTP2_F_ACK) {
 			tfw_h2_settings_ack_process(ctx);
+			ctx->to_read = 0;
+			return 0;
+		}
 
 		if (hdr->length) {
 			ctx->state = HTTP2_RECV_FRAME_SETTINGS;
@@ -1458,6 +1461,7 @@ do {									\
 			 * this case, so frame is fully received now.
 			 */
 			ctx->to_read = 0;
+			return tfw_h2_send_settings_ack(ctx);
 		}
 
 		return 0;
@@ -1643,6 +1647,10 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_RECV_FRAME_SETTINGS);
+
+		/* Acknowledge empty settings frame. */
+		if ((ret = tfw_h2_send_settings_ack(ctx)))
+			FRAME_FSM_EXIT(ret);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
