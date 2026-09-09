@@ -115,8 +115,10 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 	case HTTP2_SETTINGS_INIT_WND_SIZE:
 		BUG_ON(val > MAX_WND_SIZE);
 		delta = (long int)val - (long int)dest->wnd_sz;
-		tfw_h2_apply_wnd_sz_change(ctx, delta);
-		dest->wnd_sz = val;
+		if (delta != 0) {
+			tfw_h2_apply_wnd_sz_change(ctx, delta);
+			dest->wnd_sz = val;
+		}
 		break;
 
 	case HTTP2_SETTINGS_MAX_FRAME_SIZE:
@@ -184,32 +186,42 @@ void
 tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 {
 	TfwConn *conn = (TfwConn *)ctx->conn;
+	TfwSettingsEntry *entries;
 
 	assert_spin_locked(&conn->sk->sk_lock.slock);
 
-	if (id > 0 && id < _HTTP2_SETTINGS_MAX) {
-		ctx->new_settings[id - 1] = val;
-		__set_bit(id, ctx->settings_to_apply);
-		__set_bit(HTTP2_SETTINGS_NEED_TO_APPLY,
-			  ctx->settings_to_apply);
-	}
+	if (ctx->received_settings.num > _HTTP2_SETTINGS_MAX)
+		entries = ctx->received_settings.data;
+	else
+		entries = &ctx->received_settings.entries[0];
+
+	TfwSettingsEntry *entry = &entries[ctx->received_settings.curr];
+	entry->id = id;
+	entry->value = val;
+	ctx->received_settings.curr++;
 }
 
 void
 tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 {
 	TfwConn *conn = (TfwConn *)ctx->conn;
-	unsigned int id;
+	TfwSettingsEntry *entries;
 
 	assert_spin_locked(&conn->sk->sk_lock.slock);
 
-	for (id = HTTP2_SETTINGS_TABLE_SIZE; id < _HTTP2_SETTINGS_MAX; id++) {
-		if (test_bit(id, ctx->settings_to_apply)) {
-			unsigned int val = ctx->new_settings[id - 1];
-			tfw_h2_apply_settings_entry(ctx, id, val);
-		}
+	if (ctx->received_settings.num > _HTTP2_SETTINGS_MAX)
+		entries = ctx->received_settings.data;
+	else
+		entries = &ctx->received_settings.entries[0];
+
+	for (int i = 0; i < ctx->received_settings.num; i++) {
+		TfwSettingsEntry entry = entries[i];
+
+		T_DBG3("%s: apply setting id=[%u]\n", __func__, entry.id);
+		tfw_h2_apply_settings_entry(ctx, entry.id, entry.value);
 	}
-	clear_bit(HTTP2_SETTINGS_NEED_TO_APPLY, ctx->settings_to_apply);
+
+	tfw_h2_settings_free_list(&ctx->received_settings);
 }
 
 int
@@ -318,6 +330,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
 	lset->wnd_sz = DEF_WND_SIZE;
 	rset->wnd_sz = DEF_WND_SIZE;
 	ctx->conn = conn;
+	ctx->received_settings.num = 0;
+	ctx->received_settings.curr = 0;
 
 	return tfw_hpack_init(&ctx->hpack, CLIENT_MEM_FROM_CONN(conn),
 			      HPACK_TABLE_DEF_SIZE);
@@ -333,6 +347,7 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 	 */
 	ss_skb_queue_purge(&ctx->skb_head);
 	tfw_hpack_clean(&ctx->hpack);
+	tfw_h2_settings_free_list(&ctx->received_settings);
 }
 
 
