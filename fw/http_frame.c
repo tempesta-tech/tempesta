@@ -36,7 +36,6 @@
 #define FRAME_WND_UPDATE_SIZE		4
 #define FRAME_RST_STREAM_SIZE		4
 #define FRAME_PRIORITY_SIZE		5
-#define FRAME_SETTINGS_ENTRY_SIZE	6
 #define FRAME_PING_SIZE			8
 #define FRAME_GOAWAY_SIZE		8
 
@@ -212,20 +211,6 @@ tfw_h2_unpack_priority(TfwFramePri *pri, const unsigned char *buf)
 	pri->exclusive = (buf[0] & 0x80) > 0;
 	pri->weight = buf[4] + 1;
 }
-
-/**
- * The flags indicate that an appropriate SETTINGS parameter is waited for an
- * update.
- */
-static const unsigned char
-ctx_new_settings_flags[] = {
-	[HTTP2_SETTINGS_TABLE_SIZE]		= 0x01,
-	[HTTP2_SETTINGS_ENABLE_PUSH]		= 0x02,
-	[HTTP2_SETTINGS_MAX_STREAMS]		= 0x04,
-	[HTTP2_SETTINGS_INIT_WND_SIZE]		= 0x08,
-	[HTTP2_SETTINGS_MAX_FRAME_SIZE] 	= 0x10,
-	[HTTP2_SETTINGS_MAX_HDR_LIST_SIZE]	= 0x20
-};
 
 static int
 tfw_h2_on_send_goaway(void *conn, struct sk_buff **skb_head)
@@ -520,6 +505,24 @@ tfw_h2_send_wnd_update(TfwH2Ctx *ctx, unsigned int id, unsigned int wnd_incr)
 	return __tfw_h2_send_frame_on_rx(ctx, &hdr, &data);
 }
 
+static inline void
+tfw_h2_setting_sent(TfwH2Ctx *ctx, TfwSettingsId id)
+{
+	ctx->sent_settings |= 1 << id;
+}
+
+static inline bool
+tfw_h2_is_setting_sent(TfwH2Ctx *ctx, TfwSettingsId id)
+{
+	return ctx->sent_settings & (1 << id);
+}
+
+static inline void
+tfw_h2_clear_sent_settings(TfwH2Ctx *ctx)
+{
+	ctx->sent_settings = 0;
+}
+
 static inline int
 tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 {
@@ -554,14 +557,12 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 
 	field[0].key   = htons(HTTP2_SETTINGS_TABLE_SIZE);
 	field[0].value = htonl(HPACK_ENC_TABLE_MAX_SIZE);
-	__set_bit(_HTTP2_SETTINGS_MAX - 1 + HTTP2_SETTINGS_TABLE_SIZE,
-		  ctx->settings_to_apply);
+	tfw_h2_setting_sent(ctx, HTTP2_SETTINGS_TABLE_SIZE);
 
 	BUILD_BUG_ON(SETTINGS_VAL_SIZE != sizeof(ctx->lsettings.wnd_sz));
 	field[1].key   = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
 	field[1].value = htonl(ctx->lsettings.wnd_sz);
-	__set_bit(_HTTP2_SETTINGS_MAX -1 + HTTP2_SETTINGS_INIT_WND_SIZE,
-		  ctx->settings_to_apply);
+	tfw_h2_setting_sent(ctx, HTTP2_SETTINGS_INIT_WND_SIZE);
 
 	field[2].key   = htons(HTTP2_SETTINGS_MAX_STREAMS);
 	field[2].value = htonl(ctx->lsettings.max_streams);
@@ -571,9 +572,7 @@ tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 			htons(HTTP2_SETTINGS_MAX_HDR_LIST_SIZE);
 		field[required_fields].value =
 			htonl(ctx->lsettings.max_lhdr_sz);
-		__set_bit(_HTTP2_SETTINGS_MAX - 1 +
-			  HTTP2_SETTINGS_MAX_HDR_LIST_SIZE,
-			  ctx->settings_to_apply);
+		tfw_h2_setting_sent(ctx, HTTP2_SETTINGS_MAX_HDR_LIST_SIZE);
 		data.chunks[1].len += sizeof(field[0]);
 		hdr.length += sizeof(field[0]);
 	}
@@ -881,43 +880,6 @@ tfw_h2_rst_stream_process(TfwH2Ctx *ctx)
 	tfw_h2_current_stream_remove(ctx);
 }
 
-static void
-tfw_h2_settings_ack_process(TfwH2Ctx *ctx)
-{
-	T_DBG3("%s: parsed, stream_id=%u, flags=%hhu\n", __func__,
-	       ctx->hdr.stream_id, ctx->hdr.flags);
-
-	if (test_bit(_HTTP2_SETTINGS_MAX - 1 + HTTP2_SETTINGS_TABLE_SIZE,
-		     ctx->settings_to_apply))
-	{
-		ctx->hpack.max_window = ctx->lsettings.hdr_tbl_sz;
-		ctx->hpack.dec_tbl.wnd_update = true;
-		clear_bit(_HTTP2_SETTINGS_MAX -1 + HTTP2_SETTINGS_TABLE_SIZE,
-			  ctx->settings_to_apply);
-	}
-}
-
-static int
-tfw_h2_settings_process(TfwH2Ctx *ctx)
-{
-	int r;
-	TfwFrameHdr *hdr = &ctx->hdr;
-	unsigned short id  = ntohs(*(unsigned short *)&ctx->rbuf[0]);
-	unsigned int val = ntohl(*(unsigned int *)&ctx->rbuf[2]);
-
-	T_DBG3("%s: entry parsed, id=%hu, val=%u\n", __func__, id, val);
-
-	if ((r = tfw_h2_check_settings_entry(ctx, id, val)))
-		return r;
-
-	tfw_h2_save_settings_entry(ctx, id, val);
-
-	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
-	hdr->length -= ctx->to_read;
-
-	return 0;
-}
-
 static int
 tfw_h2_goaway_process(TfwH2Ctx *ctx)
 {
@@ -948,35 +910,83 @@ tfw_h2_goaway_process(TfwH2Ctx *ctx)
 	return 0;
 }
 
-static inline int
-tfw_h2_first_settings_verify(TfwH2Ctx *ctx)
+static void
+tfw_h2_settings_ack_process(TfwH2Ctx *ctx)
 {
-	int err_code = 0;
+	T_DBG3("%s: parsed, stream_id=%u, flags=%hhu\n", __func__,
+	       ctx->hdr.stream_id, ctx->hdr.flags);
+
+	if (tfw_h2_is_setting_sent(ctx, HTTP2_SETTINGS_TABLE_SIZE)) {
+		ctx->hpack.max_window = ctx->lsettings.hdr_tbl_sz;
+		ctx->hpack.dec_tbl.wnd_update = true;
+	}
+	tfw_h2_clear_sent_settings(ctx);
+}
+
+static int
+tfw_h2_settings_process_entry(TfwH2Ctx *ctx)
+{
+	int r;
 	TfwFrameHdr *hdr = &ctx->hdr;
+	unsigned short id  = ntohs(*(unsigned short *)&ctx->rbuf[0]);
+	unsigned int val = ntohl(*(unsigned int *)&ctx->rbuf[2]);
 
-	BUG_ON(ctx->to_read);
+	T_DBG3("%s: entry parsed, id=%hu, val=%u\n", __func__, id, val);
 
-	tfw_h2_unpack_frame_header(hdr, ctx->rbuf);
+	if ((r = tfw_h2_check_settings_entry(ctx, id, val)))
+		return r;
 
-	if (hdr->type != HTTP2_SETTINGS
-	    || (hdr->flags & HTTP2_F_ACK)
-	    || hdr->stream_id)
-	{
-		err_code = HTTP2_ECODE_PROTO;
-	}
-
-	if (hdr->length && (hdr->length % FRAME_SETTINGS_ENTRY_SIZE))
-		err_code = HTTP2_ECODE_SIZE;
-
-	if (err_code) {
-		tfw_h2_conn_terminate(ctx, err_code);
-		return -EINVAL;
-	}
+	tfw_h2_save_settings_entry(ctx, id, val);
 
 	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
 	hdr->length -= ctx->to_read;
 
 	return 0;
+}
+
+static inline TfwH2Err
+tfw_h2_settings_verify(TfwFrameHdr *hdr)
+{
+	if (unlikely(hdr->stream_id))
+		return HTTP2_ECODE_PROTO;
+
+	if (unlikely(hdr->flags & HTTP2_F_ACK && hdr->length > 0))
+		return HTTP2_ECODE_SIZE;
+
+	return HTTP2_ECODE_NO_ERROR;
+}
+
+static inline TfwH2Err
+tfw_h2_first_settings_verify(TfwFrameHdr *hdr)
+{
+	if (unlikely(hdr->type != HTTP2_SETTINGS || hdr->flags & HTTP2_F_ACK))
+		return HTTP2_ECODE_PROTO;
+
+	return tfw_h2_settings_verify(hdr);
+}
+
+static int
+tfw_h2_settings_process_initial_frame_header(TfwH2Ctx *ctx)
+{
+	TfwFrameHdr *hdr = &ctx->hdr;
+	TfwH2Err error_code = tfw_h2_first_settings_verify(hdr);
+
+	if (unlikely(error_code))
+		goto conn_term;
+
+	error_code = tfw_h2_settings_init_list(&ctx->received_settings,
+					       hdr->length);
+	if (unlikely(error_code))
+		goto conn_term;
+
+	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
+	hdr->length -= ctx->to_read;
+
+	return 0;
+
+conn_term:
+	tfw_h2_conn_terminate(ctx, error_code);
+	return -EINVAL;
 }
 
 static inline int
@@ -1434,35 +1444,40 @@ do {									\
 		return 0;
 
 	case HTTP2_SETTINGS:
-		if (hdr->stream_id) {
-			err_code = HTTP2_ECODE_PROTO;
-			goto conn_term;
-		}
-		if ((hdr->length % FRAME_SETTINGS_ENTRY_SIZE)
-		    || ((hdr->flags & HTTP2_F_ACK)
-			&& hdr->length > 0))
-		{
+		BUILD_BUG_ON(sizeof(TfwSettingsEntry)
+				!= FRAME_SETTINGS_ENTRY_SIZE);
+
+		TfwH2Err err = tfw_h2_settings_verify(&ctx->hdr);
+
+		if (unlikely(err)) {
+			err_code = err;
 			goto conn_term;
 		}
 
-		if (hdr->flags & HTTP2_F_ACK) {
-			tfw_h2_settings_ack_process(ctx);
-			ctx->to_read = 0;
-			return 0;
-		}
-
-		if (hdr->length) {
-			ctx->state = HTTP2_RECV_FRAME_SETTINGS;
-			ctx->to_read = FRAME_SETTINGS_ENTRY_SIZE;
-			hdr->length -= ctx->to_read;
-		} else {
+		if (!hdr->length) {
 			/*
 			 * SETTINGS frame does not have any payload in
 			 * this case, so frame is fully received now.
 			 */
 			ctx->to_read = 0;
-			return tfw_h2_send_settings_ack(ctx);
+			/* Acknowledge empty settings frame. */
+			if (!(hdr->flags & HTTP2_F_ACK))
+				return tfw_h2_send_settings_ack(ctx);
+
+			tfw_h2_settings_ack_process(ctx);
+			return 0;
 		}
+
+		err = tfw_h2_settings_init_list(&ctx->received_settings,
+						hdr->length);
+		if (unlikely(err)) {
+			err_code = err;
+			goto conn_term;
+		}
+
+		ctx->state = HTTP2_RECV_FRAME_SETTINGS;
+		ctx->to_read = FRAME_SETTINGS_ENTRY_SIZE;
+		hdr->length -= ctx->to_read;
 
 		return 0;
 
@@ -1642,7 +1657,13 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_FIRST_SETTINGS) {
 		FRAME_FSM_READ_SRVC(FRAME_HEADER_SIZE);
 
-		if ((ret = tfw_h2_first_settings_verify(ctx)))
+		if (WARN_ON_ONCE(ctx->to_read))
+			FRAME_FSM_EXIT(-EINVAL);
+
+		tfw_h2_unpack_frame_header(&ctx->hdr, ctx->rbuf);
+
+		ret = tfw_h2_settings_process_initial_frame_header(ctx);
+		if (unlikely(ret))
 			FRAME_FSM_EXIT(ret);
 
 		if (ctx->to_read)
@@ -1735,14 +1756,13 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, unsigned int len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_SETTINGS) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if ((ret = tfw_h2_settings_process(ctx)))
+		if ((ret = tfw_h2_settings_process_entry(ctx)))
 			FRAME_FSM_EXIT(ret);
 
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_RECV_FRAME_SETTINGS);
 
-		if (test_bit(HTTP2_SETTINGS_NEED_TO_APPLY,
-			     ctx->settings_to_apply))
+		if (ctx->received_settings.num)
 			tfw_h2_apply_new_settings(ctx);
 
 		if ((ret = tfw_h2_send_settings_ack(ctx)))
