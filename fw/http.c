@@ -663,7 +663,8 @@ tfw_h2_prep_resp(TfwHttpResp *resp, unsigned short status, TfwStr *msg)
 		TfwStr *name = __TFW_STR_CH(msg, i);
 		TfwStr *val = __TFW_STR_CH(msg, i + 1);
 
-		if (!__TFW_STR_CH(msg, i + 1)->data || !name->hpack_idx)
+		if (!__TFW_STR_CH(msg, i + 1)->data || !name->hpack_idx
+		    || !name->len)
 			continue;
 
 		__TFW_STR_CH(&hdr, 0)->data = name->data + SLEN(S_CRLF);
