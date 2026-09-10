@@ -550,21 +550,6 @@ tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type,
 			break;
 
 		} else if (type == HTTP2_DATA) {
-			/*
-			 * Empty DATA frames without END_STREAM flag are not
-			 * prohibited by protocol specification. But there is
-			 * no sense to process them. Just utilizes CPU without
-			 * any effect, looks suspicious.
-			 */
-			if (!ctx->plen
-			    && !(ctx->hdr.flags & HTTP2_F_END_STREAM))
-			{
-				T_LOG("Empty DATA frame without END_STREAM");
-				*err = HTTP2_ECODE_PROTO;
-				res = STREAM_FSM_RES_TERM_CONN;
-				goto finish;
-			}
-
 			if (flags & HTTP2_F_END_STREAM) {
 				new_state = send
 					? HTTP2_STREAM_LOC_HALF_CLOSED

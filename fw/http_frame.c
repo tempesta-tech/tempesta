@@ -1283,6 +1283,18 @@ do {									\
 
 	switch (hdr_type) {
 	case HTTP2_DATA:
+		/*
+		 * Empty DATA frames without END_STREAM flag are not
+		 * prohibited by protocol specification. But there is
+		 * no sense to process them. Just utilizes CPU without
+		 * any effect, looks suspicious.
+		 */
+		if (unlikely(!ctx->hdr.length
+			     && !(ctx->hdr.flags & HTTP2_F_END_STREAM))) {
+			err_code = HTTP2_ECODE_PROTO;
+			goto conn_term;
+		}
+
 		if (!hdr->stream_id) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
