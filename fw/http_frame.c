@@ -2731,7 +2731,8 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			 * Purge stream send queue, but leave postponed
 			 * skbs and rst stream/goaway/tls alert if exist.
 			 */
-			tfw_h2_stream_purge_send_queue(stream);
+			if (tfw_h2_stream_purge_send_queue(stream))
+				return -EPIPE;
 			ctx->cur_send_headers = NULL;
 
 			if (unlikely(stream->xmit.postponed)) {
