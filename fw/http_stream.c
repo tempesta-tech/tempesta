@@ -137,7 +137,7 @@ tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamSchedEntry *entry,
 }
 ALLOW_ERROR_INJECTION(tfw_h2_add_stream, NULL);
 
-void
+int
 tfw_h2_stream_purge_send_queue(TfwStream *stream)
 {
 	unsigned long len = stream->xmit.h_len + stream->xmit.b_len +
@@ -147,7 +147,8 @@ tfw_h2_stream_purge_send_queue(TfwStream *stream)
 
 	while (len) {
 		skb = ss_skb_dequeue(&stream->xmit.skb_head);
-		BUG_ON(!skb);
+		if (WARN_ON_ONCE(!skb))
+			return -EPIPE;
 
 		len -= skb->len;
 		ss_kfree_skb(skb);
@@ -155,6 +156,8 @@ tfw_h2_stream_purge_send_queue(TfwStream *stream)
 	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.t_len
 		= stream->xmit.bytes_to_send
 		= stream->xmit.headers_frame_length = 0;
+
+	return 0;
 }
 
 void
