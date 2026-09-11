@@ -2720,6 +2720,13 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 					return r;
 			}
 
+			/*
+			 * FRAME_HEADER_SIZE always pre-allocated in skb, account the size
+			 * into headers_frame_length to purge actual skb size in the
+			 * tfw_h2_stream_purge_send_queue().
+			 */
+			stream->xmit.headers_frame_length +=
+				FRAME_HEADER_SIZE * !!stream->xmit.t_len;
 			/**
 			 * Purge stream send queue, but leave postponed
 			 * skbs and rst stream/goaway/tls alert if exist.
