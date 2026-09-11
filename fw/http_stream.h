@@ -226,7 +226,7 @@ int tfw_h2_stream_init_for_xmit(TfwHttpResp *resp, TfwStreamXmitState state,
 int tfw_h2_stream_init_t_len_for_xmit(TfwHttpResp *resp, unsigned long t_len);
 void tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream);
 void tfw_h2_stream_add_idle(TfwH2Ctx *ctx, TfwStream *idle);
-void tfw_h2_stream_purge_send_queue(TfwStream *stream);
+int tfw_h2_stream_purge_send_queue(TfwStream *stream);
 void tfw_h2_stream_purge_all_and_free_response(TfwStream *stream);
 void tfw_h2_stream_skb_destructor(struct sk_buff *skb);
 
