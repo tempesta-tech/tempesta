@@ -1285,6 +1285,18 @@ do {									\
 
 	switch (hdr_type) {
 	case HTTP2_DATA:
+		/*
+		 * Empty DATA frames without END_STREAM flag are not
+		 * prohibited by protocol specification. But there is
+		 * no sense to process them. Just utilizes CPU without
+		 * any effect, looks suspicious.
+		 */
+		if (unlikely(!ctx->hdr.length
+			     && !(ctx->hdr.flags & HTTP2_F_END_STREAM))) {
+			err_code = HTTP2_ECODE_PROTO;
+			goto conn_term;
+		}
+
 		if (!hdr->stream_id) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
@@ -2536,6 +2548,11 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 
 		ctx->cur_send_headers = NULL;
 
+		if (tfw_h2_stream_is_closed(stream)) {
+			r = STREAM_FSM_RES_TERM_STREAM;
+			T_FSM_JMP(HTTP2_FRAMING_FAILED);
+		}
+
 		/*
 		 * We are ready to send postponed frames, send them ASAP to
 		 * ensure that the client applies the new settings before
@@ -2708,11 +2725,19 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 					return r;
 			}
 
+			/*
+			 * FRAME_HEADER_SIZE always pre-allocated in skb, account the size
+			 * into headers_frame_length to purge actual skb size in the
+			 * tfw_h2_stream_purge_send_queue().
+			 */
+			stream->xmit.headers_frame_length +=
+				FRAME_HEADER_SIZE * !!stream->xmit.t_len;
 			/**
 			 * Purge stream send queue, but leave postponed
 			 * skbs and rst stream/goaway/tls alert if exist.
 			 */
-			tfw_h2_stream_purge_send_queue(stream);
+			if (tfw_h2_stream_purge_send_queue(stream))
+				return -EPIPE;
 			ctx->cur_send_headers = NULL;
 
 			if (unlikely(stream->xmit.postponed)) {
