@@ -2548,6 +2548,11 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 
 		ctx->cur_send_headers = NULL;
 
+		if (tfw_h2_stream_is_closed(stream)) {
+			r = STREAM_FSM_RES_TERM_STREAM;
+			T_FSM_JMP(HTTP2_FRAMING_FAILED);
+		}
+
 		/*
 		 * We are ready to send postponed frames, send them ASAP to
 		 * ensure that the client applies the new settings before
