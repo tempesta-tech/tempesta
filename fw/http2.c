@@ -201,6 +201,20 @@ tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 	ctx->received_settings.curr++;
 }
 
+/**
+ * Apply each received settings entry.
+ *
+ * WARNING: When two or more SETTINGS frames are received, or a single SETTINGS
+ * frame contains multiple entries for the same parameter with different values,
+ * each value must be applied immediately and in the order received. Otherwise,
+ * later values may overwrite earlier ones before they are applied, causing
+ * updates to be lost.
+ *
+ * For example, if Tempesta receives SETTINGS_HEADER_TABLE_SIZE=0 and then
+ * SETTINGS_HEADER_TABLE_SIZE=4096, it must apply both values. The sender
+ * may intend to clear the table before applying the new settings, sending
+ * 0 table size.
+ */
 void
 tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 {

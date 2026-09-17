@@ -795,6 +795,11 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 	TfwH2Err err_code = HTTP2_ECODE_PROTO;
 
 	wnd_incr = ntohl(*(unsigned int *)ctx->rbuf) & ((1U << 31) - 1);
+	/*
+	 * A zero WINDOW_UPDATE increment has no legitimate use and can be
+	 * abused to trigger repeated stream resets. Treat it as suspicious and
+	 * terminate the connection regardless of the target stream.
+	 */
 	if (!wnd_incr) {
 		tfw_h2_conn_terminate(ctx, err_code);
 		return -EPIPE;
@@ -872,10 +877,13 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 static inline void
 tfw_h2_rst_stream_process(TfwH2Ctx *ctx)
 {
+	unsigned int err_code = ntohl(*(unsigned int *)ctx->rbuf);
+
 	BUG_ON(!ctx->cur_stream);
+
+	WARN_ON_ONCE(err_code == HTTP2_ECODE_COMPRESSION);
 	T_DBG3("%s: parsed, stream_id=%u, stream=[%p], err_code=%u\n",
-	       __func__, ctx->hdr.stream_id, ctx->cur_stream,
-	       ntohl(*(unsigned int *)ctx->rbuf));
+	       __func__, ctx->hdr.stream_id, ctx->cur_stream, err_code);
 
 	tfw_h2_current_stream_remove(ctx);
 }
@@ -905,7 +913,7 @@ tfw_h2_goaway_process(TfwH2Ctx *ctx)
 		T_DBG("HTTP/2 connection is closed by client with error code:"
 		      " %u, ID of last processed stream: %u\n", err_code,
 		      last_id);
-	WARN_ON(err_code == HTTP2_ECODE_COMPRESSION);
+	WARN_ON_ONCE(err_code == HTTP2_ECODE_COMPRESSION);
 	SET_TO_READ(ctx);
 	return 0;
 }
@@ -2277,7 +2285,7 @@ tfw_h2_stream_send_postponed(struct sock *sk, struct sk_buff **skb_head,
 		 * Send window was exceeded during previous call of
 		 * `tfw_h2_stream_send_postponed`.
 		 */
-		WARN_ON(*snd_wnd);
+		WARN_ON_ONCE(*snd_wnd);
 	}
 
 	ss_skb_queue_splice(&conn->write_queue, skb_head);
@@ -2384,7 +2392,23 @@ undo:
 	return r;
 }
 
-/* Return true if socket has unknowledged or queued data */
+/*
+ * Return true if socket has unknowledged or queued data
+ *
+ *
+ * This a part of mechanism prevents transmission stalls in cases where the
+ * client has a small receive buffer and, consequently, a small TCP receive
+ * window. For example, a client with a 1024-byte receive buffer may continue
+ * acknowledging received packets but stop advertising a larger receive window
+ * when the available window is around 530 bytes, waiting for additional data
+ * from Tempesta FW. At the same time, Tempesta FW may postpone transmission
+ * because it considers the currently available window too small to send data.
+ * This creates a stall condition where Tempesta FW waits for a larger receive
+ * window while the client waits for more data before increasing the advertised
+ * window. That's why we should ensure that there is data in the network and
+ * ACK will trigger transmission before blocking sending. We don't have timers
+ * for HTTP/2 retransmission.
+ */
 static bool
 __socket_has_inflight_data(struct sock *sk)
 {
@@ -2566,7 +2590,7 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			 * exceeded stream->rem_wnd, mark such stream as
 			 * blocked.
 			 */
-			WARN_ON(stream->xmit.is_blocked);
+			WARN_ON_ONCE(stream->xmit.is_blocked);
 			stream->xmit.is_blocked = stream->rem_wnd <= 0;
 			ctx->sched.blocked_streams += stream->xmit.is_blocked;
 			*stop = ctx->rem_wnd <= 0;
@@ -2645,7 +2669,7 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 		if (stream->xmit.t_len)
 			T_FSM_JMP(HTTP2_MAKE_TRAILER_FRAMES);
 
-		WARN_ON(stream->xmit.bytes_to_send);
+		WARN_ON_ONCE(stream->xmit.bytes_to_send);
 		fallthrough;
 	}
 
@@ -2745,13 +2769,9 @@ tfw_h2_stream_xmit_process(struct sock *sk, TfwH2Ctx *ctx, TfwStream *stream,
 			return r;
 		}
 	}
-	WARN_ON(stream->xmit.bytes_to_send);
+	WARN_ON_ONCE(stream->xmit.bytes_to_send);
 
 	return r;
-
-#undef FRAME_XMIT_FSM_NEXT
-#undef CALC_FRAME_LENGTH_AND_SET_FRAME_TYPE_OR_EXIT
-#undef ADJUST_BLOCKED_STREAMS_AND_EXIT
 }
 
 int
