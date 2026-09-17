@@ -48,6 +48,27 @@ typedef struct {
 	unsigned int max_lhdr_sz;
 } TfwSettings;
 
+typedef struct {
+	unsigned short	id;
+	unsigned int	value;
+} __packed TfwSettingsEntry;
+
+/**
+ * NOTE:
+ * TfwH2Ctx is page-aligned relying on this fact @received_settings->entries
+ * are PACKED and placed to not cross cache-line boundary. Be careful changing
+ * the size of the TfwSettingsList structure and its position in the TfwH2Ctx
+ * structure.
+ */
+typedef struct {
+	union {
+		TfwSettingsEntry	*data;
+		TfwSettingsEntry entries[_HTTP2_SETTINGS_MAX];
+	} __packed;
+	unsigned char	num;
+	unsigned char	curr;
+} __packed TfwSettingsList;
+
 /**
  * Control frame statistics.
  *
@@ -92,14 +113,9 @@ typedef struct tfw_conn_t TfwConn;
  *			  headers, but have not yet received the END_HEADERS
  *			  flag;
  * @error		- the stream where the error occurred;
- * @new_settings	- new settings to apply when ack is pushed to socket
- *			  write queue;
- * @settings_to_apply	- bitmap to save what settings we should apply. first
- *			  bit is used to fast check that we should apply new
- *			  settings. 1 - _HTTP2_SETTINGS_MAX - 1 bits are used
- *			  to save what @new_settings should be applyed. bits
- *			  from _HTTP2_SETTINGS_MAX are used to save what
- *			  settings we sent to the client;
+ * @received_settings	- list of received HTTP/2 settings to apply.
+ * @sent_settings	- the settings were sent, when ack will be received
+ *			  we should apply these local settings;
  * @conn		- pointer to h2 connection of this context;
  * @stat		- ping and settings frames reception history;
  * @wnd_update_cnt	- count of received window update frames;
@@ -147,8 +163,9 @@ typedef struct tfw_h2_ctx_t {
 	TfwStream       *cur_send_headers;
 	TfwStream       *cur_recv_headers;
 	TfwStream       *error;
-	unsigned int    new_settings[_HTTP2_SETTINGS_MAX - 1];
-	DECLARE_BITMAP  (settings_to_apply, 2 * _HTTP2_SETTINGS_MAX - 1);
+	TfwSettingsList	received_settings;
+	unsigned char	sent_settings;
+	/* 1 byte hole */
 	TfwH2Conn	*conn;
 	CtrlFrameStat	stat[FRANG_FREQ];
 	unsigned long	wnd_update_cnt;
@@ -183,7 +200,7 @@ void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close,
 				 bool attack);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
 void tfw_h2_current_stream_remove(TfwH2Ctx *ctx);
-int tfw_h2_current_stream_send_rst(TfwH2Ctx *ctx, int err_code);
+int tfw_h2_current_stream_reset(TfwH2Ctx *ctx, int err_code);
 void tfw_h2_remove_idle_streams(TfwH2Ctx *ctx, unsigned int id);
 void tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx);
 void tfw_h2_check_current_stream_is_closed(TfwH2Ctx *ctx);
@@ -210,4 +227,45 @@ tfw_h2_conn_or_stream_wnd_is_exceeded(TfwH2Ctx *ctx, TfwStream *stream)
 	return ctx->rem_wnd <= 0 || stream->rem_wnd <= 0;
 }
 
+static inline TfwH2Err
+tfw_h2_settings_init_list(TfwSettingsList *settings, int length)
+{
+	if (unlikely(length % FRAME_SETTINGS_ENTRY_SIZE))
+		return HTTP2_ECODE_SIZE;
+
+	if (unlikely(length > FRAME_SETTINGS_MAX_ALLOC || length < 0)) {
+		T_DBG3("Too many settings frames received\n");
+		return HTTP2_ECODE_SIZE;
+	}
+
+	settings->curr = 0;
+	settings->num = length / FRAME_SETTINGS_ENTRY_SIZE;
+
+	T_DBG3("%s: Init settings list [num_entries=%u] [list_length_bytes=%u]."
+	       "\n", __func__, settings->num, length);
+
+	/* Fastpath. Modern implementations usually use 4-6 settings. */
+	if (likely(settings->num <= _HTTP2_SETTINGS_MAX))
+		return HTTP2_ECODE_NO_ERROR;
+
+	T_DBG3("%s: Allocate %u bytes for settings list.\n", __func__, length);
+	settings->data = pg_skb_alloc(length, GFP_ATOMIC, NUMA_NO_NODE);
+	if (unlikely(!settings->data))
+		return HTTP2_ECODE_INTERNAL;
+
+	return HTTP2_ECODE_NO_ERROR;
+}
+
+static inline void
+tfw_h2_settings_free_list(TfwSettingsList *settings)
+{
+	T_DBG3("%s: Free settings list.\n", __func__);
+
+	if (settings->num > _HTTP2_SETTINGS_MAX && settings->data) {
+		T_DBG3("%s: Put page holds settings list.\n", __func__);
+		put_page(virt_to_page(settings->data));
+	}
+	settings->data = NULL;
+	settings->num = 0;
+}
 #endif /* __HTTP2__ */

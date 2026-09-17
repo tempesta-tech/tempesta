@@ -99,9 +99,8 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
-		dest->hdr_tbl_sz = min_t(unsigned int,
-					 val, HPACK_ENC_TABLE_MAX_SIZE);
-		tfw_hpack_set_rbuf_size(&ctx->hpack.enc_tbl, dest->hdr_tbl_sz);
+		tfw_hpack_set_rbuf_size(&ctx->hpack.enc_tbl, val);
+		dest->hdr_tbl_sz = ctx->hpack.enc_tbl.window;
 		break;
 
 	case HTTP2_SETTINGS_ENABLE_PUSH:
@@ -116,8 +115,10 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 	case HTTP2_SETTINGS_INIT_WND_SIZE:
 		BUG_ON(val > MAX_WND_SIZE);
 		delta = (long int)val - (long int)dest->wnd_sz;
-		tfw_h2_apply_wnd_sz_change(ctx, delta);
-		dest->wnd_sz = val;
+		if (delta != 0) {
+			tfw_h2_apply_wnd_sz_change(ctx, delta);
+			dest->wnd_sz = val;
+		}
 		break;
 
 	case HTTP2_SETTINGS_MAX_FRAME_SIZE:
@@ -185,32 +186,56 @@ void
 tfw_h2_save_settings_entry(TfwH2Ctx *ctx, unsigned short id, unsigned int val)
 {
 	TfwConn *conn = (TfwConn *)ctx->conn;
+	TfwSettingsEntry *entries;
 
 	assert_spin_locked(&conn->sk->sk_lock.slock);
 
-	if (id > 0 && id < _HTTP2_SETTINGS_MAX) {
-		ctx->new_settings[id - 1] = val;
-		__set_bit(id, ctx->settings_to_apply);
-		__set_bit(HTTP2_SETTINGS_NEED_TO_APPLY,
-			  ctx->settings_to_apply);
-	}
+	if (ctx->received_settings.num > _HTTP2_SETTINGS_MAX)
+		entries = ctx->received_settings.data;
+	else
+		entries = &ctx->received_settings.entries[0];
+
+	TfwSettingsEntry *entry = &entries[ctx->received_settings.curr];
+	entry->id = id;
+	entry->value = val;
+	ctx->received_settings.curr++;
 }
 
+/**
+ * Apply each received settings entry.
+ *
+ * WARNING: When two or more SETTINGS frames are received, or a single SETTINGS
+ * frame contains multiple entries for the same parameter with different values,
+ * each value must be applied immediately and in the order received. Otherwise,
+ * later values may overwrite earlier ones before they are applied, causing
+ * updates to be lost.
+ *
+ * For example, if Tempesta receives SETTINGS_HEADER_TABLE_SIZE=0 and then
+ * SETTINGS_HEADER_TABLE_SIZE=4096, it must apply both values. The sender
+ * may intend to clear the table before applying the new settings, sending
+ * 0 table size.
+ */
 void
 tfw_h2_apply_new_settings(TfwH2Ctx *ctx)
 {
 	TfwConn *conn = (TfwConn *)ctx->conn;
-	unsigned int id;
+	TfwSettingsEntry *entries;
 
 	assert_spin_locked(&conn->sk->sk_lock.slock);
 
-	for (id = HTTP2_SETTINGS_TABLE_SIZE; id < _HTTP2_SETTINGS_MAX; id++) {
-		if (test_bit(id, ctx->settings_to_apply)) {
-			unsigned int val = ctx->new_settings[id - 1];
-			tfw_h2_apply_settings_entry(ctx, id, val);
-		}
+	if (ctx->received_settings.num > _HTTP2_SETTINGS_MAX)
+		entries = ctx->received_settings.data;
+	else
+		entries = &ctx->received_settings.entries[0];
+
+	for (int i = 0; i < ctx->received_settings.num; i++) {
+		TfwSettingsEntry entry = entries[i];
+
+		T_DBG3("%s: apply setting id=[%u]\n", __func__, entry.id);
+		tfw_h2_apply_settings_entry(ctx, entry.id, entry.value);
 	}
-	clear_bit(HTTP2_SETTINGS_NEED_TO_APPLY, ctx->settings_to_apply);
+
+	tfw_h2_settings_free_list(&ctx->received_settings);
 }
 
 int
@@ -319,6 +344,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx, TfwH2Conn *conn)
 	lset->wnd_sz = DEF_WND_SIZE;
 	rset->wnd_sz = DEF_WND_SIZE;
 	ctx->conn = conn;
+	ctx->received_settings.num = 0;
+	ctx->received_settings.curr = 0;
 
 	return tfw_hpack_init(&ctx->hpack, CLIENT_MEM_FROM_CONN(conn),
 			      HPACK_TABLE_DEF_SIZE);
@@ -334,6 +361,7 @@ tfw_h2_context_clear(TfwH2Ctx *ctx)
 	 */
 	ss_skb_queue_purge(&ctx->skb_head);
 	tfw_hpack_clean(&ctx->hpack);
+	tfw_h2_settings_free_list(&ctx->received_settings);
 }
 
 
@@ -468,17 +496,19 @@ tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
  * closed streams will be removed from the memory.
  */
 int
-tfw_h2_current_stream_send_rst(TfwH2Ctx *ctx, int err_code)
+tfw_h2_current_stream_reset(TfwH2Ctx *ctx, int err_code)
 {
 	unsigned int stream_id = ctx->cur_stream->id;
 
-	spin_lock(&ctx->lock);
+	if (ctx->cur_stream != ctx->cur_send_headers) {
+		spin_lock(&ctx->lock);
 
-	tfw_h2_stream_unlink_nolock(ctx, ctx->cur_stream);
-	tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams,
-					  ctx->cur_stream);
+		tfw_h2_stream_unlink_nolock(ctx, ctx->cur_stream);
+		tfw_h2_stream_add_to_queue_nolock(&ctx->closed_streams,
+						  ctx->cur_stream);
 
-	spin_unlock(&ctx->lock);
+		spin_unlock(&ctx->lock);
+	}
 
 	ctx->cur_stream = NULL;
 
@@ -627,7 +657,7 @@ tfw_h2_hpack_encode_trailer_headers(TfwHttpResp *resp)
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u\n",
 		       __func__, hid, d_num, ht->tbl[hid].nchunks);
 
-		r = tfw_hpack_transform(resp, tgt);
+		r = tfw_hpack_transform(resp, tgt, false);
 		if (unlikely(r))
 			goto finish;
 	}
