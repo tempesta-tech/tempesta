@@ -227,25 +227,33 @@ tfw_h2_conn_or_stream_wnd_is_exceeded(TfwH2Ctx *ctx, TfwStream *stream)
 	return ctx->rem_wnd <= 0 || stream->rem_wnd <= 0;
 }
 
-static inline int
-tfw_h2_settings_init_list(TfwSettingsList *settings, unsigned char length)
+static inline TfwH2Err
+tfw_h2_settings_init_list(TfwSettingsList *settings, int length)
 {
+	if (unlikely(length % FRAME_SETTINGS_ENTRY_SIZE))
+		return HTTP2_ECODE_SIZE;
+
+	if (unlikely(length > FRAME_SETTINGS_MAX_ALLOC || length < 0)) {
+		T_DBG3("Too many settings frames received\n");
+		return HTTP2_ECODE_SIZE;
+	}
+
 	settings->curr = 0;
-	settings->num = length / sizeof(TfwSettingsEntry);
+	settings->num = length / FRAME_SETTINGS_ENTRY_SIZE;
 
 	T_DBG3("%s: Init settings list [num_entries=%u] [list_length_bytes=%u]."
 	       "\n", __func__, settings->num, length);
 
 	/* Fastpath. Modern implementations usually use 4-6 settings. */
 	if (likely(settings->num <= _HTTP2_SETTINGS_MAX))
-		return 0;
+		return HTTP2_ECODE_NO_ERROR;
 
 	T_DBG3("%s: Allocate %u bytes for settings list.\n", __func__, length);
 	settings->data = pg_skb_alloc(length, GFP_ATOMIC, NUMA_NO_NODE);
-	if (!settings->data)
-		return -ENOMEM;
+	if (unlikely(!settings->data))
+		return HTTP2_ECODE_INTERNAL;
 
-	return 0;
+	return HTTP2_ECODE_NO_ERROR;
 }
 
 static inline void

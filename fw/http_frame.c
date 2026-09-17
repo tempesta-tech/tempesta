@@ -36,7 +36,6 @@
 #define FRAME_WND_UPDATE_SIZE		4
 #define FRAME_RST_STREAM_SIZE		4
 #define FRAME_PRIORITY_SIZE		5
-#define FRAME_SETTINGS_ENTRY_SIZE	6
 #define FRAME_PING_SIZE			8
 #define FRAME_GOAWAY_SIZE		8
 
@@ -951,16 +950,8 @@ tfw_h2_settings_verify(TfwFrameHdr *hdr)
 	if (unlikely(hdr->stream_id))
 		return HTTP2_ECODE_PROTO;
 
-	if (unlikely(hdr->length % FRAME_SETTINGS_ENTRY_SIZE))
-		return HTTP2_ECODE_SIZE;
-
 	if (unlikely(hdr->flags & HTTP2_F_ACK && hdr->length > 0))
 		return HTTP2_ECODE_SIZE;
-
-	if (unlikely(hdr->length > 32 * FRAME_SETTINGS_ENTRY_SIZE)) {
-		T_DBG3("Too many settings frames received\n");
-		return HTTP2_ECODE_SIZE;
-	}
 
 	return HTTP2_ECODE_NO_ERROR;
 }
@@ -983,11 +974,10 @@ tfw_h2_settings_process_initial_frame_header(TfwH2Ctx *ctx)
 	if (unlikely(error_code))
 		goto conn_term;
 
-	int r = tfw_h2_settings_init_list(&ctx->received_settings, hdr->length);
-	if (unlikely(r)) {
-		error_code = HTTP2_ECODE_INTERNAL;
+	error_code = tfw_h2_settings_init_list(&ctx->received_settings,
+					       hdr->length);
+	if (unlikely(error_code))
 		goto conn_term;
-	}
 
 	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
 	hdr->length -= ctx->to_read;
@@ -1478,10 +1468,10 @@ do {									\
 			return 0;
 		}
 
-		int r = tfw_h2_settings_init_list(&ctx->received_settings,
-						  hdr->length);
-		if (unlikely(r)) {
-			err_code = HTTP2_ECODE_INTERNAL;
+		err = tfw_h2_settings_init_list(&ctx->received_settings,
+						hdr->length);
+		if (unlikely(err)) {
+			err_code = err;
 			goto conn_term;
 		}
 
