@@ -137,7 +137,7 @@ tfw_h2_add_stream(TfwStreamSched *sched, TfwStreamSchedEntry *entry,
 }
 ALLOW_ERROR_INJECTION(tfw_h2_add_stream, NULL);
 
-void
+int
 tfw_h2_stream_purge_send_queue(TfwStream *stream)
 {
 	unsigned long len = stream->xmit.h_len + stream->xmit.b_len +
@@ -147,7 +147,8 @@ tfw_h2_stream_purge_send_queue(TfwStream *stream)
 
 	while (len) {
 		skb = ss_skb_dequeue(&stream->xmit.skb_head);
-		BUG_ON(!skb);
+		if (WARN_ON_ONCE(!skb))
+			return -EPIPE;
 
 		len -= skb->len;
 		ss_kfree_skb(skb);
@@ -155,6 +156,8 @@ tfw_h2_stream_purge_send_queue(TfwStream *stream)
 	stream->xmit.h_len = stream->xmit.b_len = stream->xmit.t_len
 		= stream->xmit.bytes_to_send
 		= stream->xmit.headers_frame_length = 0;
+
+	return 0;
 }
 
 void
@@ -550,21 +553,6 @@ tfw_h2_stream_fsm(TfwH2Ctx *ctx, TfwStream *stream, unsigned char type,
 			break;
 
 		} else if (type == HTTP2_DATA) {
-			/*
-			 * Empty DATA frames without END_STREAM flag are not
-			 * prohibited by protocol specification. But there is
-			 * no sense to process them. Just utilizes CPU without
-			 * any effect, looks suspicious.
-			 */
-			if (!ctx->plen
-			    && !(ctx->hdr.flags & HTTP2_F_END_STREAM))
-			{
-				T_LOG("Empty DATA frame without END_STREAM");
-				*err = HTTP2_ECODE_PROTO;
-				res = STREAM_FSM_RES_TERM_CONN;
-				goto finish;
-			}
-
 			if (flags & HTTP2_F_END_STREAM) {
 				new_state = send
 					? HTTP2_STREAM_LOC_HALF_CLOSED
