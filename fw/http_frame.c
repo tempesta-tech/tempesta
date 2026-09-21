@@ -1042,44 +1042,75 @@ tfw_h2_current_stream_id_verify(TfwH2Ctx *ctx)
 	return 0;
 }
 
-static inline int
-tfw_h2_flow_control(TfwH2Ctx *ctx)
+static inline TfwH2Err
+__tfw_h2_stream_flow_control(TfwH2Ctx *ctx)
 {
-	int r;
 	TfwFrameHdr *hdr = &ctx->hdr;
 	TfwStream *stream = ctx->cur_stream;
 	TfwSettings *lset = &ctx->lsettings;
 
-	BUG_ON(!stream);
-	if (hdr->length > stream->loc_wnd)
+	if (hdr->length > stream->loc_wnd) {
 		T_WARN("Stream flow control window exceeded: frame payload %d,"
 		       " current window %ld\n", hdr->length, stream->loc_wnd);
 
-	if(hdr->length > ctx->loc_wnd)
-		T_WARN("Connection flow control window exceeded: frame payload"
-		       " %d, current window %ld\n", hdr->length, ctx->loc_wnd);
+		return HTTP2_ECODE_FLOW;
+	}
 
 	stream->loc_wnd -= hdr->length;
-	ctx->loc_wnd -= hdr->length;
 
 	if (stream->loc_wnd <= lset->wnd_sz / 2) {
-		if((r = tfw_h2_send_wnd_update(ctx, stream->id,
-					       lset->wnd_sz - stream->loc_wnd)))
-		{
-			return r;
-		}
+		int r = tfw_h2_send_wnd_update(ctx, stream->id,
+					       lset->wnd_sz - stream->loc_wnd);
+		if (unlikely(r))
+			return HTTP2_ECODE_INTERNAL;
+
 		stream->loc_wnd = lset->wnd_sz;
 	}
 
 
-	if (ctx->loc_wnd <= DEF_WND_SIZE / 2) {
-		if ((r = tfw_h2_send_wnd_update(ctx, 0,
-						DEF_WND_SIZE - ctx->loc_wnd)))
-		{
-			return r;
-		}
-		ctx->loc_wnd = DEF_WND_SIZE;
+	return HTTP2_ECODE_NO_ERROR;
+}
+
+static inline TfwH2Err
+__tfw_h2_connection_flow_control(TfwH2Ctx *ctx)
+{
+	TfwFrameHdr *hdr = &ctx->hdr;
+
+	if (hdr->length > ctx->loc_wnd) {
+		T_WARN("Connection flow control window exceeded: frame payload"
+		       " %d, current window %ld\n", hdr->length, ctx->loc_wnd);
+
+		return HTTP2_ECODE_FLOW;
 	}
+
+	ctx->loc_wnd -= hdr->length;
+
+	if (ctx->loc_wnd <= MAX_WND_SIZE / 4) {
+		int r = tfw_h2_send_wnd_update(ctx, 0,
+					       MAX_WND_SIZE - ctx->loc_wnd);
+		if (unlikely(r))
+			return HTTP2_ECODE_INTERNAL;
+
+		ctx->loc_wnd = MAX_WND_SIZE;
+	}
+
+	return HTTP2_ECODE_NO_ERROR;
+}
+
+static inline TfwH2Err
+tfw_h2_flow_control(TfwH2Ctx *ctx)
+{
+	int r = __tfw_h2_connection_flow_control(ctx);
+
+	if (unlikely(r))
+		return r;
+
+	/*
+	 * In LOC_CLOSED state we must account only connection's flow control
+	 * window.
+	 */
+	if (tfw_h2_get_stream_state(ctx->cur_stream) != HTTP2_STREAM_LOC_CLOSED)
+		return __tfw_h2_stream_flow_control(ctx);
 
 	return 0;
 }
@@ -1238,7 +1269,7 @@ static int
 tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 {
 	int r;
-	TfwH2Err err_code = HTTP2_ECODE_SIZE;
+	TfwH2Err err_code = HTTP2_ECODE_NO_ERROR;
 	TfwFrameHdr *hdr = &ctx->hdr;
 	TfwFrameType hdr_type =
 		(hdr->type <= _HTTP2_UNDEFINED ? hdr->type : _HTTP2_UNDEFINED);
@@ -1261,8 +1292,10 @@ do {									\
 	T_DBG3("%s: hdr->type %u(%s), ctx->state %u\n", __func__, hdr_type,
 	       __h2_frm_type_n(hdr_type), ctx->state);
 
-	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
+	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz)) {
+		err_code = HTTP2_ECODE_SIZE;
 		goto conn_term;
+	}
 
 	if (unlikely(!tfw_h2_ctrl_frame_limit(ctx, hdr_type)))
 		return T_BLOCK_WITH_RST;
@@ -1321,8 +1354,18 @@ do {									\
 			goto conn_term;
 		}
 
-		if ((r = tfw_h2_flow_control(ctx)))
-			return r;
+		err_code = tfw_h2_flow_control(ctx);
+		if (unlikely(err_code))
+			goto conn_term;
+
+		if (tfw_h2_get_stream_state(ctx->cur_stream) ==
+		    HTTP2_STREAM_LOC_CLOSED) {
+			ctx->state = HTTP2_IGNORE_FRAME_DATA;
+			ctx->cur_stream	= NULL;
+			SET_TO_READ(ctx);
+
+			return 0;
+		}
 
 		ctx->data_off = FRAME_HEADER_SIZE;
 		ctx->plen = ctx->hdr.length;
@@ -1384,8 +1427,10 @@ do {									\
 
 		ctx->cur_stream =
 			tfw_h2_find_stream(&ctx->sched, hdr->stream_id);
-		if (hdr->length != FRAME_PRIORITY_SIZE)
+		if (hdr->length != FRAME_PRIORITY_SIZE) {
+			err_code = HTTP2_ECODE_SIZE;
 			goto conn_term;
+		}
 
 		if (ctx->cur_stream) {
 			STREAM_RECV_PROCESS(ctx, hdr);
@@ -1422,8 +1467,10 @@ do {									\
 		return 0;
 
 	case HTTP2_WINDOW_UPDATE:
-		if (hdr->length != FRAME_WND_UPDATE_SIZE)
+		if (hdr->length != FRAME_WND_UPDATE_SIZE) {
+			err_code = HTTP2_ECODE_SIZE;
 			goto conn_term;
+		}
 		/*
 		 * WINDOW_UPDATE frame not allowed for idle streams (see RFC
 		 * 7540 section 5.1 for details).
@@ -1467,12 +1514,9 @@ do {									\
 		BUILD_BUG_ON(sizeof(TfwSettingsEntry)
 				!= FRAME_SETTINGS_ENTRY_SIZE);
 
-		TfwH2Err err = tfw_h2_settings_verify(&ctx->hdr);
-
-		if (unlikely(err)) {
-			err_code = err;
+		err_code = tfw_h2_settings_verify(&ctx->hdr);
+		if (unlikely(err_code))
 			goto conn_term;
-		}
 
 		if (!hdr->length) {
 			/*
@@ -1511,8 +1555,10 @@ do {									\
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
 		}
-		if (hdr->length != FRAME_PING_SIZE)
+		if (hdr->length != FRAME_PING_SIZE) {
+			err_code = HTTP2_ECODE_SIZE;
 			goto conn_term;
+		}
 
 		ctx->state = HTTP2_RECV_FRAME_PING;
 		SET_TO_READ(ctx);
@@ -1524,8 +1570,10 @@ do {									\
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
 		}
-		if (hdr->length != FRAME_RST_STREAM_SIZE)
+		if (hdr->length != FRAME_RST_STREAM_SIZE) {
+			err_code = HTTP2_ECODE_SIZE;
 			goto conn_term;
+		}
 		/*
 		 * RST_STREAM frames are not allowed for idle streams (see RFC
 		 * 7540 section 5.1 and section 6.4 for details).
@@ -1563,8 +1611,10 @@ do {									\
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
 		}
-		if (hdr->length < FRAME_GOAWAY_SIZE)
+		if (hdr->length < FRAME_GOAWAY_SIZE) {
+			err_code = HTTP2_ECODE_SIZE;
 			goto conn_term;
+		}
 
 		ctx->state = HTTP2_RECV_FRAME_GOAWAY;
 		ctx->to_read = FRAME_GOAWAY_SIZE;
@@ -1636,7 +1686,7 @@ do {									\
 	}
 
 conn_term:
-	BUG_ON(!err_code);
+	WARN_ON_ONCE(!err_code);
 	tfw_h2_conn_terminate(ctx, err_code);
 	return -EINVAL;
 
