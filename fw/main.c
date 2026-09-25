@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,9 +28,9 @@
 #include "tempesta_fw.h"
 #include "cfg.h"
 #include "client.h"
-#include "log.h"
 #include "server.h"
 #include "str.h"
+#include "system_log.h"
 #include "sync_socket.h"
 #include "lib/fsm.h"
 
@@ -504,7 +504,7 @@ tfw_init(void)
 	DO_INIT(pool);
 	DO_INIT(cfg);
 	DO_INIT(regex);
-	DO_INIT(access_log);
+	DO_INIT(event_log);
 	DO_INIT(apm);
 	DO_INIT(vhost);
 

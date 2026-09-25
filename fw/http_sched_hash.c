@@ -19,7 +19,7 @@
  * server unless it is offline.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -43,8 +43,8 @@
 #include "lib/hash.h"
 #include "lib/random.h"
 #include "lib/fault_injection_alloc.h"
-#include "log.h"
 #include "server.h"
+#include "system_log.h"
 #include "http_msg.h"
 
 typedef struct {

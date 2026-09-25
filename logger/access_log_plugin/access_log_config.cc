@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024-2026 Tempesta Technologies, Inc.
+ * Copyright (C) 2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,18 +17,28 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include "plugin_config.hh"
 
-#include <regex>
-#include <stdexcept>
+#include "access_log_config.hh"
+#include "../config_utils.hh"
 
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
-#include "config_utils.hh"
+void
+AccessLogConfig::parse_json(std::string json)
+{
+	namespace pt = boost::property_tree;
+
+	pt::ptree tree;
+	std::istringstream json_stream{json};
+
+	pt::read_json(json_stream, tree);
+	parse_from_ptree(tree);
+	validate();
+}
 
 void
-PluginConfig::validate() const
+AccessLogConfig::validate() const
 {
 	if (host.empty())
 		throw std::runtime_error("ClickHouse host cannot be empty");
@@ -40,23 +50,39 @@ PluginConfig::validate() const
 		throw std::runtime_error(
 		"ClickHouse database name cannot be empty");
 
-	if (table_name.empty())
+	if (access_log_table_name.empty())
 		throw std::runtime_error(
-		"ClickHouse table name cannot be empty");
+		"access log table name cannot be empty");
+
+	if (dos_log_table_name.empty())
+		throw std::runtime_error("dos log table name cannot be empty");
+
+	if (web_attack_log_table_name.empty())
+		throw std::runtime_error(
+		"web attack log table name cannot be empty");
 
 	if (max_events == 0)
 		throw std::runtime_error("max_events must be greater than 0");
 
-	cfg_utils::validate_table_name(table_name);
+	cfg_utils::validate_table_name(access_log_table_name);
+	cfg_utils::validate_table_name(dos_log_table_name);
+	cfg_utils::validate_table_name(web_attack_log_table_name);
 }
 
 void
-PluginConfig::parse_from_ptree(const boost::property_tree::ptree &tree)
+AccessLogConfig::parse_from_ptree(const boost::property_tree::ptree &tree)
 {
 	host = tree.get<std::string>("host", host);
 	port = tree.get<uint16_t>("port", port);
 	db_name = tree.get<std::string>("db_name", db_name);
-	table_name = tree.get<std::string>("table_name", table_name);
+	access_log_table_name = tree.get<std::string>("access_log_table_name",
+						      access_log_table_name);
+	dos_log_table_name =
+		tree.get<std::string>("security_dos_log_table_name",
+				      dos_log_table_name);
+	web_attack_log_table_name =
+		tree.get<std::string>("security_web_attack_log_table_name",
+				      web_attack_log_table_name);
 	max_events = tree.get<size_t>("max_events", max_events);
 
 	if (const auto val = tree.get_optional<std::string>("user"))
@@ -64,10 +90,4 @@ PluginConfig::parse_from_ptree(const boost::property_tree::ptree &tree)
 
 	if (const auto val = tree.get_optional<std::string>("password"))
 		password = *val;
-
-	std::ostringstream out;
-
-	boost::property_tree::write_json(out, tree, false);
-
-	json_str = out.str();
 }

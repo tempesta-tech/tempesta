@@ -4,7 +4,7 @@
  * Request schedulers interface.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2022 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,8 +21,8 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "tempesta_fw.h"
-#include "log.h"
 #include "server.h"
+#include "system_log.h"
 #include "http_sess.h"
 
 /*

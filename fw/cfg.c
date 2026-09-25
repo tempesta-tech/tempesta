@@ -91,7 +91,7 @@
 #include "addr.h"
 #include "cfg.h"
 #include "client.h"
-#include "log.h"
+#include "system_log.h"
 #include "lib/fault_injection_alloc.h"
 
 /*

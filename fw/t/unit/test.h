@@ -281,5 +281,6 @@ TEST_SUITE(hpack);
 TEST_SUITE(pool);
 TEST_SUITE(regex);
 TEST_SUITE(mmap_buffer);
+TEST_SUITE(event_log);
 
 #endif /* __TFW_TEST_H__ */

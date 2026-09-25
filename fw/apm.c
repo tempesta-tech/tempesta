@@ -32,8 +32,8 @@
 #include "lib/str.h"
 #include "apm.h"
 #include "cfg.h"
-#include "log.h"
 #include "pool.h"
+#include "system_log.h"
 #include "http.h"
 
 /*

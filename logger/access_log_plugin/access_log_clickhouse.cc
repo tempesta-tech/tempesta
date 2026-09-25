@@ -48,7 +48,7 @@ static const ClickHouseDecorator::TfwField TfwFields[] = {
 	[TfwBinLogTypeTraits<TFW_MMAP_LOG_METHOD>::index]	= {"method", ch::Type::UInt8},
 	[TfwBinLogTypeTraits<TFW_MMAP_LOG_VERSION>::index]	= {"version", ch::Type::UInt8},
 	[TfwBinLogTypeTraits<TFW_MMAP_LOG_STATUS>::index]	= {"status", ch::Type::UInt16},
-	[TfwBinLogTypeTraits<TFW_MMAP_LOG_RESP_CONT_LEN>::index]= {"response_content_length", ch::Type::UInt32},
+	[TfwBinLogTypeTraits<TFW_MMAP_LOG_RESP_CONT_LEN>::index]= {"response_content_length", ch::Type::UInt64},
 	[TfwBinLogTypeTraits<TFW_MMAP_LOG_RESP_TIME>::index]	= {"response_time", ch::Type::UInt32},
 	[TfwBinLogTypeTraits<TFW_MMAP_LOG_VHOST>::index]	= {"vhost", ch::Type::String},
 	[TfwBinLogTypeTraits<TFW_MMAP_LOG_URI>::index]		= {"uri", ch::Type::String},
@@ -64,9 +64,9 @@ static_assert(std::size(TfwFields) == TFW_MMAP_LOG_MAX + 1, "tfw_fields size mis
 } // anonymous namespace
 
 AccessLogClickhouseDecorator::AccessLogClickhouseDecorator(
-	std::unique_ptr<IClickhouse> client, std::string_view table_name,
+	std::shared_ptr<IClickhouse> client, std::string_view table_name,
 	size_t max_events)
-		: ClickHouseDecorator(std::move(client), TableCreationQueryTemplate,
+		: ClickHouseDecorator(client, TableCreationQueryTemplate,
 				      table_name, TfwFields, max_events)
 {
 }
@@ -74,5 +74,5 @@ AccessLogClickhouseDecorator::AccessLogClickhouseDecorator(
 void
 AccessLogClickhouseDecorator::append_timestamp(uint64_t timestamp)
 {
-	block_[0]->As<ch::ColumnDateTime64>()->Append(timestamp);
+	append<ch::ColumnDateTime64, 0>(timestamp);
 }
