@@ -133,6 +133,17 @@ read_field(WebAttackLogClickhouseDecorator &db, const auto *event,
 	read_field_impl<ColType, Traits::index>(db, event, data);
 }
 
+template <TfwSuspiciousLogFields Field>
+void
+read_field(SuspiciousLogClickhouseDecorator &db, const auto *event,
+	   std::span<const char> &data)
+{
+	using Traits = TfwSuspiciousLogTypeTraits<Field>;
+	using ColType = typename Traits::ColType;
+
+	read_field_impl<ColType, Traits::index>(db, event, data);
+}
+
 size_t
 read_access_log_event(AccessLogClickhouseDecorator &db,
 		      std::span<const char> data)
@@ -203,6 +214,27 @@ read_web_attack_log_event(WebAttackLogClickhouseDecorator &db,
 	return data.data() - reinterpret_cast<const char*>(ev);
 }
 
+size_t
+read_suspicious_log_event(SuspiciousLogClickhouseDecorator &db,
+			  std::span<const char> data)
+{
+	const auto *ev = reinterpret_cast<const TfwBinLogEvent *>(data.data());
+
+	data = data.subspan(sizeof(TfwBinLogEvent));
+
+	db.append_timestamp(ev->timestamp);
+
+	read_field<TFW_SU_LOG_ADDR>(db, ev, data);
+	read_field<TFW_SU_LOG_CLIENT_PORT>(db, ev, data);
+	read_field<TFW_SU_LOG_LOCAL_PORT>(db, ev, data);
+	read_field<TFW_SU_LOG_EVENT_TYPE>(db, ev, data);
+	read_field<TFW_SU_LOG_EVENT_BODY>(db, ev, data);
+	read_field<TFW_SU_LOG_IP_BLOCK>(db, ev, data);
+	read_field<TFW_SU_LOG_DROPPED>(db, ev, data);
+
+	return data.data() - reinterpret_cast<const char*>(ev);
+}
+
 #ifdef DEBUG
 void
 dbg_hexdump(std::span<const char> data)
@@ -247,10 +279,12 @@ AccessLogProcessor::AccessLogProcessor(std::shared_ptr<IClickhouse> writer,
 				       std::string_view access_log_table_name,
 				       std::string_view dos_log_table_name,
 				       std::string_view web_attack_log_table_name,
+				       std::string_view suspicious_log_table_name,
 				       size_t max_events)
 	: access_log_table_(writer, access_log_table_name, max_events)
 	, security_dos_log_table_(writer, dos_log_table_name, max_events)
 	, web_attack_log_table_(writer, web_attack_log_table_name, max_events)
+	, suspicious_log_table_(writer, suspicious_log_table_name, max_events)
 	, device_fd_(device_fd)
 {
 	spdlog::debug("Creating AccessLogProcessor with device: {}", device_fd_);
@@ -324,6 +358,12 @@ AccessLogProcessor::process_events(std::span<const char> data) noexcept
 				db = &web_attack_log_table_;
 				off = read_web_attack_log_event(
 					web_attack_log_table_, data);
+				break;
+			}
+			case TFW_MMAP_LOG_TYPE_SUSPICIOUS: {
+				db = &suspicious_log_table_;
+				off = read_suspicious_log_event(
+					suspicious_log_table_, data);
 				break;
 			}
 			default:
@@ -424,6 +464,9 @@ AccessLogProcessor::send(bool force) noexcept
 		err = static_cast<int>(tus::Err::DB_CLT_TRANSIENT);
 
 	if (!web_attack_log_table_.flush(force))
+		err = static_cast<int>(tus::Err::DB_CLT_TRANSIENT);
+
+	if (!suspicious_log_table_.flush(force))
 		err = static_cast<int>(tus::Err::DB_CLT_TRANSIENT);
 
 	return err;

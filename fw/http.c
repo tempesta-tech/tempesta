@@ -2956,7 +2956,9 @@ tfw_http_resp_pair(TfwHttpMsg *hmresp)
 end:
 	spin_unlock(&srv_conn->fwd_qlock);
 
-	T_WARN("Paired request missing, HTTP Response Splitting attack?\n");
+	log_suspicious_event(TFW_LOG_EVENT_SPLITTING_ATTACK, srv_conn->sk);
+	if (access_log_dmesg_enabled())
+		T_WARN("Paired request missing, HTTP Response Splitting attack?\n");
 	TFW_INC_STAT_BH(serv.msgs_otherr);
 
 	return -EINVAL;
@@ -5816,7 +5818,8 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 	 * and could contain outdated cached data.
 	 */
 	if (!nolog && msg)
-		T_WARN_ADDR(msg, &req->conn->peer->addr, TFW_NO_PORT);
+		if (access_log_dmesg_enabled())
+			T_WARN_ADDR(msg, &req->conn->peer->addr, TFW_NO_PORT);
 
 	if (TFW_MSG_H2(req)) {
 		r = tfw_h2_error_resp(req, status, reply, type,

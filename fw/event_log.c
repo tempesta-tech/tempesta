@@ -570,8 +570,7 @@ drop:
 void
 _log_security_event(TfwLogEventType event_type, TfwEventParams params,
 		    const TfwAddr *addr, unsigned short local_port,
-		    bool ip_block, const char *fmt,
-		    ...)
+		    bool ip_block, const char *fmt, ...)
 {
 	u64 *dropped = this_cpu_ptr(&mmap_log_dropped), dropped_tmp = 0;
 	TfwBinLogEvent *event;
@@ -859,10 +858,16 @@ tfw_event_log_start(void)
 	int cpu;
 
 	BUILD_BUG_ON(TFW_EVENT_LOG_MAX_BIN_LEN > 65535);
+	BUILD_BUG_ON(TFW_MMAP_FILDS_BITS < TFW_MMAP_LOG_MAX);
+	BUILD_BUG_ON(TFW_MMAP_FILDS_BITS < TFW_DOS_LOG_MAX);
+	BUILD_BUG_ON(TFW_MMAP_FILDS_BITS < TFW_WA_LOG_MAX);
+	BUILD_BUG_ON(TFW_MMAP_FILDS_BITS < TFW_SU_LOG_MAX);
+
 	if (!(access_log_type & ACCESS_LOG_MMAP) || mmap_buffer)
 		return 0;
 
-	mmap_buffer = tfw_mmap_buffer_create(MMAP_LOG_PATH, mmap_log_buffer_size);
+	mmap_buffer = tfw_mmap_buffer_create(MMAP_LOG_PATH,
+					     mmap_log_buffer_size);
 
 	for_each_online_cpu(cpu) {
 		u64 *dropped = per_cpu_ptr(&mmap_log_dropped, cpu);

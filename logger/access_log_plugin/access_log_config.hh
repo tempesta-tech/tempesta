@@ -33,6 +33,7 @@ struct AccessLogConfig {
 	std::string			access_log_table_name{"access_log"};
 	std::string			dos_log_table_name{"security_dos_log"};
 	std::string			web_attack_log_table_name{"security_web_attack_log"};
+	std::string			suspicious_log_table_name{"security_suspicious_log"};
 	std::optional<std::string>	user;
 	std::optional<std::string>	password;
 	// Events before forcing commit

@@ -106,3 +106,5 @@ DEFINE_EVENT(TFW_LOG_EVENT_STICKY_COOKIE_EXPIRED, "%lu%lu%lu",
 DEFINE_EVENT(TFW_LOG_EVENT_JSCH_EARLY_REDIRECT, "%lu%lu",
 	     "http_sess: jsch redirect received too early" \
 	     " (%lu is not after %lu)")
+DEFINE_EVENT_NO_PARAMS(TFW_LOG_EVENT_SPLITTING_ATTACK,
+		       "Paired request missing, HTTP Response Splitting attack?")

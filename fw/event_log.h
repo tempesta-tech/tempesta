@@ -99,6 +99,8 @@ typedef unsigned short TfwLogFieldLen;
 #define TFW_EVENT_LOG_MAX_BIN_LEN 65535U
 
 #define TFW_MMAP_LOG_TYPE_LEN 3
+#define TFW_MMAP_FILDS_BITS (16 - TFW_MMAP_LOG_TYPE_LEN)
+
 /*
  * @type	- The type of the event, look at TfwBinLogType;
  * @timestamp	- the time when the event occurred;
@@ -106,7 +108,7 @@ typedef unsigned short TfwLogFieldLen;
  */
 typedef struct __attribute__((packed)) {
 	u16	type : TFW_MMAP_LOG_TYPE_LEN;
-	u16	fields : 16 - TFW_MMAP_LOG_TYPE_LEN;
+	u16	fields : TFW_MMAP_FILDS_BITS;
 	u64	timestamp;
 } TfwBinLogEvent;
 
@@ -114,6 +116,7 @@ typedef enum {
 	TFW_MMAP_LOG_TYPE_ACCESS,
 	TFW_MMAP_LOG_TYPE_SECURITY,
 	TFW_MMAP_LOG_TYPE_WEB_ATTACK,
+	TFW_MMAP_LOG_TYPE_SUSPICIOUS,
 } TfwBinLogType;
 
 typedef enum {
@@ -154,6 +157,17 @@ typedef enum {
 	TFW_WA_LOG_DROPPED,
 	TFW_WA_LOG_MAX
 } TfwWebAttackLogFields;
+
+typedef enum {
+	TFW_SU_LOG_ADDR,
+	TFW_SU_LOG_CLIENT_PORT,
+	TFW_SU_LOG_LOCAL_PORT,
+	TFW_SU_LOG_EVENT_TYPE,
+	TFW_SU_LOG_EVENT_BODY,
+	TFW_SU_LOG_IP_BLOCK,
+	TFW_SU_LOG_DROPPED,
+	TFW_SU_LOG_MAX
+} TfwSuspiciousLogFields;
 
 #define TFW_MMAP_LOG_FIELD_IS_SET(event, field) \
 	((event)->fields >> field & 1)
@@ -344,6 +358,22 @@ do {										\
 				      ##__VA_ARGS__);				\
 } while (0)
 
+/* Call only after checking that access_log_mmap_enabled() returns true. */
+#define __log_suspicious_event(event_type, addr, local_port, ip_block, ...) \
+do {										\
+	static TfwEventParams params = {						\
+			 .type = TFW_MMAP_LOG_TYPE_SUSPICIOUS,			\
+			 .fields_max =						\
+				TFW_MMAP_LOG_ENABLE_ALL_FIELDS(TFW_SU_LOG_MAX),	\
+			 .body_field = TFW_SU_LOG_EVENT_BODY,			\
+			 .dropped_field = TFW_SU_LOG_DROPPED			\
+	};									\
+	_log_security_event(event_type, params, addr, local_port, ip_block,	\
+			    EVENT_TO_FMT(event_type), ##__VA_ARGS__);		\
+	__tfw_event_text_printf_check(EVENT_TO_TEXT_FMT(event_type),		\
+				      ##__VA_ARGS__);				\
+} while (0)
+
 /* A NULL @sk represents a local event with a zero address and ports. */
 #define __log_event_if_enabled(event_type, log_func, sk, ip_block, ...)		\
 do {										\
@@ -369,6 +399,11 @@ do {										\
 #define log_web_attack_event(event_type, sk, ip_block, ...)			\
 	__log_event_if_enabled(event_type, __log_web_attack_event,		\
 			       sk, ip_block, ##__VA_ARGS__)
+
+#define log_suspicious_event(event_type, sk, ...)				\
+	__log_event_if_enabled(event_type, __log_suspicious_event, sk, false, \
+			       ##__VA_ARGS__)
+
 #endif
 
 #endif /* __EVENT_LOG_H__ */

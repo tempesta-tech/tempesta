@@ -134,7 +134,7 @@ mmap_create_processor(const PluginConfigApi *config, unsigned cpu_id)
 		auto processor = std::make_unique<AccessLogProcessor>(writer,
 			cpu_id, dev_fd, cfg.access_log_table_name,
 			cfg.dos_log_table_name, cfg.web_attack_log_table_name,
-			cfg.max_events);
+			cfg.suspicious_log_table_name, cfg.max_events);
 
 		return processor.release();
 	} catch (const std::exception& e) {

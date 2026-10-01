@@ -26,7 +26,9 @@
 
 #include "access_log_clickhouse.hh"
 #include "dos_log_clickhouse.hh"
+#include "suspicious_log_clickhouse.hh"
 #include "web_attack_log_clickhouse.hh"
+
 
 /**
  * Plugin processor that handles access-log events and writes them to ClickHouse.
@@ -43,6 +45,7 @@ public:
 				    std::string_view access_log_table_name,
 				    std::string_view dos_log_table_name,
 				    std::string_view web_attack_log_table_name,
+				    std::string_view suspicious_log_table_name,
 				    size_t max_events);
 	~AccessLogProcessor() override;
 
@@ -63,6 +66,7 @@ private:
 	AccessLogClickhouseDecorator access_log_table_;
 	DosLogClickhouseDecorator security_dos_log_table_;
 	WebAttackLogClickhouseDecorator web_attack_log_table_;
+	SuspiciousLogClickhouseDecorator suspicious_log_table_;
 
 	int				device_fd_;
 	TfwMmapBuffer			*buffer_;

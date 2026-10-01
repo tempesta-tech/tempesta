@@ -61,12 +61,17 @@ AccessLogConfig::validate() const
 		throw std::runtime_error(
 		"web attack log table name cannot be empty");
 
+	if (suspicious_log_table_name.empty())
+		throw std::runtime_error(
+		"suspicios log table name cannot be empty");
+
 	if (max_events == 0)
 		throw std::runtime_error("max_events must be greater than 0");
 
 	cfg_utils::validate_table_name(access_log_table_name);
 	cfg_utils::validate_table_name(dos_log_table_name);
 	cfg_utils::validate_table_name(web_attack_log_table_name);
+	cfg_utils::validate_table_name(suspicious_log_table_name);
 }
 
 void
@@ -83,6 +88,10 @@ AccessLogConfig::parse_from_ptree(const boost::property_tree::ptree &tree)
 	web_attack_log_table_name =
 		tree.get<std::string>("security_web_attack_log_table_name",
 				      web_attack_log_table_name);
+	suspicious_log_table_name =
+		tree.get<std::string>("security_suspicious_log_table_name",
+				      suspicious_log_table_name);
+
 	max_events = tree.get<size_t>("max_events", max_events);
 
 	if (const auto val = tree.get_optional<std::string>("user"))
