@@ -108,3 +108,33 @@ DEFINE_EVENT(TFW_LOG_EVENT_JSCH_EARLY_REDIRECT, "%lu%lu",
 	     " (%lu is not after %lu)")
 DEFINE_EVENT_NO_PARAMS(TFW_LOG_EVENT_SPLITTING_ATTACK,
 		       "Paired request missing, HTTP Response Splitting attack?")
+DEFINE_EVENT(TFW_LOG_EVENT_REQ_PARSE_INCONSISTENCY, "%d",
+	     "Request parsing inconsistency (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_BODYLESS_METHOD_HEADERS, "%d",
+	     "Request contains Content-Length or Content-Type field"
+	     " for bodyless method (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_POSTPONED_REQ_FILTERED, "%d",
+	     "postponed request has been filtered out (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_REQ_TFH_LIMIT_EXCEEDED, "%d",
+	     "parsed request exceeded tfh limit (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_PIPELINED_REQ_AFTER_UPGRADE, "%d",
+	     "Request dropped: Pipelined request received"
+	     " after UPGRADE request (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_PIPELINED_REQ_SPLIT_FAILED, "%d",
+	     "Can't split pipelined requests (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_INVALID_AUTHORITY, "%d",
+	     "Invalid authority (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_INVALID_X_FORWARDED_FOR, "%d",
+	     "request dropped: incorrect X-Forwarded-For header (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_REQ_HTTP_TABLE_FILTERED, "%d",
+	     "request has been filtered out via http table (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_PARSED_REQ_FILTERED, "%d",
+	     "parsed request has been filtered out (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_UNSAFE_METHOD_OVERRIDE, "%d",
+	     "request dropped: unsafe method override (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_STICKY_INTERNAL_ERROR, "%d",
+	     "request dropped: internal error in Sticky module (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_RESP_FILTERED, "%d",
+	     "response blocked: filtered out (status=%d)")
+DEFINE_EVENT(TFW_LOG_EVENT_RESP_PROCESSING_ERROR, "%d",
+	     "response dropped: processing error (status=%d)")
