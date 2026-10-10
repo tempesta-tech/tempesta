@@ -38,6 +38,20 @@ ClickHouseDecorator::ClickHouseDecorator(std::unique_ptr<IClickhouse> client,
 	ensure_table_created();
 }
 
+ClickHouseDecorator::ClickHouseDecorator(std::shared_ptr<IClickhouse> client,
+			    std::string_view table_template,
+			    std::string_view table_name,
+			    std::span<const TfwField> fields,
+			    size_t max_events)
+	: table_name_(table_name)
+	, table_creation_query_(fmt::format(fmt::runtime(table_template), table_name_))
+	, max_events_(max_events)
+	, client_(client)
+	, block_(make_block(fields, max_events))
+{
+	ensure_table_created();
+}
+
 ClickHouseDecorator::~ClickHouseDecorator()
 {
 	if (!flush(true))
@@ -98,6 +112,8 @@ ClickHouseDecorator::flush(bool force) noexcept
 		return success;
 	}
 	catch (const std::exception &e) {
+		// TODO: Maybe we should clear `block_` if `GetRowCount()`
+		// is very large to prevent it from growing uncontrollably.
 		spdlog::error("Clickhouse insert error: {}", e.what());
 		return false;
 	}

@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2025-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -27,7 +27,7 @@
 #include "lib/fault_injection_alloc.h"
 #include "hash.h"
 #include "lib/tf.h"
-#include "log.h"
+#include "system_log.h"
 #include "tempesta_fw.h"
 
 static int tf_cfgop_handle_hash_entry(TfwCfgSpec *, TfwCfgEntry *);

@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2024-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2024-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -48,37 +48,38 @@ get_buffer_size(const int fd)
 	return size;
 }
 
-template <TfwBinLogFields FieldType>
-requires std::is_arithmetic_v<typename TfwBinLogTypeTraits<FieldType>::ValType> ||
-	 std::is_same_v<typename TfwBinLogTypeTraits<FieldType>::ValType, struct in6_addr>
+template <typename ColType, std::size_t Index>
+requires std::is_arithmetic_v<typename ColType::ValueType> ||
+	 std::is_same_v<typename ColType::ValueType, struct in6_addr>
 void
-read_field(AccessLogClickhouseDecorator &db, const auto *event, std::span<const char> &data)
+read_field_impl(ClickHouseDecorator &db, const auto *event,
+		std::span<const char> &data)
 {
-	using Traits  = TfwBinLogTypeTraits<FieldType>;
-	using ValType = typename Traits::ValType;
+	using ValType = ColType::ValueType;
 
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, FieldType)) {
-		const size_t len = tfw_mmap_log_field_len(FieldType);
+	if (TFW_MMAP_LOG_FIELD_IS_SET(event, (Index - 1))) {
+		size_t len = sizeof(ValType);
 
 		if (data.size() < len) [[unlikely]]
-			throw tus::Except("Incorrect integer eventent length");
+			throw tus::Except("Incorrect integer event length");
 
 		const ValType *val =
 			reinterpret_cast<const ValType *>(data.data());
-		db.append<FieldType>(*val);
+		db.append<ColType, Index>(*val);
 
 		data = data.subspan(len);
 	} else {
-		db.append<FieldType>(ValType{});
+		db.append<ColType, Index>(ValType{});
 	}
 }
 
-template <TfwBinLogFields FieldType>
-requires std::same_as<typename TfwBinLogTypeTraits<FieldType>::ValType, std::string_view>
+template <typename ColType, std::size_t Index>
+requires std::same_as<typename ColType::ValueType, std::string_view>
 void
-read_field(AccessLogClickhouseDecorator &db, const auto *event, std::span<const char> &data)
+read_field_impl(ClickHouseDecorator &db, const auto *event,
+		std::span<const char> &data)
 {
-	if (TFW_MMAP_LOG_FIELD_IS_SET(event, FieldType)) {
+	if (TFW_MMAP_LOG_FIELD_IS_SET(event, (Index - 1))) {
 		constexpr int len_size = sizeof(uint16_t);
 
 		if (data.size() < len_size) [[unlikely]]
@@ -91,16 +92,50 @@ read_field(AccessLogClickhouseDecorator &db, const auto *event, std::span<const 
 
 		data = data.subspan(len_size);
 		std::string_view str(data.data(), len);
-		db.append<FieldType>(str);
+		db.append<ColType, Index>(str);
 
 		data = data.subspan(len);
 	} else {
-		db.append<FieldType>(std::string_view{});
+		db.append<ColType, Index>(std::string_view{});
 	}
 }
 
+template <TfwAccessLogFields Field>
+void
+read_field(AccessLogClickhouseDecorator &db, const auto *event,
+	   std::span<const char> &data)
+{
+	using Traits = TfwBinLogTypeTraits<Field>;
+	using ColType = typename Traits::ColType;
+
+	read_field_impl<ColType, Traits::index>(db, event, data);
+}
+
+template <TfwDosLogFields Field>
+void
+read_field(DosLogClickhouseDecorator &db, const auto *event,
+	   std::span<const char> &data)
+{
+	using Traits = TfwDosLogTypeTraits<Field>;
+	using ColType = typename Traits::ColType;
+
+	read_field_impl<ColType, Traits::index>(db, event, data);
+}
+
+template <TfwWebAttackLogFields Field>
+void
+read_field(WebAttackLogClickhouseDecorator &db, const auto *event,
+	   std::span<const char> &data)
+{
+	using Traits = TfwWebAttackLogTypeTraits<Field>;
+	using ColType = typename Traits::ColType;
+
+	read_field_impl<ColType, Traits::index>(db, event, data);
+}
+
 size_t
-read_access_log_event(AccessLogClickhouseDecorator &db, std::span<const char> data)
+read_access_log_event(AccessLogClickhouseDecorator &db,
+		      std::span<const char> data)
 {
 	const auto *ev = reinterpret_cast<const TfwBinLogEvent *>(data.data());
 
@@ -123,6 +158,47 @@ read_access_log_event(AccessLogClickhouseDecorator &db, std::span<const char> da
 	read_field<TFW_MMAP_LOG_TFT>(db, ev, data);
 	read_field<TFW_MMAP_LOG_TFH>(db, ev, data);
 	read_field<TFW_MMAP_LOG_DROPPED>(db, ev, data);
+
+	return data.data() - reinterpret_cast<const char*>(ev);
+}
+
+size_t
+read_dos_log_event(DosLogClickhouseDecorator &db, std::span<const char> data)
+{
+	const auto *ev = reinterpret_cast<const TfwBinLogEvent *>(data.data());
+
+	data = data.subspan(sizeof(TfwBinLogEvent));
+
+	db.append_timestamp(ev->timestamp);
+
+	read_field<TFW_DOS_LOG_ADDR>(db, ev, data);
+	read_field<TFW_DOS_LOG_CLIENT_PORT>(db, ev, data);
+	read_field<TFW_DOS_LOG_LOCAL_PORT>(db, ev, data);
+	read_field<TFW_DOS_LOG_EVENT_TYPE>(db, ev, data);
+	read_field<TFW_DOS_LOG_EVENT_BODY>(db, ev, data);
+	read_field<TFW_DOS_LOG_IP_BLOCK>(db, ev, data);
+	read_field<TFW_DOS_LOG_DROPPED>(db, ev, data);
+
+	return data.data() - reinterpret_cast<const char*>(ev);
+}
+
+size_t
+read_web_attack_log_event(WebAttackLogClickhouseDecorator &db,
+			  std::span<const char> data)
+{
+	const auto *ev = reinterpret_cast<const TfwBinLogEvent *>(data.data());
+
+	data = data.subspan(sizeof(TfwBinLogEvent));
+
+	db.append_timestamp(ev->timestamp);
+
+	read_field<TFW_WA_LOG_ADDR>(db, ev, data);
+	read_field<TFW_WA_LOG_CLIENT_PORT>(db, ev, data);
+	read_field<TFW_WA_LOG_LOCAL_PORT>(db, ev, data);
+	read_field<TFW_WA_LOG_EVENT_TYPE>(db, ev, data);
+	read_field<TFW_WA_LOG_EVENT_BODY>(db, ev, data);
+	read_field<TFW_WA_LOG_IP_BLOCK>(db, ev, data);
+	read_field<TFW_WA_LOG_DROPPED>(db, ev, data);
 
 	return data.data() - reinterpret_cast<const char*>(ev);
 }
@@ -164,82 +240,17 @@ dbg_hexdump([[maybe_unused]] std::span<const char> data)
 }
 #endif /* DEBUG */
 
-/**
- * Read, process and send to ClickHouse events.
- *
- * We may copy from the kernel buffer more events than it was configured with
- * max_events - this may cause dynamic memory allocations, but frees space
- * in the kernel buffer as quickly as possible.
- *
- * @return the amount of data read, can be less than all available data,
- * e.g. if ClickHouse throws and exception or some event record is broken.
- */
-[[nodiscard]] tus::Error<size_t>
-process_events(AccessLogClickhouseDecorator &db, std::span<const char> data) noexcept
-{
-	size_t read = 0;
-
-	dbg_hexdump(data);
-
-	try {
-		while (data.size()) {
-			if (data.size() < sizeof(TfwBinLogEvent)) [[unlikely]]
-				throw tus::Except(
-					"Partial event in the access log");
-
-			const auto *ev
-				= reinterpret_cast<const TfwBinLogEvent *>(
-								data.data());
-
-			switch (ev->type) {
-			case TFW_MMAP_LOG_TYPE_ACCESS: {
-				const auto off = read_access_log_event(db, data);
-				data = data.subspan(off);
-				read += off;
-				break;
-			}
-			default:
-				throw tus::Except(
-					"Unsupported event type: {}",
-					static_cast<unsigned int>(ev->type));
-			}
-		}
-	}
-
-	// In case of exception, we return 0 to fully consume it from the kernel
-	// buffer. We have to do this since here we loose the knowledge which
-	// column raised a Clickhouse exceptions, the Clickhouse API doesn't
-	// allow to rollback appended column values and in case of parsing error
-	// the whole buffer might be corrupted.
-	//
-	// These exceptions are severe, like memory allocation failure or memory
-	// corruption, so there is probably no reason to try hard to recover.
-	catch (const tus::Exception &e) {
-		spdlog::error("Access log is corrupted, skip current buffer: {}",
-			      e.what());
-		if (!db.handle_block_error())
-			return tus::error(tus::Err::DB_SRV_FATAL);
-		return 0;
-	}
-	catch (const std::exception &e) {
-		spdlog::error("Caught a Clickhouse exception: {}."
-			      " Many events can be lost", e.what());
-		return tus::error(tus::Err::DB_SRV_FATAL);
-	}
-
-	assert(read);
-
-	return read;
-}
-
 } // anonymous namespace
 
-AccessLogProcessor::AccessLogProcessor(std::unique_ptr<IClickhouse> writer,
-				       unsigned cpu_id,
-				       int device_fd,
-				       const char* table_name,
+AccessLogProcessor::AccessLogProcessor(std::shared_ptr<IClickhouse> writer,
+				       unsigned cpu_id, int device_fd,
+				       std::string_view access_log_table_name,
+				       std::string_view dos_log_table_name,
+				       std::string_view web_attack_log_table_name,
 				       size_t max_events)
-	: writer_(std::move(writer), table_name, max_events)
+	: access_log_table_(writer, access_log_table_name, max_events)
+	, security_dos_log_table_(writer, dos_log_table_name, max_events)
+	, web_attack_log_table_(writer, web_attack_log_table_name, max_events)
 	, device_fd_(device_fd)
 {
 	spdlog::debug("Creating AccessLogProcessor with device: {}", device_fd_);
@@ -249,6 +260,8 @@ AccessLogProcessor::AccessLogProcessor(std::unique_ptr<IClickhouse> writer,
 	size_ = get_buffer_size(device_fd_);
 
 	area_size = TFW_MMAP_BUFFER_FULL_SIZE(size_);
+
+	client_ = writer;
 
 	buffer_ = (TfwMmapBuffer *)mmap(nullptr, area_size,
 					PROT_READ|PROT_WRITE,
@@ -266,6 +279,90 @@ AccessLogProcessor::~AccessLogProcessor()
 	spdlog::debug("AccessLogProcessor destroyed");
 }
 
+/**
+ * Read, process and send to ClickHouse events.
+ *
+ * We may copy from the kernel buffer more events than it was configured with
+ * max_events - this may cause dynamic memory allocations, but frees space
+ * in the kernel buffer as quickly as possible.
+ *
+ * @return the amount of data read, can be less than all available data,
+ * e.g. if ClickHouse throws and exception or some event record is broken.
+ */
+[[nodiscard]] tus::Error<size_t>
+AccessLogProcessor::process_events(std::span<const char> data) noexcept
+{
+	size_t read = 0, off = 0;
+	ClickHouseDecorator *db = nullptr;
+
+	dbg_hexdump(data);
+
+	try {
+		while (data.size()) {
+			if (data.size() < sizeof(TfwBinLogEvent)) [[unlikely]]
+				throw tus::Except(
+					"Partial event in the access log");
+
+			const auto *ev
+				= reinterpret_cast<const TfwBinLogEvent *>(
+								data.data());
+
+			switch (ev->type) {
+			case TFW_MMAP_LOG_TYPE_ACCESS: {
+				db = &access_log_table_;
+				off = read_access_log_event(
+					access_log_table_, data);
+				break;
+			}
+			case TFW_MMAP_LOG_TYPE_SECURITY: {
+				db = &security_dos_log_table_;
+				off = read_dos_log_event(
+					security_dos_log_table_, data);
+				break;
+			}
+			case TFW_MMAP_LOG_TYPE_WEB_ATTACK: {
+				db = &web_attack_log_table_;
+				off = read_web_attack_log_event(
+					web_attack_log_table_, data);
+				break;
+			}
+			default:
+				throw tus::Except(
+					"Unsupported event type: {}",
+					static_cast<unsigned int>(ev->type));
+			}
+			data = data.subspan(off);
+			read += off;
+			db = nullptr;
+		}
+	}
+
+	// In case of exception, we return 0 to fully consume it from the kernel
+	// buffer. We have to do this since here we loose the knowledge which
+	// column raised a Clickhouse exceptions, the Clickhouse API doesn't
+	// allow to rollback appended column values and in case of parsing error
+	// the whole buffer might be corrupted.
+	//
+	// These exceptions are severe, like memory allocation failure or memory
+	// corruption, so there is probably no reason to try hard to recover.
+	catch (const tus::Exception &e) {
+		spdlog::error("Access log is corrupted, skip current buffer: {}",
+			      e.what());
+		if (db && !db->handle_block_error())
+			return tus::error(tus::Err::DB_SRV_FATAL);
+		return 0;
+	}
+	catch (const std::exception &e) {
+		spdlog::error("Caught a Clickhouse exception: {}."
+			      " Many events can be lost", e.what());
+		return tus::error(tus::Err::DB_SRV_FATAL);
+	}
+
+	assert(read);
+
+	return read;
+}
+
 int
 AccessLogProcessor::consume(size_t *cnt) noexcept
 {
@@ -277,7 +374,7 @@ AccessLogProcessor::consume(size_t *cnt) noexcept
 	// Ideally, we would sleep until the ReconnectPolicy allows the next retry.
 	// I would prefer to implement this once we integrate all our solutions
 	// into the monorepo to prevent potential compiler incompatibilities.
-	if (!writer_.ensure_connected())
+	if (!client_->ensure_connected())
 		return 0;
 
 	uint64_t head, tail;
@@ -292,7 +389,7 @@ AccessLogProcessor::consume(size_t *cnt) noexcept
 	uint64_t size = static_cast<uint64_t>(head - tail);
 	const auto start = buffer_->data + (tail & buffer_->mask);
 
-	auto res = process_events(writer_, std::span<const char>(start, size));
+	auto res = process_events(std::span<const char>(start, size));
 	if (res && *res) [[likely]]
 		size = *res;
 	// ...else consume the whole buffer in case of error.
@@ -314,10 +411,22 @@ AccessLogProcessor::consume(size_t *cnt) noexcept
 int
 AccessLogProcessor::send(bool force) noexcept
 {
-	if (writer_.flush(force))
-		return 0;
+	int err = 0;
 
-	return static_cast<int>(tus::Err::DB_CLT_TRANSIENT);
+	/*
+	 * Flush every table even if one of them fails: errors can be specific to
+	 * a table, while ClickHouseDecorator keeps failed blocks for a later retry.
+	 */
+	if (!access_log_table_.flush(force))
+		err = static_cast<int>(tus::Err::DB_CLT_TRANSIENT);
+
+	if (!security_dos_log_table_.flush(force))
+		err = static_cast<int>(tus::Err::DB_CLT_TRANSIENT);
+
+	if (!web_attack_log_table_.flush(force))
+		err = static_cast<int>(tus::Err::DB_CLT_TRANSIENT);
+
+	return err;
 }
 
 std::string_view

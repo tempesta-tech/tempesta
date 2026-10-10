@@ -20,7 +20,7 @@
  */
 
 #include "regex.h"
-#include "log.h"
+#include "lib/log.h"
 #include "regex/kmod/rex.h"
 #include "tempesta_fw.h"
 

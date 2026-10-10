@@ -1,5 +1,6 @@
 # Kbuild output
 *.cmd
+*.d
 *.o
 *.o.*
 *.ko
@@ -67,6 +68,7 @@ debian
 
 # logger
 logger/tfw_logger
+logger/log_format/eventlog_format
 logger/clickhouse/clickhouse-cpp
 logger/clickhouse/clickhouse-build
 logger/clickhouse/tfw_clickhouse.a

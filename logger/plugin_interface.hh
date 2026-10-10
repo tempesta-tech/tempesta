@@ -39,6 +39,7 @@ typedef struct {
 	const char*	password;  	// null-terminated
 
 	size_t		max_events;
+	const char*	json_str;  	// null-terminated
 } PluginConfigApi;
 
 typedef void* ProcessorInstance;
