@@ -8,7 +8,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1116,14 +1116,29 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 	return 0;
 }
 
-int
-__ttls_send_record(TlsCtx *tls, struct sg_table *sgt)
+static int
+__ttls_send_record(TlsCtx *tls, struct sg_table *sgt, bool sync)
 {
 	int r;
 
-	if ((r = ttls_send_cb(tls, sgt)))
+	r = ttls_send_cb(tls, sgt, sync);
+	if (r)
 		T_DBG("TLS send callback error %d\n", r);
 	return r;
+}
+
+/* Queue prepared records on RX while the socket lock is held. */
+int
+ttls_send_record_sync(TlsCtx *tls, struct sg_table *sgt)
+{
+	return __ttls_send_record(tls, sgt, true);
+}
+
+/* Schedule transmission through the network layer's work queue. */
+int
+ttls_send_record_async(TlsCtx *tls, struct sg_table *sgt)
+{
+	return __ttls_send_record(tls, sgt, false);
 }
 
 static int
@@ -1137,7 +1152,7 @@ ttls_write_record(TlsCtx *tls, struct sg_table *sgt)
 	if (unlikely(r = __ttls_add_record(tls, NULL, 0, NULL)))
 		return r;
 
-	return __ttls_send_record(tls, sgt);
+	return ttls_send_record_async(tls, sgt);
 }
 
 static int

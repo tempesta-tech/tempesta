@@ -4,7 +4,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2024 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -571,7 +571,7 @@ typedef struct ttls_context {
 	void			*vhost;
 } TlsCtx;
 
-typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt);
+typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt, bool sync);
 typedef int ttls_sni_cb_t(TlsCtx *tls, const unsigned char *data, size_t len);
 typedef unsigned long ttls_cli_id_t(TlsCtx *tls, unsigned long hash);
 typedef bool ttls_alpn_match_t(const TlsCtx *tls, const ttls_alpn_proto *alpn);

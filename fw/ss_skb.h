@@ -87,7 +87,6 @@ typedef struct {
 } TfwSkbCleanup;
 
 void ss_skb_orphan(struct sk_buff *skb);
-void ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head);
 void ss_skb_set_owner(struct sk_buff *skb, TfwClientMem *owner,
 		      unsigned int delta);
 void ss_skb_adjust_client_mem(struct sk_buff *skb, int delta);
@@ -118,14 +117,8 @@ ss_skb_setup_head_of_list(struct sk_buff *skb_head, unsigned int mark,
 static inline int
 ss_skb_on_send(void *conn, struct sk_buff **skb_head)
 {
-	int r;
-
-	r = TFW_SKB_HOOK_CALL(TFW_SKB_CB(*skb_head)->skb_hooks,
-			      on_send, conn, skb_head);
-	if (!r && *skb_head)
-		ss_skb_on_send_dflt(conn, skb_head);
-
-	return r;
+	return TFW_SKB_HOOK_CALL(TFW_SKB_CB(*skb_head)->skb_hooks,
+				 on_send, conn, skb_head);
 }
 
 static inline void

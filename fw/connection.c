@@ -210,6 +210,17 @@ tfw_connection_recv_finish(TfwConn *conn)
 	return TFW_CONN_HOOK_CALL(conn, conn_recv_finish);
 }
 
+/*
+ * Transfer the skb list to the connection write queue and mark pending output.
+ * The caller must hold the socket lock and arrange transmission separately.
+ */
+void
+tfw_connection_enqueue(TfwConn *conn, struct sk_buff **skb_head)
+{
+	ss_skb_queue_splice(&conn->write_queue, skb_head);
+	sock_set_flag(conn->sk, SOCK_TEMPESTA_HAS_DATA);
+}
+
 void
 tfw_connection_hooks_register(TfwConnHooks *hooks, int type)
 {

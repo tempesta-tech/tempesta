@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2210,7 +2210,7 @@ ttls_handshake_send_out_buffers(TlsCtx *tls, struct sg_table *sgt,
 	*pg = NULL;
 	sg_mark_end(&sgt->sgl[sgt->nents - 1]);
 	/* Exit, enter the FSM on more data from the client. */
-	return __ttls_send_record(tls, sgt);
+	return ttls_send_record_sync(tls, sgt);
 }
 
 /**

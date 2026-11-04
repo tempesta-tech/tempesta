@@ -291,7 +291,7 @@ static TfwSkbHooks tfw_h2_frame_dflt_skb_hooks = {
  * 2. Response to one of the listed frames may be sent on the same cpu where
  *    the frame has been received.
  *
- * WARNING: This function relies on data sending in @tfw_h2_conn_recv_finish()
+ * WARNING: This function relies on data sending in @tfw_tls_conn_recv_finish()
  * DON'T call this function on TX path.
  */
 static int
@@ -341,15 +341,11 @@ __tfw_h2_send_frame_on_rx(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
 
 	ss_skb_setup_head_of_list(msg.skb_head, msg.skb_head->mark, tls_type);
 
-	if (ctx->cur_send_headers) {
+	if (ctx->cur_send_headers)
 		ss_skb_queue_splice(&ctx->cur_send_headers->xmit.postponed,
 				    &msg.skb_head);
-	} else {
-		struct sock *sk = conn->sk;
-
-		ss_skb_queue_splice(&conn->write_queue, &msg.skb_head);
-		sock_set_flag(sk, SOCK_TEMPESTA_HAS_DATA);
-	}
+	else
+		tfw_connection_enqueue(conn, &msg.skb_head);
 
 	return 0;
 
