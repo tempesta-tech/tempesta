@@ -535,9 +535,11 @@ tfw_tls_on_send_alert(void *conn, struct sk_buff **skb_head)
 /**
  * Callback function which is called by TLS module under tls->lock when it
  * initiates a record transmission, e.g. alert or a handshake message.
+ *
+ * if @sync is true sends records on RX under the socket lock.
  */
 static int
-tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
+tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool sync)
 {
 	int r, flags = 0;
 	TfwTlsConn *conn = container_of(tls, TfwTlsConn, tls);
@@ -617,7 +619,18 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 		}
 	}
 
-	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);
+	if (sync) {
+		/*
+		 * Some records are prepared on RX under the socket lock.
+		 * tfw_tls_conn_recv_finish() forces transmission after RX.
+		 */
+		assert_spin_locked(&cli_conn->sk->sk_lock.slock);
+		ss_skb_setup_head_of_list(io->skb_list, io->skb_list->mark, 0);
+		tfw_connection_enqueue((TfwConn *)conn, &io->skb_list);
+		goto out;
+	}
+
+	r = ss_send(cli_conn->sk, &io->skb_list, flags);
 	WARN_ON_ONCE(!(flags & SS_F_KEEP_SKB) && io->skb_list);
 
 out:
@@ -809,6 +822,14 @@ out:
 static int
 tfw_tls_conn_recv_finish(TfwConn *c)
 {
+	struct sock *sk = c->sk;
+
+	if (sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
+		SS_IN_USE_PROTECT({
+			tcp_push_pending_frames(sk);
+		});
+	}
+
 	return tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_recv_finish);
 }
 

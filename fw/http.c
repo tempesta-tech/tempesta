@@ -3305,9 +3305,6 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 static int
 tfw_http_conn_recv_finish(TfwConn *conn)
 {
-	if (TFW_FSM_TYPE(conn->proto.type) == TFW_FSM_H2)
-		tfw_h2_conn_recv_finish(conn);
-
 	/*
 	 * SoftIRQ shot is very short, 0.001 to 0.01 sec, so we can account
 	 * client memory once per softirq shot - this is a quite fast response

@@ -817,16 +817,3 @@ tfw_h2_entail_stream_skb(struct sock *sk, TfwStream *stream,
 	return r;
 }
 ALLOW_ERROR_INJECTION(tfw_h2_entail_stream_skb, ERRNO);
-
-void
-tfw_h2_conn_recv_finish(TfwConn *conn)
-{
-	struct sock *sk = conn->sk;
-	TfwH2Ctx *ctx = tfw_h2_context_safe(conn);
-
-	if (ctx && sock_flag(sk, SOCK_TEMPESTA_HAS_DATA)) {
-		SS_IN_USE_PROTECT({
-			tcp_push_pending_frames(sk);
-		});
-	}
-}

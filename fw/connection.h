@@ -625,6 +625,7 @@ void tfw_connection_hooks_unregister(int type);
 int tfw_connection_send(TfwConn *conn, TfwMsg *msg);
 int tfw_connection_recv(TfwConn *conn, struct sk_buff *skb);
 int tfw_connection_recv_finish(TfwConn *conn);
+void tfw_connection_enqueue(TfwConn *conn, struct sk_buff **skb_head);
 
 /* Generic helpers, used for both client and server connections. */
 void tfw_connection_init(TfwConn *conn);

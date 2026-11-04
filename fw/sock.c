@@ -560,6 +560,22 @@ ss_skb_tcp_entail_list(struct sock *sk, struct sk_buff **skb_head,
 	return 0;
 }
 
+static int
+__ss_enqueue_data(void *conn, struct sk_buff **skb_head)
+{
+	int r;
+
+	r = ss_skb_on_send(conn, skb_head);
+	if (unlikely(r))
+		return r;
+
+	/* ss_skb_on_send can take ownership of the skb_head. */
+	if (*skb_head)
+		tfw_connection_enqueue(conn, skb_head);
+
+	return 0;
+}
+
 /**
  * @skb_head can be invalid after the function call, don't try to use it.
  */
@@ -582,9 +598,8 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	ss_skb_setup_head_of_list(*skb_head, (*skb_head)->mark, tls_type);
 
-	if (ss_skb_on_send(conn, skb_head))
+	if (unlikely(__ss_enqueue_data(conn, skb_head)))
 		goto cleanup;
-
 	/*
 	 * We set SOCK_TEMPESTA_HAS_DATA when we add some skb in our
 	 * scheduler tree or connection write queue.

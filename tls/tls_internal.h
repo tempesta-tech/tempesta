@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -221,7 +221,8 @@ int ttls_derive_keys(TlsCtx *tls);
 
 int __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 		      unsigned char *hdr_buf);
-int __ttls_send_record(TlsCtx *tls, struct sg_table *sgt);
+int ttls_send_record_sync(TlsCtx *tls, struct sg_table *sgt);
+int ttls_send_record_async(TlsCtx *tls, struct sg_table *sgt);
 int ttls_sendmsg(TlsCtx *tls, const char *buf, size_t len);
 
 int ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,

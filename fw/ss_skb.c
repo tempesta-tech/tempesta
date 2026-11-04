@@ -1765,13 +1765,6 @@ ss_skb_orphan(struct sk_buff *skb)
 }
 
 void
-ss_skb_on_send_dflt(void *conn, struct sk_buff **skb_head)
-{
-	ss_skb_queue_splice(&((TfwConn *)conn)->write_queue, skb_head);
-	sock_set_flag(((TfwConn *)conn)->sk, SOCK_TEMPESTA_HAS_DATA);
-}
-
-void
 ss_skb_set_owner(struct sk_buff *skb, TfwClientMem *owner,
 		 unsigned int mem)
 {
