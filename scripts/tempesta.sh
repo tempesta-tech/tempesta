@@ -239,9 +239,19 @@ unload_modules()
 	rmmod $lib_mod
 }
 
+run_irq_affinity()
+{
+	local -a args=()
+
+	if "$OUTPUT_TIME"; then
+		args+=(--output-time)
+	fi
+	"$script_path/set_irq_affinity.sh" "${args[@]}" "$@"
+}
+
 setup()
 {
-	tfw_set_net_queues "$devs"
+	run_irq_affinity "$devs" || error "cannot configure network queues"
 
 	# Enable sysrq
 	echo 1 > /proc/sys/kernel/sysrq
@@ -373,7 +383,7 @@ start_tfw_logger()
 	if [ ! -f "$config_path" ]; then
 		sysctl -e -w net.tempesta.state=stop 2>/dev/null || true
 		unload_modules
-		tfw_irqbalance_revert
+		run_irq_affinity --revert
 		error "TFW Logger configuration file not found: $config_path. Cannot start Tempesta with access_log mmap enabled."
 	fi
 
@@ -381,7 +391,7 @@ start_tfw_logger()
 	"$logger_path/tfw_logger" --config="$config_path" || {
 		sysctl -e -w net.tempesta.state=stop 2>/dev/null || true
 		unload_modules
-		tfw_irqbalance_revert
+		run_irq_affinity --revert
 		error "cannot start tfw_logger daemon"
 	}
 
@@ -396,7 +406,7 @@ start_tfw_logger()
 			"$logger_path/tfw_logger" --stop 2>/dev/null || true
 			sysctl -e -w net.tempesta.state=stop 2>/dev/null || true
 			unload_modules
-			tfw_irqbalance_revert
+			run_irq_affinity --revert
 			error "tfw_logger failed to start within $tfw_logger_timeout seconds, see logs for details"
 		fi
 
@@ -477,7 +487,7 @@ stop()
 	log "...unload Tempesta modules"
 	unload_modules
 
-	tfw_irqbalance_revert
+	run_irq_affinity --revert
 
 	log "done"
 }
