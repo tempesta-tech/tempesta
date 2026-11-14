@@ -24,6 +24,27 @@ configuration or project architecture already covered in the documentation.
 Always perform a self-review according to the section below. Report the exact tests
 run and clearly identify anything that was not tested.
 
+### Security
+
+This project is a network security gateway, so all ingress (client) network data must
+be validated for valid values:
+
+1. use ingress data in pointer arithmetics and memory accesses only after the initial
+   value check and resulting pointer check
+2. check values against possible integer overflows
+3. check protocol semantics against ingress data (e.g. invalid flags and field
+   values)
+
+### Performance
+
+This project is performance critical:
+
+1. O(1) algorithms are more preferred that larger complexity
+2. Do as little data structures traversal as possible
+3. Avoid data copies and copy data when zero-copying is more expensive
+4. Take care about spacial locality
+5. Take care about shared data and locks on large multi-core and NUMA systems
+
 
 ## Code Review
 
