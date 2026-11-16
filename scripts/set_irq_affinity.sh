@@ -24,6 +24,7 @@ declare -r SYSD_IRQB_PATH="/lib/systemd/system/irqbalance.service"
 declare -r BAN_CONF_VAR="TFW_BAN_IRQS"
 declare -a IRQS_GLOB_LIST
 declare OUTPUT_TIME=false
+declare KEEP_QUEUES=false
 
 log()
 {
@@ -150,6 +151,17 @@ make_cpu_rps_mask()
 	echo `make_cpu_mask $delta $mask32 $val $cond`
 }
 
+get_queue_count()
+{
+	ethtool -l "$1" 2>/dev/null |
+		awk -v type="$2:" -v keep="$KEEP_QUEUES" '
+			/^Current hardware settings:/ { current = 1 }
+			$1 == type && (keep != "true" || current) {
+				print $2
+				exit
+			}'
+}
+
 distribute_virtio_queues()
 {
 	local dev="$1" info="$2" min_queues="$3"
@@ -157,8 +169,7 @@ distribute_virtio_queues()
 	local -A group_masks=() old_masks=()
 
 	#virtio queues are always combined
-	queues=$(ethtool -l "$dev" 2>/dev/null |
-		awk '$1 == "Combined:" { print $2; exit }')
+	queues=$(get_queue_count "$dev" Combined)
 	if [[ ! $queues =~ ^[0-9]+$ ]] || (( queues <= min_queues )); then
 		log "Combined queues for $dev not found"
 		return 1
@@ -169,9 +180,11 @@ distribute_virtio_queues()
 		echo 0 > "$rx/rps_cpus"
 	done
 
-	if ! res=$(ethtool -L "$dev" combined "$queues" 2>&1); then
-		log "Error: cannot set new queues count for $dev: $res"
-		return 1
+	if ! "$KEEP_QUEUES"; then
+		if ! res=$(ethtool -L "$dev" combined "$queues" 2>&1); then
+			log "Error: cannot set new queues count for $dev: $res"
+			return 1
+		fi
 	fi
 
 	bus_info=$(awk '$1 == "bus-info:" { print $2 }' <<< "$info")
@@ -248,13 +261,15 @@ distribute_queues()
 	RXQ_MAX=$2
 	type=$3
 
-	# Set maximum number of available channels for better
-	# packets hashing.
-	res=$(ethtool -L $dev $type $RXQ_MAX 2>&1)
-	if [ $? -ne 0 -a -z "$(echo $res | grep -P '^rx unmodified, ignoring')" ]
-	then
-		log "Error: cannot set new queues count for $dev: $res"
-		return
+	if ! "$KEEP_QUEUES"; then
+		# Set maximum number of available channels for better
+		# packets hashing.
+		res=$(ethtool -L $dev $type $RXQ_MAX 2>&1)
+		if [ $? -ne 0 -a -z "$(echo $res | grep -P '^rx unmodified, ignoring')" ]
+		then
+			log "Error: cannot set new queues count for $dev: $res"
+			return
+		fi
 	fi
 
 	# Interrupts may not have interface-like description in
@@ -323,8 +338,7 @@ distribute_rx_queues()
 	min_queues=$2
 	error="Rx queues for $dev not found"
 
-	queues_str=$(ethtool -l $dev 2>/dev/null \
-		     | grep -m 1 RX | sed -e 's/RX\:\s*//')
+	queues_str=$(get_queue_count "$dev" RX)
 	queues=$(printf '%d' "$queues_str" 2>/dev/null)
 	if [ -n "$queues" -a ${queues:-0} -gt $min_queues ]; then
 		# Switch off RPS for multi-queued interfaces.
@@ -344,8 +358,7 @@ distribute_combined_queues()
 	min_queues=$2
 	error="Combined queues for $dev not found"
 
-	queues_str=$(ethtool -l $dev 2>/dev/null \
-		     | grep -m 1 Combined | sed -e 's/Combined\:\s*//')
+	queues_str=$(get_queue_count "$dev" Combined)
 	queues=$(printf '%d' "$queues_str" 2>/dev/null)
 	if [ -n "$queues" -a ${queues:-0} -gt $min_queues ]; then
 		# Switch off RPS for multi-queued interfaces.
@@ -416,8 +429,9 @@ tfw_irqbalance_revert()
 
 usage()
 {
-	printf 'Usage: %s [--no-rps] [--output-time] DEVICE [DEVICE ...]\n' "$0"
+	printf 'Usage: %s [--no-rps] [--keep-queues] [--output-time] DEVICE [DEVICE ...]\n' "$0"
 	printf '       %s [--output-time] --revert\n' "$0"
+	printf '\n  --keep-queues  Use current queue counts without changing them.\n'
 }
 
 set_irq_affinity_main()
@@ -427,6 +441,7 @@ set_irq_affinity_main()
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 		--no-rps) skip_rps=1 ;;
+		--keep-queues) KEEP_QUEUES=true ;;
 		--output-time) OUTPUT_TIME=true ;;
 		--revert) revert=true ;;
 		-h|--help) usage; return 0 ;;
@@ -438,7 +453,7 @@ set_irq_affinity_main()
 	done
 
 	if "$revert"; then
-		if [[ $# -ne 0 || -n $skip_rps ]]; then
+		if [[ $# -ne 0 || -n $skip_rps || $KEEP_QUEUES == true ]]; then
 			usage >&2
 			return 1
 		fi
