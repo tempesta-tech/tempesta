@@ -93,7 +93,7 @@
 
 #include "lib/hash.h"
 #include "lib/str.h"
-#include "access_log.h"
+#include "event_log.h"
 #include "apm.h"
 #include "cache.h"
 #include "filter.h"
@@ -105,12 +105,12 @@
 #include "client.h"
 #include "http_msg.h"
 #include "http_sess.h"
-#include "log.h"
 #include "procfs.h"
 #include "server.h"
+#include "system_log.h"
 #include "tls.h"
 #include "apm.h"
-#include "access_log.h"
+#include "event_log.h"
 #include "vhost.h"
 #include "websocket.h"
 #include "tf_filter.h"
@@ -513,6 +513,22 @@ typedef enum {
 	TFW_ERROR_TYPE_DROP,
 	TFW_ERROR_TYPE_BAD,
 } ErrorType;
+
+/* Log the event payload and fixed dmesg text under the block_action policy. */
+#define http_msg_log(event_type, req, nolog_flag, msg, ...)		\
+do {									\
+	if (!(tfw_blk_flags & (nolog_flag))) {				\
+		log_suspicious_event(event_type, (req)->conn->sk,	\
+				     ##__VA_ARGS__);			\
+		/*
+		 * Do not log client port as it doesn't provide useful
+		 * information and could contain outdated cached data.
+		 */							\
+		if (access_log_dmesg_enabled())				\
+			T_WARN_ADDR(msg, &(req)->conn->peer->addr,	\
+				    TFW_NO_PORT);			\
+	}								\
+} while (0)
 
 static int tfw_h2_on_send_resp(void *conn, struct sk_buff **skb_head);
 static void tfw_h2_on_send_resp_fail(struct sk_buff *skb_head);
@@ -2956,7 +2972,9 @@ tfw_http_resp_pair(TfwHttpMsg *hmresp)
 end:
 	spin_unlock(&srv_conn->fwd_qlock);
 
-	T_WARN("Paired request missing, HTTP Response Splitting attack?\n");
+	log_suspicious_event(TFW_LOG_EVENT_SPLITTING_ATTACK, srv_conn->sk);
+	if (access_log_dmesg_enabled())
+		T_WARN("Paired request missing, HTTP Response Splitting attack?\n");
 	TFW_INC_STAT_BH(serv.msgs_otherr);
 
 	return -EINVAL;
@@ -5761,15 +5779,11 @@ out:
 }
 
 /**
- * Function define logging and response behaviour during detection of
- * malformed or malicious messages. Mark client connection in special
- * manner to delay its closing until transmission of error response
- * will be finished.
+ * Handle malformed or malicious messages, including response generation
+ * and connection closing. Callers log the failure before invoking this helper.
  *
  * @req			- malicious or malformed request;
  * @status		- response status code to use;
- * @msg			- message to be logged. Can be NULL if the caller does
- *			  logging on their side;
  * @type		- TFW_ERROR_TYPE_ATTACK if the request was sent
  *			  intentionally.
  *			  TFW_ERROR_TYPE_DROP if the request should be
@@ -5787,13 +5801,11 @@ out:
  *			  T_DROP if it is error case and we need to reply.
  */
 static int
-tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
-				ErrorType type, bool on_req_recv_event,
-				TfwH2Err err_code)
+tfw_http_cli_error_resp(TfwHttpReq *req, int status, ErrorType type,
+			bool on_req_recv_event, TfwH2Err err_code)
 {
 	int r;
 	bool reply;
-	bool nolog;
 
 	/*
 	 * Error was happened and request should be dropped or blocked,
@@ -5803,20 +5815,8 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 	 */
 	tfw_http_conn_msg_free(req->pair);
 
-	if (type == TFW_ERROR_TYPE_ATTACK) {
-		reply = tfw_blk_flags & TFW_BLK_ATT_REPLY;
-		nolog = tfw_blk_flags & TFW_BLK_ATT_NOLOG;
-	}
-	else {
-		reply = tfw_blk_flags & TFW_BLK_ERR_REPLY;
-		nolog = tfw_blk_flags & TFW_BLK_ERR_NOLOG;
-	}
-
-	/* Do not log client port as it doesn't provide useful information
-	 * and could contain outdated cached data.
-	 */
-	if (!nolog && msg)
-		T_WARN_ADDR(msg, &req->conn->peer->addr, TFW_NO_PORT);
+	reply = tfw_blk_flags & (type == TFW_ERROR_TYPE_ATTACK
+				 ? TFW_BLK_ATT_REPLY : TFW_BLK_ERR_REPLY);
 
 	if (TFW_MSG_H2(req)) {
 		r = tfw_h2_error_resp(req, status, reply, type,
@@ -5835,12 +5835,10 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
  * be alive.
  */
 static inline int
-tfw_http_req_parse_drop(TfwHttpReq *req, int status, const char *msg,
-			TfwH2Err err_code)
+tfw_http_req_parse_drop(TfwHttpReq *req, int status, TfwH2Err err_code)
 {
-	return tfw_http_cli_error_resp_and_log(req, status, msg,
-					       TFW_ERROR_TYPE_DROP, true,
-					       err_code);
+	return tfw_http_cli_error_resp(req, status,
+				       TFW_ERROR_TYPE_DROP, true, err_code);
 }
 
 /**
@@ -5848,24 +5846,20 @@ tfw_http_req_parse_drop(TfwHttpReq *req, int status, const char *msg,
  * be closed.
  */
 static inline int
-tfw_http_req_parse_drop_with_fin(TfwHttpReq *req, int status, const char *msg,
-				 TfwH2Err err_code)
+tfw_http_req_parse_drop_with_fin(TfwHttpReq *req, int status, TfwH2Err err_code)
 {
-	return tfw_http_cli_error_resp_and_log(req, status, msg,
-					       TFW_ERROR_TYPE_BAD, true,
-					       err_code);
+	return tfw_http_cli_error_resp(req, status,
+				       TFW_ERROR_TYPE_BAD, true, err_code);
 }
 
 /**
  * Attack is detected during request parsing.
  */
 static inline int
-tfw_http_req_parse_block(TfwHttpReq *req, int status, const char *msg,
-			 TfwH2Err err_code)
+tfw_http_req_parse_block(TfwHttpReq *req, int status, TfwH2Err err_code)
 {
-	return tfw_http_cli_error_resp_and_log(req, status, msg,
-					       TFW_ERROR_TYPE_ATTACK, true,
-					       err_code);
+	return tfw_http_cli_error_resp(req, status,
+				       TFW_ERROR_TYPE_ATTACK, true, err_code);
 }
 
 /**
@@ -5874,12 +5868,10 @@ tfw_http_req_parse_block(TfwHttpReq *req, int status, const char *msg,
  * close will be performed.
  */
 static inline int
-tfw_http_req_drop(TfwHttpReq *req, int status, const char *msg,
-		  TfwH2Err err_code)
+tfw_http_req_drop(TfwHttpReq *req, int status, TfwH2Err err_code)
 {
-	return tfw_http_cli_error_resp_and_log(req, status, msg,
-					       TFW_ERROR_TYPE_DROP, false,
-					       err_code);
+	return tfw_http_cli_error_resp(req, status,
+				       TFW_ERROR_TYPE_DROP, false, err_code);
 }
 
 /**
@@ -5888,12 +5880,10 @@ tfw_http_req_drop(TfwHttpReq *req, int status, const char *msg,
  * will be performed.
  */
 static inline int
-tfw_http_req_block(TfwHttpReq *req, int status, const char *msg,
-		   TfwH2Err err_code)
+tfw_http_req_block(TfwHttpReq *req, int status, TfwH2Err err_code)
 {
-	return tfw_http_cli_error_resp_and_log(req, status, msg,
-					       TFW_ERROR_TYPE_ATTACK, false,
-					       err_code);
+	return tfw_http_cli_error_resp(req, status,
+				       TFW_ERROR_TYPE_ATTACK, false, err_code);
 }
 
 /*
@@ -6668,15 +6658,13 @@ next_msg:
 	case T_BAD:
 		T_DBG2("Drop invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
-		return tfw_http_req_parse_drop_with_fin(req, 400, NULL,
-							r == T_COMPRESSION
-							? HTTP2_ECODE_COMPRESSION
-							: HTTP2_ECODE_PROTO);
+		return tfw_http_req_parse_drop_with_fin(req, 400, r == T_COMPRESSION
+						      ? HTTP2_ECODE_COMPRESSION
+						      : HTTP2_ECODE_PROTO);
 	case T_BLOCK:
 		T_DBG2("Block invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
-		return tfw_http_req_parse_block(req, 403, NULL,
-						HTTP2_ECODE_PROTO);
+		return tfw_http_req_parse_block(req, 403, HTTP2_ECODE_PROTO);
 	case T_POSTPONE:
 		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
 			/*
@@ -6684,9 +6672,11 @@ next_msg:
 			 * all available data, but that weren't enough.
 			 */
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			http_msg_log(TFW_LOG_EVENT_REQ_PARSE_INCONSISTENCY, req,
+				     TFW_BLK_ATT_NOLOG,
+				     "Request parsing inconsistency", 500);
 			return tfw_http_req_parse_block(req, 500,
-					"Request parsing inconsistency",
-					HTTP2_ECODE_PROTO);
+				HTTP2_ECODE_PROTO);
 		}
 		if (TFW_MSG_H2(req)) {
 			TfwH2Ctx *ctx = tfw_h2_context_unsafe(conn);
@@ -6711,11 +6701,14 @@ next_msg:
 			 */
 			if (ctx->hdr.flags & HTTP2_F_END_HEADERS) {
 				if (unlikely(tfw_http_parse_check_bodyless_meth(req))) {
-					return tfw_http_req_parse_drop_with_fin(req, 400,
-							"Request contains Content-Length"
-							" or Content-Type field"
-							" for bodyless method",
-							HTTP2_ECODE_PROTO);
+					http_msg_log(TFW_LOG_EVENT_BODYLESS_METHOD_HEADERS,
+						     req, TFW_BLK_ERR_NOLOG,
+						     "Request contains Content-Length"
+						     " or Content-Type field"
+						     " for bodyless method",
+						     400);
+					return tfw_http_req_parse_drop_with_fin(req,
+						400, HTTP2_ECODE_PROTO);
 				}
 
 				__set_bit(TFW_HTTP_B_HEADERS_PARSED, req->flags);
@@ -6726,9 +6719,12 @@ next_msg:
 				if (likely(!tfw_h2_parse_req_finish(req)))
 					break;
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
-				return	tfw_http_req_parse_drop_with_fin(req, 400,
-						"Request parsing inconsistency",
-						HTTP2_ECODE_PROTO);
+				http_msg_log(TFW_LOG_EVENT_REQ_PARSE_INCONSISTENCY,
+					     req, TFW_BLK_ERR_NOLOG,
+					     "Request parsing inconsistency",
+					     400);
+				return tfw_http_req_parse_drop_with_fin(req,
+					400, HTTP2_ECODE_PROTO);
 			}
 		}
 
@@ -6736,9 +6732,12 @@ next_msg:
 		T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 		if (r == T_BLOCK) {
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
+			http_msg_log(TFW_LOG_EVENT_POSTPONED_REQ_FILTERED, req,
+				     TFW_BLK_ATT_NOLOG,
+				     "postponed request has been filtered out",
+				     403);
 			return tfw_http_req_parse_block(req, 403,
-					"postponed request has been filtered out",
-					HTTP2_ECODE_PROTO);
+							HTTP2_ECODE_PROTO);
 		}
 
 		if (tfw_http_should_handle_expect(req)) {
@@ -6763,9 +6762,11 @@ next_msg:
 		if (WARN_ON_ONCE(!test_bit(TFW_HTTP_B_CHUNKED, req->flags)
 				 && (req->content_length != req->body.len))) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			http_msg_log(TFW_LOG_EVENT_REQ_PARSE_INCONSISTENCY, req,
+				     TFW_BLK_ERR_NOLOG,
+				     "Request parsing inconsistency", 500);
 			return tfw_http_req_parse_drop_with_fin(req, 500,
-				"Request parsing inconsistency",
-				HTTP2_ECODE_PROTO);
+								HTTP2_ECODE_PROTO);
 		}
 	}
 
@@ -6777,9 +6778,10 @@ next_msg:
 
 	if (tfw_http_check_tfh_req_limit(req)) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 403,
-				"parsed request exceeded tfh limit",
-				HTTP2_ECODE_PROTO);
+		http_msg_log(TFW_LOG_EVENT_REQ_TFH_LIMIT_EXCEEDED, req,
+			     TFW_BLK_ATT_NOLOG,
+			     "parsed request exceeded tfh limit", 403);
+		return tfw_http_req_parse_block(req, 403, HTTP2_ECODE_PROTO);
 	}
 
 
@@ -6795,18 +6797,21 @@ next_msg:
 		/* Don't pipeline anything after UPGRADE request. */
 		if (test_bit(TFW_HTTP_B_CONN_UPGRADE, req->flags)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			http_msg_log(TFW_LOG_EVENT_PIPELINED_REQ_AFTER_UPGRADE,
+				     req, TFW_BLK_ATT_NOLOG,
+				     "Request dropped: Pipelined request "
+				     "received after UPGRADE request", 400);
 			return tfw_http_req_parse_block(req, 400,
-					"Request dropped: "
-					"Pipelined request received "
-					"after UPGRADE request",
-					HTTP2_ECODE_PROTO);
+				HTTP2_ECODE_PROTO);
 		}
 		skb = ss_skb_split(skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			http_msg_log(TFW_LOG_EVENT_PIPELINED_REQ_SPLIT_FAILED,
+				     req, TFW_BLK_ERR_NOLOG,
+				     "Can't split pipelined requests", 500);
 			return tfw_http_req_parse_drop(req, 500,
-					"Can't split pipelined requests",
-					HTTP2_ECODE_PROTO);
+				HTTP2_ECODE_PROTO);
 		}
 		*split = skb;
 	} else {
@@ -6820,14 +6825,16 @@ next_msg:
 	 * while it's enough to parse only headers.
 	 */
 	if (!__check_authority_correctness(req)) {
-		return tfw_http_req_parse_drop(req, 400, "Invalid authority",
-					       HTTP2_ECODE_PROTO);
+		http_msg_log(TFW_LOG_EVENT_INVALID_AUTHORITY, req,
+			     TFW_BLK_ERR_NOLOG, "Invalid authority", 400);
+		return tfw_http_req_parse_drop(req, 400, HTTP2_ECODE_PROTO);
 	}
 
 	if ((r = tfw_http_req_client_link(conn, req))) {
-		return tfw_http_req_parse_drop(req, 400, "request dropped: "
-				"incorrect X-Forwarded-For header",
-				HTTP2_ECODE_PROTO);
+		http_msg_log(TFW_LOG_EVENT_INVALID_X_FORWARDED_FOR, req,
+			     TFW_BLK_ERR_NOLOG, "request dropped: incorrect "
+			     "X-Forwarded-For header", 400);
+		return tfw_http_req_parse_drop(req, 400, HTTP2_ECODE_PROTO);
 	}
 
 	/*
@@ -6853,9 +6860,11 @@ next_msg:
 	 */
 	if (unlikely(r = tfw_http_tbl_action((TfwMsg *)req, &res))) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 403,
-				"request has been filtered out via http table",
-				HTTP2_ECODE_PROTO);
+		http_msg_log(TFW_LOG_EVENT_REQ_HTTP_TABLE_FILTERED, req,
+			     TFW_BLK_ATT_NOLOG,
+			     "request has been filtered out via http table",
+			     403);
+		return tfw_http_req_parse_block(req, 403, HTTP2_ECODE_PROTO);
 	}
 	if (res.type == TFW_HTTP_RES_VHOST) {
 		req->vhost = res.vhost;
@@ -6903,9 +6912,10 @@ next_msg:
 	/* Don't accept any following requests from the peer. */
 	if (r == T_BLOCK) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 403,
-				"parsed request has been filtered out",
-				HTTP2_ECODE_PROTO);
+		http_msg_log(TFW_LOG_EVENT_PARSED_REQ_FILTERED, req,
+			     TFW_BLK_ATT_NOLOG, "parsed request has been "
+			     "filtered out", 403);
+		return tfw_http_req_parse_block(req, 403, HTTP2_ECODE_PROTO);
 	}
 
 	if (res.type == TFW_HTTP_RES_REDIR) {
@@ -6940,10 +6950,12 @@ next_msg:
 		if (TFW_HTTP_IS_METH_SAFE(req->method)
 			&& !TFW_HTTP_IS_METH_SAFE(req->method_override))
 		{
+			http_msg_log(TFW_LOG_EVENT_UNSAFE_METHOD_OVERRIDE, req,
+				     TFW_BLK_ATT_NOLOG,
+				     "request dropped: unsafe method override",
+				     400);
 			return tfw_http_req_parse_block(req, 400,
-					"request dropped: unsafe"
-					" method override",
-					HTTP2_ECODE_PROTO);
+				HTTP2_ECODE_PROTO);
 		}
 		req->method = req->method_override;
 	}
@@ -6971,8 +6983,7 @@ next_msg:
 
 	case TFW_HTTP_SESS_VIOLATE:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		return tfw_http_req_parse_block(req, 403, NULL,
-						HTTP2_ECODE_PROTO);
+		return tfw_http_req_parse_block(req, 403, HTTP2_ECODE_PROTO);
 
 	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
 		/*
@@ -6986,10 +6997,12 @@ next_msg:
 
 	case TFW_HTTP_SESS_FAILURE:
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		http_msg_log(TFW_LOG_EVENT_STICKY_INTERNAL_ERROR, req,
+			     TFW_BLK_ERR_NOLOG,
+			     "request dropped: internal error in Sticky module",
+			     500);
 		return tfw_http_req_parse_drop_with_fin(req, 500,
-				"request dropped: internal error"
-				" in Sticky module",
-				HTTP2_ECODE_PROTO);
+							HTTP2_ECODE_PROTO);
 	default:
 		BUG();
 	}
@@ -7178,8 +7191,9 @@ tfw_http_resp_filtout(TfwHttpMsg *hmresp)
 	tfw_http_popreq(hmresp, false);
 	TFW_INC_STAT_BH(serv.msgs_filtout);
 	/* The response is freed by tfw_http_req_block(). */
-	return tfw_http_req_block(req, 403, "response blocked: filtered out",
-				  HTTP2_ECODE_PROTO);
+	http_msg_log(TFW_LOG_EVENT_RESP_FILTERED, req, TFW_BLK_ATT_NOLOG,
+		     "response blocked: filtered out", 403);
+	return tfw_http_req_block(req, 403, HTTP2_ECODE_PROTO);
 }
 
 /*
@@ -7275,8 +7289,10 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 			  &data)) {
 		TFW_INC_STAT_BH(serv.msgs_filtout);
 		/* The response is freed by tfw_http_req_block(). */
-		return tfw_http_req_block(req, 403, "response blocked: filtered out",
-					  HTTP2_ECODE_PROTO);
+		http_msg_log(TFW_LOG_EVENT_RESP_FILTERED, req,
+			     TFW_BLK_ATT_NOLOG, "response blocked: filtered out",
+			     403);
+		return tfw_http_req_block(req, 403, HTTP2_ECODE_PROTO);
 	}
 
 	/*
@@ -7370,8 +7386,10 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 
 			tfw_http_popreq(hm, false);
 			/* The response is freed by tfw_http_req_block(). */
-			tfw_http_req_block(req, 502, "response blocked: filtered out",
-					HTTP2_ECODE_PROTO);
+			http_msg_log(TFW_LOG_EVENT_RESP_FILTERED, req,
+				     TFW_BLK_ATT_NOLOG, "response blocked: "
+				     "filtered out", 502);
+			tfw_http_req_block(req, 502, HTTP2_ECODE_PROTO);
 			TFW_INC_STAT_BH(serv.msgs_filtout);
 			return;
 		}
@@ -7423,14 +7441,17 @@ tfw_http_resp_fwd_stale(TfwHttpMsg *hmresp)
 			  &data)) {
 		TFW_INC_STAT_BH(serv.msgs_filtout);
 		/* The response is freed by tfw_http_req_block(). */
-		return tfw_http_req_block(req, 403, "response blocked: filtered out",
-					  HTTP2_ECODE_PROTO);
+		http_msg_log(TFW_LOG_EVENT_RESP_FILTERED, req,
+			     TFW_BLK_ATT_NOLOG, "response blocked: filtered out",
+			     403);
+		return tfw_http_req_block(req, 403, HTTP2_ECODE_PROTO);
 	}
 
 	if (!__tfw_http_resp_fwd_stale(hmresp)) {
-		tfw_http_req_drop(req, 502,
-				  "response dropped: processing error",
-				  HTTP2_ECODE_PROTO);
+		http_msg_log(TFW_LOG_EVENT_RESP_PROCESSING_ERROR, req,
+			     TFW_BLK_ERR_NOLOG,
+			     "response dropped: processing error", 502);
+		tfw_http_req_drop(req, 502, HTTP2_ECODE_PROTO);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return T_BAD;
 	}
@@ -7733,9 +7754,10 @@ bad_msg:
 
 	if (!filtout && tfw_http_resp_should_fwd_stale(bad_req, 502)) {
 		if (!__tfw_http_resp_fwd_stale(hmresp)) {
-			tfw_http_req_drop(bad_req, 502,
-					  "response dropped: processing error",
-					  HTTP2_ECODE_PROTO);
+			http_msg_log(TFW_LOG_EVENT_RESP_PROCESSING_ERROR,
+				     bad_req, TFW_BLK_ERR_NOLOG,
+				     "response dropped: processing error", 502);
+			tfw_http_req_drop(bad_req, 502, HTTP2_ECODE_PROTO);
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 		/*
@@ -7756,13 +7778,15 @@ bad_msg:
 	} else {
 		/* The response is freed by tfw_http_req_block/drop(). */
 		if (filtout) {
-			r = tfw_http_req_block(bad_req, 502,
-					       "response blocked: filtered out",
-					       HTTP2_ECODE_PROTO);
+			http_msg_log(TFW_LOG_EVENT_RESP_FILTERED, bad_req,
+				     TFW_BLK_ATT_NOLOG,
+				     "response blocked: filtered out", 502);
+			r = tfw_http_req_block(bad_req, 502, HTTP2_ECODE_PROTO);
 		} else {
-			tfw_http_req_drop(bad_req, 502,
-					  "response dropped: processing error",
-					  HTTP2_ECODE_PROTO);
+			http_msg_log(TFW_LOG_EVENT_RESP_PROCESSING_ERROR,
+				     bad_req, TFW_BLK_ERR_NOLOG,
+				     "response dropped: processing error", 502);
+			tfw_http_req_drop(bad_req, 502, HTTP2_ECODE_PROTO);
 			/*
 			 * Close connection with backend immediately
 			 * and try to re-establish it later.

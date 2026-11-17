@@ -1,7 +1,7 @@
 /**
  *              Tempesta FW
  *
- * Copyright (C) 2017-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2017-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,8 +26,8 @@
 #include "tempesta_fw.h"
 #include "lib/fault_injection_alloc.h"
 #include "apm.h"
-#include "log.h"
 #include "server.h"
+#include "system_log.h"
 #include "http.h"
 
 #define TFW_SCHED_RATIO_INTVL	(HZ / 20)	/* The timer periodicity. */

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -32,6 +32,15 @@ MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta FW tests");
 MODULE_VERSION("0.1.0");
 MODULE_LICENSE("GPL");
+
+/*
+ * TODO: Remove this when upstrem kernel fix the bug.
+ *
+ * Work around stale per-CPU chunk hints after unloading tfw_test. Padding
+ * its current 3744-byte static per-CPU area past a 4 KiB allocator block
+ * forces a full chunk hint refresh when the module's allocation is freed.
+ */
+static DEFINE_PER_CPU(char[512], percpu_padding) __used;
 
 #define TFW_HTTP_SESS_MOD_INIT()						\
 do {										\

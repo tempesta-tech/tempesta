@@ -22,7 +22,7 @@
  */
 #include "connection.h"
 #include "gfsm.h"
-#include "log.h"
+#include "system_log.h"
 #include "sync_socket.h"
 #include "http.h"
 #include "websocket.h"

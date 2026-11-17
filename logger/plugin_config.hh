@@ -35,6 +35,7 @@ struct PluginConfig {
 	std::optional<std::string>	password;
 	// Events before forcing commit
 	size_t				max_events{1000};
+	std::string			json_str;
 
 	void parse_from_ptree(const boost::property_tree::ptree &tree);
 

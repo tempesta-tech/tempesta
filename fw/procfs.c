@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@
 #include <linux/seq_file.h>
 
 #include "apm.h"
+#include "event_log.h"
 #include "server.h"
 #include "procfs.h"
 #include "lib/fault_injection_alloc.h"
@@ -29,6 +30,11 @@
  * Common Tempesta statistics.
  */
 DEFINE_PER_CPU_ALIGNED(TfwPerfStat, tfw_perfstat);
+/*
+ * Observed events, counted independently of logging mode or buffer space.
+ * Counters may differ from the number of events stored in ClickHouse.
+ */
+DEFINE_PER_CPU_ALIGNED(u64[TFW_LOG_EVENT_MAX], log_event_counters);
 
 /**
  * Empty health monitor statistics ('health_stat' directive) with empty
@@ -360,12 +366,67 @@ tfw_state_seq_open(struct inode *inode, struct file *file)
 	return single_open(file, tfw_state_seq_show, NULL);
 }
 
+typedef struct {
+	const char *name;
+	const char *description;
+	TfwLogEventType type;
+} TfwLogEventInfo;
+
+static const TfwLogEventInfo tfw_log_events[] = {
+#define DEFINE_EVENT(name, bin_fmt, text_fmt, description) \
+	{ #name, description, name },
+#define DEFINE_EVENT_NO_PARAMS(name, text_str, description) \
+	{ #name, description, name },
+#include "event_types.h"
+#undef DEFINE_EVENT
+#undef DEFINE_EVENT_NO_PARAMS
+};
+
+static u64
+tfw_log_event_count(TfwLogEventType event_type)
+{
+	u64 count = 0;
+	int cpu;
+
+	for_each_possible_cpu(cpu)
+		count += READ_ONCE(per_cpu(log_event_counters, cpu)[event_type]);
+
+	return count;
+}
+
+static int
+tfw_log_event_counters_seq_show(struct seq_file *seq, void *off)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(tfw_log_events); ++i)
+		seq_printf(seq, "# %s\n%s: %llu\n", tfw_log_events[i].description,
+			   tfw_log_events[i].name,
+			   tfw_log_event_count(tfw_log_events[i].type));
+
+	return 0;
+}
+
+static int
+tfw_log_event_counters_seq_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, tfw_log_event_counters_seq_show, NULL);
+}
+
+static const struct proc_ops tfw_log_event_counters_fops = {
+	.proc_open	= tfw_log_event_counters_seq_open,
+	.proc_read	= seq_read,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= single_release,
+};
+
 /*
  * Start/stop routines.
  */
 static struct proc_dir_entry *tfw_procfs_tempesta;
 static struct proc_dir_entry *tfw_procfs_state;
 static struct proc_dir_entry *tfw_procfs_perfstat;
+static struct proc_dir_entry *tfw_procfs_log_event_counters;
 static struct proc_dir_entry *tfw_procfs_srvstats;
 static struct proc_dir_entry *tfw_procfs_sgstats;
 
@@ -531,12 +592,20 @@ tfw_procfs_init(void)
 	if (!tfw_procfs_perfstat)
 		goto out_state;
 
+	tfw_procfs_log_event_counters =
+		proc_create("log_event_counters", 0444, tfw_procfs_tempesta,
+			    &tfw_log_event_counters_fops);
+	if (!tfw_procfs_log_event_counters)
+		goto out_perfstat;
+
 	tfw_mod_register(&tfw_procfs_mod);
 
 	return 0;
 
+out_perfstat:
+	remove_proc_entry("perfstat", tfw_procfs_tempesta);
 out_state:
-	remove_proc_entry("state", NULL);
+	remove_proc_entry("state", tfw_procfs_tempesta);
 out_tempesta:
 	remove_proc_entry("tempesta", NULL);
 out:
@@ -547,6 +616,7 @@ void
 tfw_procfs_exit(void)
 {
 	tfw_mod_unregister(&tfw_procfs_mod);
+	remove_proc_entry("log_event_counters", tfw_procfs_tempesta);
 	remove_proc_entry("perfstat", tfw_procfs_tempesta);
 	remove_proc_entry("state", tfw_procfs_tempesta);
 	remove_proc_entry("tempesta", NULL);

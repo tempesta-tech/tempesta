@@ -40,7 +40,7 @@
 #include "http_sess_conf.h"
 #include "cache.h"
 #include "http_tbl.h"
-#include "access_log.h"
+#include "event_log.h"
 #include "tf_conf.h"
 #include "tf_filter.h"
 #include "regex/kmod/rex.h"
@@ -426,16 +426,6 @@ tfw_server_destroy(TfwServer *srv)
 {
 }
 
-void
-do_access_log(TfwHttpResp *resp)
-{
-}
-
-void
-do_access_log_req(TfwHttpReq *req, int status, unsigned long content_length)
-{
-}
-
 bool
 frang_req_is_whitelisted(TfwHttpReq *req)
 {
@@ -529,7 +519,11 @@ tfh_get_records_rate(HttpTfh fingerprint)
 void
 tfw_connection_enqueue(TfwConn *conn, struct sk_buff **skb_head)
 {
+}
 
+void
+ss_getpeername(struct sock *sk, TfwAddr *addr)
+{
 }
 
 TfwCfgSpec tf_hash_specs[0];

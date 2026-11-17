@@ -35,7 +35,7 @@
 #endif
 #include "lib/str.h"
 #include "addr.h"
-#include "log.h"
+#include "event_log.h"
 #include "procfs.h"
 #include "sync_socket.h"
 #include "tempesta_fw.h"
