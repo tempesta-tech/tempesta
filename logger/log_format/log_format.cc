@@ -33,9 +33,9 @@
 constexpr auto make_log_formats() {
 	std::array<const char *, TFW_LOG_EVENT_MAX> arr{};
 
-#define DEFINE_EVENT(name, bin_fmt, text_fmt)			\
+#define DEFINE_EVENT(name, bin_fmt, text_fmt, description)		\
 	arr[TfwLogEventType::name] = text_fmt;
-#define DEFINE_EVENT_NO_PARAMS(name, text_str)			\
+#define DEFINE_EVENT_NO_PARAMS(name, text_str, description)	\
 	arr[TfwLogEventType::name] = text_str;
 #include "../../fw/event_types.h"
 #undef DEFINE_EVENT

@@ -368,12 +368,15 @@ tfw_state_seq_open(struct inode *inode, struct file *file)
 
 typedef struct {
 	const char *name;
+	const char *description;
 	TfwLogEventType type;
 } TfwLogEventInfo;
 
 static const TfwLogEventInfo tfw_log_events[] = {
-#define DEFINE_EVENT(name, bin_fmt, text_fmt)	{ #name, name },
-#define DEFINE_EVENT_NO_PARAMS(name, text_str)	{ #name, name },
+#define DEFINE_EVENT(name, bin_fmt, text_fmt, description) \
+	{ #name, description, name },
+#define DEFINE_EVENT_NO_PARAMS(name, text_str, description) \
+	{ #name, description, name },
 #include "event_types.h"
 #undef DEFINE_EVENT
 #undef DEFINE_EVENT_NO_PARAMS
@@ -397,7 +400,8 @@ tfw_log_event_counters_seq_show(struct seq_file *seq, void *off)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(tfw_log_events); ++i)
-		seq_printf(seq, "%s: %llu\n", tfw_log_events[i].name,
+		seq_printf(seq, "# %s\n%s: %llu\n", tfw_log_events[i].description,
+			   tfw_log_events[i].name,
 			   tfw_log_event_count(tfw_log_events[i].type));
 
 	return 0;

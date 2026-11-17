@@ -43,8 +43,8 @@ extern int access_log_type;
 #define EVENT_TO_TEXT_FMT(name) (name##_text_fmt)
 
 typedef enum {
-#define DEFINE_EVENT(name, bin_fmt, text_fmt)	name,
-#define DEFINE_EVENT_NO_PARAMS(name, text_str) name,
+#define DEFINE_EVENT(name, bin_fmt, text_fmt, description)	name,
+#define DEFINE_EVENT_NO_PARAMS(name, text_str, description) name,
 	TFW_LOG_EVENT_INVALID = 0,
 #include "event_types.h"
 	TFW_LOG_EVENT_MAX
@@ -67,7 +67,7 @@ __tfw_event_text_printf_check(const char *fmt, ...)
 
 }
 
-#define DEFINE_EVENT(name, bin_fmt, text_fmt)				\
+#define DEFINE_EVENT(name, bin_fmt, text_fmt, description)		\
 	static const char * const name##_binary_fmt = bin_fmt;		\
 	static const char name##_text_fmt[] = text_fmt;
 
@@ -79,8 +79,8 @@ __tfw_event_text_printf_check(const char *fmt, ...)
  * invalid @text_str fail compilation when the event is declared. The unused
  * function has no runtime cost; "%%" remains valid for a literal percent sign.
  */
-#define DEFINE_EVENT_NO_PARAMS(name, text_str)				\
-	DEFINE_EVENT(name, NULL, text_str)				\
+#define DEFINE_EVENT_NO_PARAMS(name, text_str, description)		\
+	DEFINE_EVENT(name, NULL, text_str, description)			\
 	static inline void name##_text_fmt_check(void)			\
 	{								\
 		__tfw_event_text_printf_check(name##_text_fmt);		\
