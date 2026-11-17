@@ -22,6 +22,7 @@
 #include "server.h"
 #include "http.h"
 #include "mmap_buffer.h"
+#include "procfs.h"
 #include "lib/common.h"
 
 #include <linux/jiffies.h>

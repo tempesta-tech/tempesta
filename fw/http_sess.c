@@ -66,6 +66,7 @@
 #include "http_match.h"
 #include "http_sess.h"
 #include "http_sess_conf.h"
+#include "procfs.h"
 #include "vhost.h"
 #include "filter.h"
 #include "tdb.h"

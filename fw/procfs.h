@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2025 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2026 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@
 #define __TFW_PROCFS_H__
 
 #include "tempesta_fw.h"
+#include "event_log.h"
 #include "stat.h"
 
 /*
@@ -118,6 +119,7 @@ typedef struct {
 } TfwPerfStat;
 
 DECLARE_PER_CPU_ALIGNED(TfwPerfStat, tfw_perfstat);
+DECLARE_PER_CPU_ALIGNED(u64[TFW_LOG_EVENT_MAX], log_event_counters);
 
 int tfw_procfs_init(void);
 void tfw_procfs_exit(void);
@@ -134,6 +136,12 @@ void tfw_procfs_exit(void);
 		this_cpu_add(tfw_perfstat.__VA_ARGS__, val)
 #define TFW_SUB_STAT_BH(val, ...)	\
 		this_cpu_sub(tfw_perfstat.__VA_ARGS__, val)
+
+static inline void
+tfw_inc_log_event_counter(TfwLogEventType event_type)
+{
+	this_cpu_inc(log_event_counters[event_type]);
+}
 
 static inline void
 tfw_inc_global_hm_stats(int status)

@@ -31,6 +31,7 @@
 #include "htype.h"
 #include "http_sess.h"
 #include "hpack.h"
+#include "procfs.h"
 #include "lib/str.h"
 
 /* Max length of http header name. */

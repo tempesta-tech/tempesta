@@ -361,7 +361,7 @@ do {										\
 /* Call only after checking that access_log_mmap_enabled() returns true. */
 #define __log_suspicious_event(event_type, addr, local_port, ip_block, ...) \
 do {										\
-	static TfwEventParams params = {						\
+	static TfwEventParams params = {					\
 			 .type = TFW_MMAP_LOG_TYPE_SUSPICIOUS,			\
 			 .fields_max =						\
 				TFW_MMAP_LOG_ENABLE_ALL_FIELDS(TFW_SU_LOG_MAX),	\
@@ -377,6 +377,7 @@ do {										\
 /* A NULL @sk represents a local event with a zero address and ports. */
 #define __log_event_if_enabled(event_type, log_func, sk, ip_block, ...)		\
 do {										\
+	tfw_inc_log_event_counter(event_type);					\
 	if (access_log_mmap_enabled()) {					\
 		TfwAddr addr;							\
 		unsigned short local_port;					\
